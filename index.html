@@ -5,71 +5,519 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DoorFlow Demo</title>
 
-  <!-- Excel/CSV reader for browser-based upload -->
+  <!-- Excel/CSV reader. Needed for .xlsx, .xls, and .csv uploads. -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
   <style>
     :root {
-      --bg:#f5f6f8; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb;
-      --dark:#111827; --green-bg:#ecfdf5; --green:#047857; --green-line:#a7f3d0;
-      --amber-bg:#fffbeb; --amber:#b45309; --amber-line:#fde68a;
-      --red-bg:#fef2f2; --red:#b91c1c; --red-line:#fecaca;
-      --blue-bg:#eff6ff; --blue:#1d4ed8; --purple-bg:#f5f3ff; --purple:#6d28d9;
-      --cyan-bg:#ecfeff; --cyan:#0e7490; --orange-bg:#fff7ed; --orange:#c2410c;
-      --shadow:0 12px 28px rgba(15,23,42,.08); --radius:22px;
+      --bg:#f5f6f8;
+      --card:#ffffff;
+      --text:#111827;
+      --muted:#6b7280;
+      --line:#e5e7eb;
+      --dark:#111827;
+      --dark-hover:#1f2937;
+      --green-bg:#ecfdf5;
+      --green:#047857;
+      --green-line:#a7f3d0;
+      --amber-bg:#fffbeb;
+      --amber:#b45309;
+      --amber-line:#fde68a;
+      --red-bg:#fef2f2;
+      --red:#b91c1c;
+      --red-line:#fecaca;
+      --blue-bg:#eff6ff;
+      --blue:#1d4ed8;
+      --purple-bg:#f5f3ff;
+      --purple:#6d28d9;
+      --cyan-bg:#ecfeff;
+      --cyan:#0e7490;
+      --orange-bg:#fff7ed;
+      --orange:#c2410c;
+      --shadow:0 10px 24px rgba(15,23,42,.08);
+      --radius:22px;
     }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
-    button,input,select,textarea{font-family:inherit}
-    .hidden{display:none!important}
-    .topbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line)}
-    .topbar-inner{max-width:1320px;margin:0 auto;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:16px}
-    .brand{display:flex;gap:12px;align-items:center}
-    .logo{width:46px;height:46px;border-radius:16px;background:var(--dark);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900}
-    h1,h2,h3{letter-spacing:-.03em}
-    .brand h1{margin:0;font-size:22px}.brand p{margin:3px 0 0;color:var(--muted);font-size:13px}
-    .page{max-width:1320px;margin:0 auto;padding:24px 18px 40px}
-    .grid{display:grid;grid-template-columns:minmax(0,1fr)410px;gap:22px}.stack{display:grid;gap:16px}
-    .card{background:var(--card);border:1px solid #eef0f3;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}.tight{padding:14px}
-    .auth{max-width:560px;margin:48px auto}.subtle{color:var(--muted);font-size:14px;line-height:1.45;margin:0 0 18px}
-    .notice{border-radius:16px;padding:13px 14px;font-size:14px;line-height:1.45;margin-bottom:14px}
-    .warn{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-line)}
-    .red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-line)}
-    .greenbox{background:var(--green-bg);color:var(--green);border:1px solid var(--green-line)}
-    input,select,textarea{width:100%;border:1px solid var(--line);border-radius:14px;padding:12px 13px;font-size:15px;outline:none;background:#fff}
-    label{display:block;font-size:13px;font-weight:700;color:#374151;margin-bottom:6px}
-    input:focus,select:focus,textarea:focus{border-color:#111827;box-shadow:0 0 0 3px rgba(17,24,39,.12)}
-    .form{display:grid;gap:12px}.two{grid-template-columns:1fr 1fr}
-    .btn{border:none;background:var(--dark);color:#fff;padding:11px 15px;border-radius:14px;font-weight:700;cursor:pointer}
-    .btn:hover{background:#1f2937}.btn.secondary{background:#fff;color:var(--dark);border:1px solid var(--line)}
-    .btn.danger{background:var(--red-bg);color:var(--red);border:1px solid var(--red-line)}
-    .btn.green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-line)}
-    .btn.small{padding:8px 10px;border-radius:12px;font-size:13px}
-    .top-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
-    .pill{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-size:13px;color:var(--muted)}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.tab{border:1px solid var(--line);background:#fff;color:var(--dark);padding:10px 13px;border-radius:999px;font-weight:800;cursor:pointer}
-    .tab.active{background:var(--dark);color:#fff;border-color:var(--dark)}
-    .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
-    .stat{background:#fff;border:1px solid #eef0f3;border-radius:18px;padding:14px;box-shadow:0 8px 18px rgba(15,23,42,.05)}
-    .stat span{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.stat strong{font-size:26px;letter-spacing:-.04em}
-    .toolbar{display:grid;grid-template-columns:minmax(0,1fr)190px 120px;gap:10px;margin-bottom:18px}
-    .guest-list{display:grid;gap:12px}.guest-card{background:#fff;border:1px solid #eef0f3;border-radius:22px;padding:16px;cursor:pointer;transition:.18s}
-    .guest-card:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(15,23,42,.08)}
-    .guest-card.selected{border-color:#111827}.guest-card.full{border-color:var(--green-line)}.guest-card.partial{border-color:var(--amber-line)}.guest-card.blocked{border-color:var(--red-line)}
-    .guest-row{display:flex;justify-content:space-between;gap:18px;align-items:center}.guest-name{margin:0 0 7px;font-size:19px}
-    .badges{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}.badge{border:1px solid var(--line);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:800;white-space:nowrap}
-    .general{background:#f3f4f6;color:#374151}.vip{background:var(--purple-bg);color:var(--purple);border-color:#ddd6fe}.comp{background:var(--green-bg);color:var(--green);border-color:var(--green-line)}
-    .bottle{background:var(--blue-bg);color:var(--blue);border-color:#bfdbfe}.vendor{background:var(--orange-bg);color:var(--orange);border-color:#fed7aa}.staff{background:var(--cyan-bg);color:var(--cyan);border-color:#a5f3fc}
-    .blocked{background:var(--red-bg);color:var(--red);border-color:var(--red-line)}.remaining{background:var(--amber-bg);color:var(--amber);border-color:var(--amber-line)}.in{background:var(--green-bg);color:var(--green);border-color:var(--green-line)}
-    .guest-notes{color:var(--muted);font-size:13px;margin:0}.guest-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;min-width:155px}
-    .mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mini-stat{border-radius:16px;padding:12px;text-align:center;background:#f9fafb}.mini-stat strong{display:block;font-size:25px;margin-top:3px}
-    .mini-stat.in{background:var(--green-bg);color:var(--green)}.mini-stat.left{background:var(--amber-bg);color:var(--amber)}
-    .counter{display:grid;grid-template-columns:48px 1fr 48px;gap:10px;align-items:center}.counter input{text-align:center;font-weight:900;font-size:22px}
-    table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--muted);font-size:12px;text-transform:uppercase}
-    .modal-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.52);z-index:50;display:flex;align-items:center;justify-content:center;padding:18px}
-    .modal{max-width:680px;width:100%;max-height:92vh;overflow:auto;background:#fff;border-radius:26px;box-shadow:0 22px 60px rgba(0,0,0,.22);padding:22px}
-    .divider{height:1px;background:var(--line);margin:16px 0}
-    @media(max-width:980px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}.toolbar{grid-template-columns:1fr}.guest-row{flex-direction:column;align-items:stretch}.guest-actions{align-items:stretch}.two{grid-template-columns:1fr}}
+
+    * { box-sizing:border-box; }
+
+    body {
+      margin:0;
+      font-family:Arial, Helvetica, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    button, input, select, textarea { font-family:inherit; }
+    button { cursor:pointer; }
+    h1,h2,h3 { letter-spacing:-.03em; }
+    .hidden { display:none!important; }
+
+    .topbar {
+      position:sticky;
+      top:0;
+      z-index:20;
+      background:rgba(255,255,255,.96);
+      border-bottom:1px solid var(--line);
+      backdrop-filter:blur(10px);
+    }
+
+    .topbar-inner {
+      max-width:1320px;
+      margin:0 auto;
+      padding:16px 18px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:16px;
+    }
+
+    .brand {
+      display:flex;
+      gap:12px;
+      align-items:center;
+    }
+
+    .logo {
+      width:46px;
+      height:46px;
+      border-radius:16px;
+      background:var(--dark);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:900;
+      font-size:16px;
+    }
+
+    .brand h1 {
+      margin:0;
+      font-size:22px;
+    }
+
+    .brand p {
+      margin:3px 0 0;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    .top-actions {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .pill {
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:999px;
+      padding:8px 12px;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    .page {
+      max-width:1320px;
+      margin:0 auto;
+      padding:24px 18px 40px;
+    }
+
+    .grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 410px;
+      gap:22px;
+      align-items:start;
+    }
+
+    .stack {
+      display:grid;
+      gap:16px;
+    }
+
+    .card {
+      background:var(--card);
+      border:1px solid #eef0f3;
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:20px;
+    }
+
+    .card.tight { padding:14px; }
+
+    .card h2, .card h3 {
+      margin:0 0 6px;
+    }
+
+    .subtle {
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.45;
+      margin:0 0 16px;
+    }
+
+    .btn {
+      border:none;
+      background:var(--dark);
+      color:#fff;
+      padding:11px 15px;
+      border-radius:14px;
+      font-weight:700;
+      transition:.16s ease;
+    }
+
+    .btn:hover { background:var(--dark-hover); }
+
+    .btn.secondary {
+      background:#fff;
+      color:var(--dark);
+      border:1px solid var(--line);
+    }
+
+    .btn.secondary:hover { background:#f9fafb; }
+
+    .btn.danger {
+      background:var(--red-bg);
+      color:var(--red);
+      border:1px solid var(--red-line);
+    }
+
+    .btn.danger:hover { background:#fee2e2; }
+
+    .btn.green {
+      background:var(--green-bg);
+      color:var(--green);
+      border:1px solid var(--green-line);
+    }
+
+    .btn.green:hover { background:#d1fae5; }
+
+    .btn.small {
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:13px;
+    }
+
+    input, select, textarea {
+      width:100%;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px 13px;
+      font-size:15px;
+      outline:none;
+      background:#fff;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color:#111827;
+      box-shadow:0 0 0 3px rgba(17,24,39,.12);
+    }
+
+    label {
+      display:block;
+      font-size:13px;
+      font-weight:700;
+      color:#374151;
+      margin-bottom:6px;
+    }
+
+    .form {
+      display:grid;
+      gap:12px;
+    }
+
+    .two {
+      grid-template-columns:1fr 1fr;
+    }
+
+    .auth {
+      max-width:560px;
+      margin:48px auto;
+    }
+
+    .notice {
+      border-radius:16px;
+      padding:13px 14px;
+      font-size:14px;
+      line-height:1.45;
+      margin-bottom:14px;
+    }
+
+    .warn {
+      background:var(--amber-bg);
+      color:var(--amber);
+      border:1px solid var(--amber-line);
+    }
+
+    .redbox {
+      background:var(--red-bg);
+      color:var(--red);
+      border:1px solid var(--red-line);
+    }
+
+    .greenbox {
+      background:var(--green-bg);
+      color:var(--green);
+      border:1px solid var(--green-line);
+    }
+
+    .tabs {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin:0 0 16px;
+    }
+
+    .tab {
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--dark);
+      padding:10px 13px;
+      border-radius:999px;
+      font-weight:800;
+    }
+
+    .tab.active {
+      background:var(--dark);
+      color:#fff;
+      border-color:var(--dark);
+    }
+
+    .stats {
+      display:grid;
+      grid-template-columns:repeat(5,1fr);
+      gap:12px;
+      margin-bottom:18px;
+    }
+
+    .stat {
+      background:#fff;
+      border:1px solid #eef0f3;
+      border-radius:18px;
+      padding:14px;
+      box-shadow:0 8px 18px rgba(15,23,42,.05);
+    }
+
+    .stat span {
+      display:block;
+      color:var(--muted);
+      font-size:12px;
+      margin-bottom:5px;
+    }
+
+    .stat strong {
+      font-size:26px;
+      letter-spacing:-.04em;
+    }
+
+    .toolbar {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 190px 125px;
+      gap:10px;
+      margin-bottom:18px;
+    }
+
+    .scroll-panel {
+      max-height:430px;
+      overflow-y:auto;
+      padding-right:6px;
+    }
+
+    .scroll-panel.short {
+      max-height:270px;
+    }
+
+    .guest-list {
+      display:grid;
+      gap:12px;
+    }
+
+    .guest-card {
+      background:#fff;
+      border:1px solid #eef0f3;
+      border-radius:22px;
+      padding:16px;
+      cursor:pointer;
+      transition:.16s ease;
+    }
+
+    .guest-card:hover {
+      transform:translateY(-1px);
+      box-shadow:0 10px 24px rgba(15,23,42,.08);
+    }
+
+    .guest-card.selected { border-color:#111827; }
+    .guest-card.full { border-color:var(--green-line); }
+    .guest-card.partial { border-color:var(--amber-line); }
+    .guest-card.blocked { border-color:var(--red-line); }
+
+    .guest-row {
+      display:flex;
+      justify-content:space-between;
+      gap:18px;
+      align-items:center;
+    }
+
+    .guest-name {
+      margin:0 0 7px;
+      font-size:19px;
+    }
+
+    .badges {
+      display:flex;
+      flex-wrap:wrap;
+      gap:7px;
+      margin-bottom:8px;
+    }
+
+    .badge {
+      border:1px solid var(--line);
+      border-radius:999px;
+      padding:5px 9px;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
+    .general { background:#f3f4f6; color:#374151; }
+    .vip { background:var(--purple-bg); color:var(--purple); border-color:#ddd6fe; }
+    .comp { background:var(--green-bg); color:var(--green); border-color:var(--green-line); }
+    .bottle { background:var(--blue-bg); color:var(--blue); border-color:#bfdbfe; }
+    .vendor { background:var(--orange-bg); color:var(--orange); border-color:#fed7aa; }
+    .staff { background:var(--cyan-bg); color:var(--cyan); border-color:#a5f3fc; }
+    .blocked { background:var(--red-bg); color:var(--red); border-color:var(--red-line); }
+    .remaining { background:var(--amber-bg); color:var(--amber); border-color:var(--amber-line); }
+    .in { background:var(--green-bg); color:var(--green); border-color:var(--green-line); }
+
+    .guest-notes {
+      color:var(--muted);
+      font-size:13px;
+      margin:0;
+    }
+
+    .guest-actions {
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:7px;
+      min-width:170px;
+    }
+
+    .mini-grid {
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:8px;
+    }
+
+    .mini-stat {
+      border-radius:16px;
+      padding:12px;
+      text-align:center;
+      background:#f9fafb;
+    }
+
+    .mini-stat strong {
+      display:block;
+      font-size:25px;
+      margin-top:3px;
+    }
+
+    .mini-stat.in {
+      background:var(--green-bg);
+      color:var(--green);
+    }
+
+    .mini-stat.left {
+      background:var(--amber-bg);
+      color:var(--amber);
+    }
+
+    .counter {
+      display:grid;
+      grid-template-columns:48px 1fr 48px;
+      gap:10px;
+      align-items:center;
+    }
+
+    .counter input {
+      text-align:center;
+      font-weight:900;
+      font-size:22px;
+    }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:14px;
+    }
+
+    th,td {
+      padding:10px 8px;
+      border-bottom:1px solid var(--line);
+      text-align:left;
+      vertical-align:top;
+    }
+
+    th {
+      color:var(--muted);
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    .event-row {
+      cursor:pointer;
+      transition:.16s ease;
+    }
+
+    .event-row:hover { background:#f9fafb; }
+    .event-row.active-event { background:var(--green-bg); }
+
+    .row-actions {
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+
+    .modal-backdrop {
+      position:fixed;
+      inset:0;
+      background:rgba(17,24,39,.52);
+      z-index:50;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    }
+
+    .modal {
+      max-width:720px;
+      width:100%;
+      max-height:92vh;
+      overflow:auto;
+      background:#fff;
+      border-radius:26px;
+      box-shadow:0 22px 60px rgba(0,0,0,.22);
+      padding:22px;
+    }
+
+    .divider {
+      height:1px;
+      background:var(--line);
+      margin:16px 0;
+    }
+
+    @media(max-width:980px) {
+      .grid { grid-template-columns:1fr; }
+      .stats { grid-template-columns:repeat(2,1fr); }
+      .toolbar { grid-template-columns:1fr; }
+      .guest-row { flex-direction:column; align-items:stretch; }
+      .guest-actions { align-items:stretch; }
+      .two { grid-template-columns:1fr; }
+      .topbar-inner { align-items:flex-start; flex-direction:column; }
+      .top-actions { justify-content:flex-start; }
+    }
   </style>
 </head>
 
@@ -77,373 +525,1610 @@
 <div id="app"></div>
 
 <script>
-const KEY = "doorflow_demo_excel_v2";
+const STORAGE_KEY = "doorflow_fresh_start_v1";
 
 const roles = {
-  admin:{label:"Admin",door:true,manage:true,users:true,reports:true,key:true},
-  manager:{label:"Management",door:true,manage:true,users:true,reports:true,key:true},
-  door:{label:"Door Staff",door:true,manage:false,users:false,reports:false,key:false},
-  viewer:{label:"Viewer",door:false,manage:false,users:false,reports:true,key:false}
+  admin:   { label:"Admin",      door:true,  manage:true,  users:true,  reports:true,  key:true },
+  manager: { label:"Management", door:true,  manage:true,  users:true,  reports:true,  key:true },
+  door:    { label:"Door Staff", door:true,  manage:false, users:false, reports:false, key:false },
+  viewer:  { label:"Viewer",     door:false, manage:false, users:false, reports:true,  key:false }
 };
 
-const guestTypes = ["General Guest","VIP","Comp","Owner Guest","Staff Guest","Vendor","Performer / DJ","Bottle Service","Private Event Guest","Comedy Guest","Do Not Admit"];
-const filterOptions = ["All","Not Checked In","Partially Checked In","Fully Checked In","VIP","Comp","Bottle Service","Vendor","Staff Guest","Do Not Admit"];
+const guestTypes = [
+  "General Guest",
+  "VIP",
+  "Comp",
+  "Owner Guest",
+  "Staff Guest",
+  "Vendor",
+  "Performer / DJ",
+  "Bottle Service",
+  "Private Event Guest",
+  "Comedy Guest",
+  "Do Not Admit"
+];
+
+const filterOptions = [
+  "All",
+  "Not Checked In",
+  "Partially Checked In",
+  "Fully Checked In",
+  "VIP",
+  "Comp",
+  "Bottle Service",
+  "Vendor",
+  "Staff Guest",
+  "Do Not Admit"
+];
 
 const defaultState = {
-  setup:false, siteKey:"", currentUserId:null, view:"door", activeEventId:1,
+  setup:false,
+  siteKey:"",
+  currentUserId:null,
+  view:"door",
+  activeEventId:1,
   users:[],
-  events:[{id:1,name:"EVE Saturday Night",date:"2026-05-09",venue:"EVE Nightclub",status:"Active"}],
+  events:[
+    { id:1, name:"EVE Friday Night",   date:"2026-05-08", venue:"EVE Nightclub", status:"Active" },
+    { id:2, name:"EVE Saturday Night", date:"2026-05-09", venue:"EVE Nightclub", status:"Active" }
+  ],
   guests:[
-    {id:1,eventId:1,firstName:"Michael",lastName:"Anderson",guestType:"VIP",partySize:3,checkedInCount:0,approvedBy:"Owner",notes:"Owner guest. Escort to Ashton if requested.",lastCheckedInAt:null,lastCheckedInBy:null,lastDoor:null},
-    {id:2,eventId:1,firstName:"Sarah",lastName:"Johnson",guestType:"Comp",partySize:2,checkedInCount:2,approvedBy:"Trevor",notes:"EVE list. No cover.",lastCheckedInAt:"9:42 PM",lastCheckedInBy:"Sam H.",lastDoor:"Front Door"},
-    {id:3,eventId:1,firstName:"David",lastName:"Miller",guestType:"Bottle Service",partySize:10,checkedInCount:5,approvedBy:"Manager",notes:"Table reservation. Verify with host before sending upstairs.",lastCheckedInAt:"9:55 PM",lastCheckedInBy:"Trevor E.",lastDoor:"EVE Door"},
-    {id:4,eventId:1,firstName:"Ashley",lastName:"Brown",guestType:"General Guest",partySize:1,checkedInCount:0,approvedBy:"Event Upload",notes:"Imported from Excel list.",lastCheckedInAt:null,lastCheckedInBy:null,lastDoor:null}
+    { id:1, eventId:1, firstName:"Friday", lastName:"VIP", guestType:"VIP", partySize:4, checkedInCount:0, approvedBy:"Management", notes:"Sample Friday guest.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
+    { id:2, eventId:1, firstName:"Ashley", lastName:"Brown", guestType:"General Guest", partySize:2, checkedInCount:0, approvedBy:"Event Upload", notes:"Friday list sample.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
+    { id:3, eventId:2, firstName:"Michael", lastName:"Anderson", guestType:"VIP", partySize:3, checkedInCount:0, approvedBy:"Owner", notes:"Owner guest. Escort to Ashton if requested.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
+    { id:4, eventId:2, firstName:"Sarah", lastName:"Johnson", guestType:"Comp", partySize:2, checkedInCount:2, approvedBy:"Trevor", notes:"EVE list. No cover.", lastCheckedInAt:"9:42 PM", lastCheckedInBy:"Sam H.", lastDoor:"Front Door" },
+    { id:5, eventId:2, firstName:"David", lastName:"Miller", guestType:"Bottle Service", partySize:10, checkedInCount:5, approvedBy:"Manager", notes:"Table reservation. Verify with host before sending upstairs.", lastCheckedInAt:"9:55 PM", lastCheckedInBy:"Trevor E.", lastDoor:"EVE Door" }
   ],
   logs:[]
 };
 
-let state = load();
+let state = loadState();
 let selectedGuestId = null;
 let searchQuery = "";
 let guestFilter = "All";
 let doorLocation = "Front Door";
 let checkInAmount = 1;
 let modal = null;
+let editingGuestId = null;
+let editingEventId = null;
 let loginError = "";
 let setupError = "";
 let importMessage = "";
 
-function clone(x){ return JSON.parse(JSON.stringify(x)); }
-function load(){ try { return {...clone(defaultState), ...JSON.parse(localStorage.getItem(KEY)||"{}")}; } catch { return clone(defaultState); } }
-function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
-function esc(v){ return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
-function idFor(list){ return list.reduce((m,x)=>Math.max(m,Number(x.id||0)),0)+1; }
-function user(){ return state.users.find(u=>u.id===state.currentUserId)||null; }
-function perms(){ const u=user(); return u ? roles[u.role] : null; }
-function eventActive(){ return state.events.find(e=>e.id===state.activeEventId)||state.events[0]; }
-function guestsActive(){ const e=eventActive(); return e ? state.guests.filter(g=>g.eventId===e.id) : []; }
-function remaining(g){ return Math.max(0, Number(g.partySize||0)-Number(g.checkedInCount||0)); }
-function status(g){ if(g.guestType==="Do Not Admit") return "Manager Required"; if(g.checkedInCount<=0) return "Not Checked In"; if(g.checkedInCount>=g.partySize) return "Fully Checked In"; return "Partially Checked In"; }
-function now(){ return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }
-function nowFull(){ return new Date().toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}); }
-function roleLabel(r){ return roles[r]?.label || r; }
-function selectedGuest(){ return state.guests.find(g=>g.id===selectedGuestId)||null; }
-function typeClass(t){ const s=String(t).toLowerCase(); if(s.includes("vip"))return"vip"; if(s.includes("comp"))return"comp"; if(s.includes("bottle"))return"bottle"; if(s.includes("vendor"))return"vendor"; if(s.includes("staff"))return"staff"; if(s.includes("do not"))return"blocked"; return"general"; }
-function requirePerm(p){ if(!perms() || !perms()[p]){ alert("This account does not have access to that function."); return false; } return true; }
-
-function appStats(){
-  const g=guestsActive();
-  return {
-    records:g.length,
-    parties:g.filter(x=>x.checkedInCount>0).length,
-    total:g.reduce((s,x)=>s+Number(x.partySize||0),0),
-    actual:g.reduce((s,x)=>s+Number(x.checkedInCount||0),0),
-    left:g.reduce((s,x)=>s+remaining(x),0)
-  };
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function filteredGuests(){
-  const q=searchQuery.trim().toLowerCase();
-  return guestsActive().filter(g=>{
-    const full=`${g.firstName} ${g.lastName}`.toLowerCase();
-    const matchSearch=!q || full.includes(q) || String(g.guestType).toLowerCase().includes(q) || String(g.notes||"").toLowerCase().includes(q);
-    const matchFilter=guestFilter==="All" || g.guestType===guestFilter || status(g)===guestFilter;
-    return matchSearch && matchFilter;
+function loadState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return clone(defaultState);
+    return { ...clone(defaultState), ...JSON.parse(saved) };
+  } catch {
+    return clone(defaultState);
+  }
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+function nextId(collection) {
+  return collection.reduce((highest, item) => Math.max(highest, Number(item.id || 0)), 0) + 1;
+}
+
+function currentUser() {
+  return state.users.find(user => user.id === state.currentUserId) || null;
+}
+
+function currentPermissions() {
+  const user = currentUser();
+  return user ? roles[user.role] : null;
+}
+
+function activeEvent() {
+  return state.events.find(event => event.id === state.activeEventId) || state.events[0] || null;
+}
+
+function activeGuests() {
+  const event = activeEvent();
+  return event ? state.guests.filter(guest => guest.eventId === event.id) : [];
+}
+
+function remainingCount(guest) {
+  return Math.max(0, Number(guest.partySize || 0) - Number(guest.checkedInCount || 0));
+}
+
+function guestStatus(guest) {
+  if (guest.guestType === "Do Not Admit") return "Manager Required";
+  if (guest.checkedInCount <= 0) return "Not Checked In";
+  if (guest.checkedInCount >= guest.partySize) return "Fully Checked In";
+  return "Partially Checked In";
+}
+
+function timeNow() {
+  return new Date().toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+}
+
+function dateTimeNow() {
+  return new Date().toLocaleString([], {
+    month:"short",
+    day:"numeric",
+    hour:"numeric",
+    minute:"2-digit"
   });
 }
 
-/* SETUP / LOGIN */
-function setupSystem(ev){
-  ev.preventDefault(); setupError="";
-  const f=new FormData(ev.target);
-  const name=String(f.get("name")||"").trim(), username=String(f.get("username")||"").trim(), pin=String(f.get("pin")||"").trim(), siteKey=String(f.get("siteKey")||"").trim();
-  if(!name||!username||!pin||!siteKey){ setupError="All setup fields are required."; render(); return; }
-  state.setup=true; state.siteKey=siteKey;
-  state.users=[
-    {id:1,name,username,pin,role:"admin",active:true,createdAt:nowFull()},
-    {id:2,name:"Sample Door Staff",username:"door",pin:"1234",role:"door",active:true,createdAt:nowFull()}
+function roleLabel(role) {
+  return roles[role]?.label || role;
+}
+
+function selectedGuest() {
+  return state.guests.find(guest => guest.id === selectedGuestId) || null;
+}
+
+function badgeClass(type) {
+  const normalized = String(type || "").toLowerCase();
+  if (normalized.includes("vip")) return "vip";
+  if (normalized.includes("comp")) return "comp";
+  if (normalized.includes("bottle")) return "bottle";
+  if (normalized.includes("vendor")) return "vendor";
+  if (normalized.includes("staff")) return "staff";
+  if (normalized.includes("do not")) return "blocked";
+  return "general";
+}
+
+function requirePermission(permissionName) {
+  const permissions = currentPermissions();
+  if (!permissions || !permissions[permissionName]) {
+    alert("This account does not have access to that function.");
+    return false;
+  }
+  return true;
+}
+
+function stats() {
+  const guests = activeGuests();
+  return {
+    records: guests.length,
+    partiesStarted: guests.filter(guest => guest.checkedInCount > 0).length,
+    totalExpected: guests.reduce((sum, guest) => sum + Number(guest.partySize || 0), 0),
+    actualIn: guests.reduce((sum, guest) => sum + Number(guest.checkedInCount || 0), 0),
+    remaining: guests.reduce((sum, guest) => sum + remainingCount(guest), 0)
+  };
+}
+
+function filteredGuests() {
+  const query = searchQuery.trim().toLowerCase();
+
+  return activeGuests().filter(guest => {
+    const fullName = `${guest.firstName} ${guest.lastName}`.toLowerCase();
+    const guestType = String(guest.guestType || "").toLowerCase();
+    const notes = String(guest.notes || "").toLowerCase();
+    const status = guestStatus(guest);
+
+    const matchesSearch =
+      !query ||
+      fullName.includes(query) ||
+      guestType.includes(query) ||
+      notes.includes(query);
+
+    const matchesFilter =
+      guestFilter === "All" ||
+      guest.guestType === guestFilter ||
+      status === guestFilter;
+
+    return matchesSearch && matchesFilter;
+  });
+}
+
+/* SETUP + LOGIN */
+
+function setupSystem(event) {
+  event.preventDefault();
+  setupError = "";
+
+  const form = new FormData(event.target);
+  const name = String(form.get("name") || "").trim();
+  const username = String(form.get("username") || "").trim();
+  const pin = String(form.get("pin") || "").trim();
+  const siteKey = String(form.get("siteKey") || "").trim();
+
+  if (!name || !username || !pin || !siteKey) {
+    setupError = "All setup fields are required.";
+    render();
+    return;
+  }
+
+  state.setup = true;
+  state.siteKey = siteKey;
+  state.users = [
+    { id:1, name, username, pin, role:"admin", active:true, createdAt:dateTimeNow() },
+    { id:2, name:"Sample Door Staff", username:"door", pin:"1234", role:"door", active:true, createdAt:dateTimeNow() }
   ];
-  state.currentUserId=1; save(); render();
+  state.currentUserId = 1;
+  state.activeEventId = 1;
+  state.view = "door";
+
+  saveState();
+  render();
 }
-function login(ev){
-  ev.preventDefault(); loginError="";
-  const f=new FormData(ev.target);
-  const siteKey=String(f.get("siteKey")||"").trim(), username=String(f.get("username")||"").trim(), pin=String(f.get("pin")||"").trim();
-  if(siteKey!==state.siteKey){ loginError="Private access key is incorrect."; render(); return; }
-  const u=state.users.find(x=>x.username===username && x.pin===pin && x.active);
-  if(!u){ loginError="Username or PIN is incorrect, or the account is inactive."; render(); return; }
-  state.currentUserId=u.id; state.view=roles[u.role].door ? "door" : "reports"; save(); render();
+
+function login(event) {
+  event.preventDefault();
+  loginError = "";
+
+  const form = new FormData(event.target);
+  const siteKey = String(form.get("siteKey") || "").trim();
+  const username = String(form.get("username") || "").trim();
+  const pin = String(form.get("pin") || "").trim();
+
+  if (siteKey !== state.siteKey) {
+    loginError = "Private access key is incorrect.";
+    render();
+    return;
+  }
+
+  const user = state.users.find(item => item.username === username && item.pin === pin && item.active);
+  if (!user) {
+    loginError = "Username or PIN is incorrect, or the account is inactive.";
+    render();
+    return;
+  }
+
+  state.currentUserId = user.id;
+  state.view = roles[user.role].door ? "door" : "reports";
+  saveState();
+  render();
 }
-function logout(){ state.currentUserId=null; save(); render(); }
-function resetDemo(){ if(confirm("Reset this local demo?")){ localStorage.removeItem(KEY); state=clone(defaultState); selectedGuestId=null; render(); } }
+
+function logout() {
+  state.currentUserId = null;
+  saveState();
+  render();
+}
+
+function resetDemo() {
+  if (!confirm("Reset this local demo? This clears accounts, guests, events, logs, and the private key in this browser.")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  state = clone(defaultState);
+  selectedGuestId = null;
+  modal = null;
+  editingGuestId = null;
+  editingEventId = null;
+  render();
+}
 
 /* EXCEL / CSV IMPORT */
-function norm(v){ return String(v||"").trim().toLowerCase().replace(/[^a-z0-9]/g,""); }
-function readField(row, names){
-  const normalized={}; Object.keys(row).forEach(k=>normalized[norm(k)]=row[k]);
-  for(const n of names){ const v=normalized[norm(n)]; if(v!==undefined && v!==null && String(v).trim()!=="") return String(v).trim(); }
+
+function normalizeHeader(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function readField(row, possibleHeaders) {
+  const normalizedRow = {};
+  Object.keys(row).forEach(key => {
+    normalizedRow[normalizeHeader(key)] = row[key];
+  });
+
+  for (const header of possibleHeaders) {
+    const value = normalizedRow[normalizeHeader(header)];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+
   return "";
 }
-function splitFullName(name){
-  const p=String(name||"").trim().split(/\s+/).filter(Boolean);
-  if(p.length===0)return{firstName:"",lastName:""}; if(p.length===1)return{firstName:p[0],lastName:""};
-  return{firstName:p.slice(0,-1).join(" "),lastName:p[p.length-1]};
-}
-function normalizeGuestType(v){
-  const raw=String(v||"General Guest").trim();
-  return guestTypes.find(t=>norm(t)===norm(raw)) || raw || "General Guest";
-}
-function rowToGuest(row){
-  let firstName=readField(row,["First Name","First","FName"]);
-  let lastName=readField(row,["Last Name","Last","LName","Surname"]);
-  const fullName=readField(row,["Name","Full Name","Guest Name"]);
-  if((!firstName || !lastName) && fullName){ const s=splitFullName(fullName); firstName=firstName||s.firstName; lastName=lastName||s.lastName; }
-  const partySizeRaw=readField(row,["Party Size","Party","Guests","Total Guests","Total","Group Size"]);
-  const plusRaw=readField(row,["Plus Count","Plus","Plus One","Guests Plus","+"]);
-  const partySize=partySizeRaw ? Math.max(1,Number(partySizeRaw)||1) : Math.max(1,1+(Number(plusRaw)||0));
+
+function splitFullName(fullName) {
+  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName:"", lastName:"" };
+  if (parts.length === 1) return { firstName:parts[0], lastName:"" };
+
   return {
-    id:idFor(state.guests), eventId:state.activeEventId, firstName, lastName,
-    guestType:normalizeGuestType(readField(row,["Guest Type","Type","Category","List","Access Level"])),
-    partySize, checkedInCount:0,
-    approvedBy:readField(row,["Approved By","Approved","Manager","Submitted By"]) || "Imported File",
-    notes:readField(row,["Notes","Note","Comments","Comment","Details"]),
-    lastCheckedInAt:null,lastCheckedInBy:null,lastDoor:null
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts[parts.length - 1]
   };
 }
-function parseCsv(text){
-  const rows=[]; let row=[], cell="", q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i], n=text[i+1];
-    if(c=='"' && q && n=='"'){ cell+='"'; i++; }
-    else if(c=='"'){ q=!q; }
-    else if(c==="," && !q){ row.push(cell); cell=""; }
-    else if((c==="\n"||c==="\r") && !q){ if(c==="\r"&&n==="\n")i++; row.push(cell); rows.push(row); row=[]; cell=""; }
-    else cell+=c;
+
+function normalizeGuestType(value) {
+  const raw = String(value || "General Guest").trim();
+  return guestTypes.find(type => normalizeHeader(type) === normalizeHeader(raw)) || raw || "General Guest";
+}
+
+function rowToGuest(row) {
+  let firstName = readField(row, ["First Name", "First", "FName"]);
+  let lastName = readField(row, ["Last Name", "Last", "LName", "Surname"]);
+  const fullName = readField(row, ["Name", "Full Name", "Guest Name"]);
+
+  if ((!firstName || !lastName) && fullName) {
+    const split = splitFullName(fullName);
+    firstName = firstName || split.firstName;
+    lastName = lastName || split.lastName;
   }
-  if(cell || row.length){ row.push(cell); rows.push(row); }
-  const headers=rows.shift()||[];
-  return rows.filter(r=>r.some(c=>String(c||"").trim()!=="")).map(r=>{ const o={}; headers.forEach((h,i)=>o[h]=r[i]||""); return o; });
-}
-function importRows(rows){
-  if(!requirePerm("manage")) return;
-  const valid=[], skipped=[];
-  rows.forEach((row,i)=>{ const g=rowToGuest(row); if(!g.firstName||!g.lastName){ skipped.push(i+2); return; } g.id=idFor([...state.guests,...valid]); valid.push(g); });
-  if(!valid.length){ importMessage="No valid guest rows were found. Use First Name and Last Name columns, or a Full Name column."; render(); return; }
-  state.guests=[...valid,...state.guests];
-  importMessage=`Imported ${valid.length} guest record${valid.length===1?"":"s"}. ${skipped.length?`Skipped ${skipped.length} row${skipped.length===1?"":"s"} missing names.`:""}`;
-  save(); render();
-}
-function handleGuestFileUpload(ev){
-  if(!requirePerm("manage")) return;
-  const file=ev.target.files && ev.target.files[0]; if(!file) return;
-  const ext=file.name.split(".").pop().toLowerCase();
-  const reader=new FileReader();
-  reader.onerror=()=>{ importMessage="The file could not be read. Try saving it again as .xlsx or .csv."; render(); };
-  reader.onload=e=>{
-    try{
-      let rows=[];
-      if(ext==="csv") rows=parseCsv(String(e.target.result||""));
-      else {
-        if(typeof XLSX==="undefined"){ importMessage="Excel reader did not load. Try CSV instead, or check internet connection."; render(); return; }
-        const wb=XLSX.read(e.target.result,{type:"array"});
-        rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""});
-      }
-      importRows(rows); ev.target.value="";
-    }catch(err){ console.error(err); importMessage="Import failed. First row should have headers like First Name, Last Name, Guest Type, Party Size."; render(); }
+
+  const partySizeRaw = readField(row, ["Party Size", "Party", "Guests", "Total Guests", "Total", "Group Size"]);
+  const plusCountRaw = readField(row, ["Plus Count", "Plus", "Plus One", "Guests Plus", "+"]);
+
+  const partySize = partySizeRaw
+    ? Math.max(1, Number(partySizeRaw) || 1)
+    : Math.max(1, 1 + (Number(plusCountRaw) || 0));
+
+  return {
+    id: nextId(state.guests),
+    eventId: state.activeEventId,
+    firstName,
+    lastName,
+    guestType: normalizeGuestType(readField(row, ["Guest Type", "Type", "Category", "List", "Access Level"])),
+    partySize,
+    checkedInCount: 0,
+    approvedBy: readField(row, ["Approved By", "Approved", "Manager", "Submitted By"]) || "Imported File",
+    notes: readField(row, ["Notes", "Note", "Comments", "Comment", "Details"]),
+    lastCheckedInAt: null,
+    lastCheckedInBy: null,
+    lastDoor: null
   };
-  if(ext==="csv") reader.readAsText(file); else reader.readAsArrayBuffer(file);
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let insideQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && insideQuotes && next === '"') {
+      cell += '"';
+      i++;
+    } else if (char === '"') {
+      insideQuotes = !insideQuotes;
+    } else if (char === "," && !insideQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !insideQuotes) {
+      if (char === "\r" && next === "\n") i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  const headers = rows.shift() || [];
+
+  return rows
+    .filter(row => row.some(cell => String(cell || "").trim() !== ""))
+    .map(row => {
+      const obj = {};
+      headers.forEach((header, index) => {
+        obj[header] = row[index] || "";
+      });
+      return obj;
+    });
+}
+
+function importRows(rows) {
+  if (!requirePermission("manage")) return;
+
+  const validGuests = [];
+  const skippedRows = [];
+
+  rows.forEach((row, index) => {
+    const guest = rowToGuest(row);
+
+    if (!guest.firstName || !guest.lastName) {
+      skippedRows.push(index + 2);
+      return;
+    }
+
+    guest.id = nextId([...state.guests, ...validGuests]);
+    validGuests.push(guest);
+  });
+
+  if (!validGuests.length) {
+    importMessage = "No valid guest rows were found. Use First Name and Last Name columns, or a Full Name column.";
+    render();
+    return;
+  }
+
+  state.guests = [...validGuests, ...state.guests];
+  importMessage = `Imported ${validGuests.length} guest record${validGuests.length === 1 ? "" : "s"} into ${activeEvent().name}. ${skippedRows.length ? `Skipped ${skippedRows.length} row${skippedRows.length === 1 ? "" : "s"} missing names.` : ""}`;
+
+  saveState();
+  render();
+}
+
+function handleGuestFileUpload(event) {
+  if (!requirePermission("manage")) return;
+
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const extension = file.name.split(".").pop().toLowerCase();
+  const reader = new FileReader();
+
+  reader.onerror = function () {
+    importMessage = "The file could not be read. Try saving it again as .xlsx or .csv.";
+    render();
+  };
+
+  reader.onload = function (loadEvent) {
+    try {
+      let rows = [];
+
+      if (extension === "csv") {
+        rows = parseCsv(String(loadEvent.target.result || ""));
+      } else {
+        if (typeof XLSX === "undefined") {
+          importMessage = "Excel reader did not load. Try CSV instead, or check your internet connection.";
+          render();
+          return;
+        }
+
+        const workbook = XLSX.read(loadEvent.target.result, { type:"array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        rows = XLSX.utils.sheet_to_json(worksheet, { defval:"" });
+      }
+
+      importRows(rows);
+      event.target.value = "";
+    } catch (error) {
+      console.error(error);
+      importMessage = "Import failed. First row should have headers like First Name, Last Name, Guest Type, and Party Size.";
+      render();
+    }
+  };
+
+  if (extension === "csv") {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
 }
 
 /* ACTIONS */
-function switchView(v){
-  const p=perms();
-  if(v==="door"&&!p.door)return alert("No door access.");
-  if(v==="manage"&&!p.manage)return alert("No management access.");
-  if(v==="users"&&!p.users)return alert("No account access.");
-  if(v==="reports"&&!p.reports)return alert("No report access.");
-  state.view=v; save(); render();
-}
-function setActiveEvent(id){ state.activeEventId=Number(id); selectedGuestId=null; save(); render(); }
-function selectGuest(id){ selectedGuestId=id; checkInAmount=1; render(); }
-function setCheckAmount(v){ const g=selectedGuest(); if(!g)return; checkInAmount=Math.max(1,Math.min(remaining(g),Number(v||1))); render(); }
-function adjustCheckAmount(d){ const g=selectedGuest(); if(!g)return; checkInAmount=Math.max(1,Math.min(remaining(g),checkInAmount+d)); render(); }
-function checkInGuest(id, amt){
-  if(!requirePerm("door"))return;
-  const u=user(), g=state.guests.find(x=>x.id===id); if(!g)return;
-  if(g.guestType==="Do Not Admit"){ alert("This guest is marked Do Not Admit. Contact management."); return; }
-  const actual=Math.min(Math.max(1,Number(amt||1)),remaining(g)); if(actual<=0)return;
-  g.checkedInCount+=actual; g.lastCheckedInAt=now(); g.lastCheckedInBy=u.name; g.lastDoor=doorLocation;
-  state.logs.unshift({id:idFor(state.logs),eventId:g.eventId,guestId:g.id,guestName:`${g.firstName} ${g.lastName}`,amount:actual,action:"Check In",staffName:u.name,doorLocation,timestamp:nowFull()});
-  selectedGuestId=id; checkInAmount=1; save(); render();
-}
-function undoOne(id){
-  if(!requirePerm("door"))return;
-  const u=user(), g=state.guests.find(x=>x.id===id); if(!g||g.checkedInCount<=0)return;
-  g.checkedInCount=Math.max(0,g.checkedInCount-1);
-  if(g.checkedInCount===0){ g.lastCheckedInAt=null; g.lastCheckedInBy=null; g.lastDoor=null; }
-  state.logs.unshift({id:idFor(state.logs),eventId:g.eventId,guestId:g.id,guestName:`${g.firstName} ${g.lastName}`,amount:1,action:"Undo 1",staffName:u.name,doorLocation,timestamp:nowFull()});
-  save(); render();
-}
-function resetParty(id){
-  if(!requirePerm("manage"))return;
-  if(!confirm("Reset this party checked-in count to zero?"))return;
-  const u=user(), g=state.guests.find(x=>x.id===id); if(!g)return;
-  g.checkedInCount=0; g.lastCheckedInAt=null; g.lastCheckedInBy=null; g.lastDoor=null;
-  state.logs.unshift({id:idFor(state.logs),eventId:g.eventId,guestId:g.id,guestName:`${g.firstName} ${g.lastName}`,amount:0,action:"Reset Party",staffName:u.name,doorLocation,timestamp:nowFull()});
-  save(); render();
-}
-function addGuest(ev){
-  ev.preventDefault(); if(!requirePerm("manage"))return;
-  const f=new FormData(ev.target);
-  const g={id:idFor(state.guests),eventId:state.activeEventId,firstName:String(f.get("firstName")||"").trim(),lastName:String(f.get("lastName")||"").trim(),guestType:String(f.get("guestType")||"General Guest"),partySize:Math.max(1,Number(f.get("partySize")||1)),checkedInCount:0,approvedBy:String(f.get("approvedBy")||"Management").trim(),notes:String(f.get("notes")||"").trim(),lastCheckedInAt:null,lastCheckedInBy:null,lastDoor:null};
-  if(!g.firstName||!g.lastName)return alert("First and last name are required.");
-  state.guests.unshift(g); selectedGuestId=g.id; modal=null; save(); render();
-}
-function deleteGuest(id){ if(!requirePerm("manage"))return; if(!confirm("Delete this guest/party?"))return; state.guests=state.guests.filter(g=>g.id!==id); if(selectedGuestId===id)selectedGuestId=null; save(); render(); }
-function createEvent(ev){
-  ev.preventDefault(); if(!requirePerm("manage"))return;
-  const f=new FormData(ev.target);
-  const e={id:idFor(state.events),name:String(f.get("name")||"").trim(),date:String(f.get("date")||""),venue:String(f.get("venue")||"").trim(),status:"Active"};
-  if(!e.name||!e.date||!e.venue)return alert("Event name, date, and venue are required.");
-  state.events.unshift(e); state.activeEventId=e.id; selectedGuestId=null; modal=null; save(); render();
-}
-function createUser(ev){
-  ev.preventDefault(); if(!requirePerm("users"))return;
-  const f=new FormData(ev.target); const username=String(f.get("username")||"").trim();
-  if(state.users.some(u=>u.username===username))return alert("That username already exists.");
-  state.users.push({id:idFor(state.users),name:String(f.get("name")||"").trim(),username,pin:String(f.get("pin")||"").trim(),role:String(f.get("role")||"door"),active:true,createdAt:nowFull()});
-  save(); render();
-}
-function toggleUser(id){ if(!requirePerm("users"))return; const u=state.users.find(x=>x.id===id); if(!u)return; if(u.id===state.currentUserId)return alert("You cannot deactivate yourself."); u.active=!u.active; save(); render(); }
-function updatePrivateKey(ev){
-  ev.preventDefault(); if(!requirePerm("key"))return;
-  const f=new FormData(ev.target);
-  if(String(f.get("currentKey")||"").trim()!==state.siteKey)return alert("Current private key is incorrect.");
-  const newKey=String(f.get("newKey")||"").trim(); if(newKey.length<6)return alert("Use at least 6 characters.");
-  state.siteKey=newKey; save(); ev.target.reset(); alert("Private key updated.");
-}
-function exportCsv(){
-  if(!requirePerm("reports"))return;
-  const e=eventActive();
-  const rows=[["Event","First Name","Last Name","Guest Type","Party Size","Checked In","Remaining","Approved By","Notes","Last Door","Last Staff","Last Time"],
-    ...guestsActive().map(g=>[e.name,g.firstName,g.lastName,g.guestType,g.partySize,g.checkedInCount,remaining(g),g.approvedBy,g.notes,g.lastDoor||"",g.lastCheckedInBy||"",g.lastCheckedInAt||""])];
-  const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
-  const blob=new Blob([csv],{type:"text/csv"}), url=URL.createObjectURL(blob), a=document.createElement("a");
-  a.href=url; a.download=`${e.name.replace(/[^a-z0-9]/gi,"_").toLowerCase()}_doorflow_report.csv`; a.click(); URL.revokeObjectURL(url);
-}
-function openAddGuestModal(){ if(requirePerm("manage")){ modal="addGuest"; render(); } }
-function openEventModal(){ if(requirePerm("manage")){ modal="event"; render(); } }
 
-/* RENDER */
-function renderSetup(){
-  return `<div class="auth"><div class="card">
-    <div class="brand" style="margin-bottom:18px"><div class="logo">DF</div><div><h1>DoorFlow Setup</h1><p>Create the first management account</p></div></div>
-    <div class="notice warn"><strong>Demo note:</strong> this stores data in this browser. Real security comes later with a database.</div>
-    ${setupError?`<div class="notice red">${esc(setupError)}</div>`:""}
-    <form onsubmit="setupSystem(event)" class="form">
-      <div><label>Your Name</label><input name="name" placeholder="Trevor Eitel"></div>
-      <div class="form two"><div><label>Username</label><input name="username" placeholder="trevor"></div><div><label>PIN</label><input name="pin" type="password" placeholder="4+ digits"></div></div>
-      <div><label>Private Website Access Key</label><input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026"></div>
-      <button class="btn">Create DoorFlow Demo</button>
-    </form></div></div>`;
+function switchView(view) {
+  const permissions = currentPermissions();
+
+  if (view === "door" && !permissions.door) return alert("No door check-in access.");
+  if (view === "manage" && !permissions.manage) return alert("No management access.");
+  if (view === "users" && !permissions.users) return alert("No account access.");
+  if (view === "reports" && !permissions.reports) return alert("No report access.");
+
+  state.view = view;
+  saveState();
+  render();
 }
-function renderLogin(){
-  return `<div class="auth"><div class="card">
-    <div class="brand" style="margin-bottom:18px"><div class="logo">DF</div><div><h1>DoorFlow Login</h1><p>Private key + user account</p></div></div>
-    ${loginError?`<div class="notice red">${esc(loginError)}</div>`:""}
-    <form onsubmit="login(event)" class="form">
-      <div><label>Private Access Key</label><input name="siteKey" type="password"></div>
-      <div class="form two"><div><label>Username</label><input name="username"></div><div><label>PIN</label><input name="pin" type="password"></div></div>
-      <button class="btn">Log In</button>
-    </form>
-    <div class="divider"></div><p class="subtle"><strong>Sample Door Staff:</strong> username <strong>door</strong>, PIN <strong>1234</strong>. They still need the private key.</p>
-    <button class="btn secondary small" onclick="resetDemo()">Reset Local Demo</button>
-  </div></div>`;
+
+function setActiveEvent(id) {
+  state.activeEventId = Number(id);
+  selectedGuestId = null;
+  checkInAmount = 1;
+  saveState();
+  render();
 }
-function topbar(){
-  const u=user(), e=eventActive();
-  return `<header class="topbar"><div class="topbar-inner">
-    <div class="brand"><div class="logo">DF</div><div><h1>DoorFlow</h1><p>${esc(e?.name||"No Event")} · ${esc(e?.venue||"")}</p></div></div>
-    <div class="top-actions"><span class="pill">${esc(u.name)} · ${roleLabel(u.role)}</span>
-      <select style="width:190px" onchange="setActiveEvent(this.value)">${state.events.map(x=>`<option value="${x.id}" ${x.id===state.activeEventId?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
-      <button class="btn secondary small" onclick="logout()">Log Out</button>
-    </div></div></header>`;
+
+function selectGuest(id) {
+  selectedGuestId = id;
+  checkInAmount = 1;
+  render();
 }
-function tabs(){
-  const p=perms();
-  return `<div class="tabs">
-    ${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}
-    ${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}
-    ${p.users?`<button class="tab ${state.view==="users"?"active":""}" onclick="switchView('users')">Accounts & Private Key</button>`:""}
-    ${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}
-  </div>`;
+
+function setCheckAmount(value) {
+  const guest = selectedGuest();
+  if (!guest) return;
+
+  checkInAmount = Math.max(1, Math.min(remainingCount(guest), Number(value || 1)));
+  render();
 }
-function statsHtml(){
-  const s=appStats();
-  return `<div class="stats"><div class="stat"><span>Guest Records</span><strong>${s.records}</strong></div><div class="stat"><span>Parties Started</span><strong>${s.parties}</strong></div><div class="stat"><span>Total Expected</span><strong>${s.total}</strong></div><div class="stat"><span>Actual Count In</span><strong>${s.actual}</strong></div><div class="stat"><span>Still Remaining</span><strong>${s.left}</strong></div></div>`;
+
+function adjustCheckAmount(delta) {
+  const guest = selectedGuest();
+  if (!guest) return;
+
+  checkInAmount = Math.max(1, Math.min(remainingCount(guest), checkInAmount + delta));
+  render();
 }
-function guestListHtml(){
-  const list=filteredGuests();
-  if(!list.length)return `<div class="card tight"><p class="subtle" style="margin:0">No guests found.</p></div>`;
-  return `<div class="guest-list">${list.map(g=>{
-    const r=remaining(g), st=status(g), cls=g.guestType==="Do Not Admit"?"blocked":st==="Fully Checked In"?"full":st==="Partially Checked In"?"partial":"";
-    return `<div class="guest-card ${cls} ${selectedGuestId===g.id?"selected":""}" onclick="selectGuest(${g.id})"><div class="guest-row"><div>
-      <h3 class="guest-name">${esc(g.firstName)} ${esc(g.lastName)}</h3><div class="badges">
-      <span class="badge ${typeClass(g.guestType)}">${esc(g.guestType)}</span><span class="badge general">Party of ${g.partySize}</span>
-      ${g.checkedInCount>0?`<span class="badge in">${g.checkedInCount} in</span>`:""}${r>0?`<span class="badge remaining">${r} left</span>`:""}</div>
-      <p class="guest-notes">${esc(g.notes)}</p></div><div class="guest-actions">
-      ${g.guestType==="Do Not Admit"?`<span class="badge blocked">Manager Required</span>`:r<=0?`<span class="badge in">Fully Checked In</span>`:`<button class="btn small" onclick="event.stopPropagation();checkInGuest(${g.id},1)">Quick Check In 1</button>`}
-      ${g.lastCheckedInAt?`<span class="subtle" style="font-size:12px;margin:0">Last: ${g.lastCheckedInAt} · ${esc(g.lastCheckedInBy)}</span>`:""}</div></div></div>`;
-  }).join("")}</div>`;
+
+function checkInGuest(id, amount) {
+  if (!requirePermission("door")) return;
+
+  const user = currentUser();
+  const guest = state.guests.find(item => item.id === id);
+  if (!guest) return;
+
+  if (guest.guestType === "Do Not Admit") {
+    alert("This guest is marked Do Not Admit. Contact management.");
+    return;
+  }
+
+  const actualAmount = Math.min(Math.max(1, Number(amount || 1)), remainingCount(guest));
+  if (actualAmount <= 0) return;
+
+  guest.checkedInCount += actualAmount;
+  guest.lastCheckedInAt = timeNow();
+  guest.lastCheckedInBy = user.name;
+  guest.lastDoor = doorLocation;
+
+  state.logs.unshift({
+    id: nextId(state.logs),
+    eventId: guest.eventId,
+    guestId: guest.id,
+    guestName: `${guest.firstName} ${guest.lastName}`,
+    amount: actualAmount,
+    action: "Check In",
+    staffName: user.name,
+    doorLocation,
+    timestamp: dateTimeNow()
+  });
+
+  selectedGuestId = id;
+  checkInAmount = 1;
+  saveState();
+  render();
 }
-function selectedPanel(){
-  const g=selectedGuest(), p=perms();
-  if(!g)return `<div class="card"><h2>Selected Party</h2><p class="subtle">Select a party from the list.</p></div>`;
-  const r=remaining(g); checkInAmount=Math.min(Math.max(1,checkInAmount),Math.max(1,r));
-  return `<div class="card"><h2>${esc(g.firstName)} ${esc(g.lastName)}</h2><p class="subtle">${esc(g.guestType)} · Approved by ${esc(g.approvedBy)}</p>
-    <div class="mini-grid"><div class="mini-stat"><span>Total</span><strong>${g.partySize}</strong></div><div class="mini-stat in"><span>In</span><strong>${g.checkedInCount}</strong></div><div class="mini-stat left"><span>Left</span><strong>${r}</strong></div></div>
-    <div class="divider"></div>
-    ${g.guestType==="Do Not Admit"?`<div class="notice red"><strong>Do Not Admit.</strong> Contact management before taking action.</div>`:
-      r<=0?`<div class="notice greenbox"><strong>Fully checked in.</strong></div><button class="btn secondary" onclick="undoOne(${g.id})">Undo 1 Guest</button> ${p.manage?`<button class="btn danger" onclick="resetParty(${g.id})">Reset Entire Party</button>`:""}`:
-      `<div class="form"><label>Number checking in now</label><div class="counter"><button class="btn secondary" onclick="adjustCheckAmount(-1)">−</button><input type="number" min="1" max="${r}" value="${checkInAmount}" oninput="setCheckAmount(this.value)"><button class="btn secondary" onclick="adjustCheckAmount(1)">+</button></div><button class="btn" onclick="checkInGuest(${g.id},checkInAmount)">Check In ${checkInAmount}</button>${g.checkedInCount>0?`<button class="btn secondary" onclick="undoOne(${g.id})">Undo 1 Guest</button>`:""}${p.manage&&g.checkedInCount>0?`<button class="btn danger" onclick="resetParty(${g.id})">Reset Entire Party</button>`:""}</div>`}
-    <div class="divider"></div><h3>Notes</h3><p class="subtle">${esc(g.notes||"No notes listed.")}</p>${p.manage?`<button class="btn danger small" onclick="deleteGuest(${g.id})">Delete Guest/Party</button>`:""}
-  </div>`;
+
+function undoOne(id) {
+  if (!requirePermission("door")) return;
+
+  const user = currentUser();
+  const guest = state.guests.find(item => item.id === id);
+  if (!guest || guest.checkedInCount <= 0) return;
+
+  guest.checkedInCount = Math.max(0, guest.checkedInCount - 1);
+
+  if (guest.checkedInCount === 0) {
+    guest.lastCheckedInAt = null;
+    guest.lastCheckedInBy = null;
+    guest.lastDoor = null;
+  }
+
+  state.logs.unshift({
+    id: nextId(state.logs),
+    eventId: guest.eventId,
+    guestId: guest.id,
+    guestName: `${guest.firstName} ${guest.lastName}`,
+    amount: 1,
+    action: "Undo 1",
+    staffName: user.name,
+    doorLocation,
+    timestamp: dateTimeNow()
+  });
+
+  saveState();
+  render();
 }
-function doorView(){
-  return `${statsHtml()}<div class="grid"><main><div class="card tight"><div class="toolbar"><input placeholder="Search name, type, or note..." value="${esc(searchQuery)}" oninput="searchQuery=this.value;render()"><select onchange="guestFilter=this.value;render()">${filterOptions.map(o=>`<option ${o===guestFilter?"selected":""}>${o}</option>`).join("")}</select><select onchange="doorLocation=this.value;render()">${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(o=>`<option ${o===doorLocation?"selected":""}>${o}</option>`).join("")}</select></div></div><br>${guestListHtml()}</main><aside class="stack"><div class="card"><h2>Door Settings</h2><p class="subtle">Current door: <strong>${esc(doorLocation)}</strong></p><p class="subtle" style="margin:0">Signed in as: <strong>${esc(user().name)}</strong></p></div>${selectedPanel()}</aside></div>`;
+
+function resetParty(id) {
+  if (!requirePermission("manage")) return;
+  if (!confirm("Reset this party's checked-in count to zero?")) return;
+
+  const user = currentUser();
+  const guest = state.guests.find(item => item.id === id);
+  if (!guest) return;
+
+  guest.checkedInCount = 0;
+  guest.lastCheckedInAt = null;
+  guest.lastCheckedInBy = null;
+  guest.lastDoor = null;
+
+  state.logs.unshift({
+    id: nextId(state.logs),
+    eventId: guest.eventId,
+    guestId: guest.id,
+    guestName: `${guest.firstName} ${guest.lastName}`,
+    amount: 0,
+    action: "Reset Party",
+    staffName: user.name,
+    doorLocation,
+    timestamp: dateTimeNow()
+  });
+
+  saveState();
+  render();
 }
-function manageView(){
-  return `<div class="grid"><main class="stack">
-    <div class="card"><h2>Management Controls</h2><p class="subtle">Managers can create events, add guests, remove guests, upload Excel/CSV files, and export reports.</p><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="openAddGuestModal()">Add Guest / Party</button><button class="btn secondary" onclick="openEventModal()">Create Event</button><button class="btn secondary" onclick="exportCsv()">Export CSV</button></div></div>
-    <div class="card"><h2>Upload Guest List</h2><p class="subtle">Upload Excel or CSV. Recommended columns: First Name, Last Name, Guest Type, Party Size, Approved By, Notes.</p>${importMessage?`<div class="notice ${importMessage.startsWith("Imported")?"greenbox":"red"}">${esc(importMessage)}</div>`:""}<input type="file" accept=".xlsx,.xls,.csv" onchange="handleGuestFileUpload(event)"><div class="divider"></div><p class="subtle" style="margin:0"><strong>Tip:</strong> Full Name or Name also works. Party Size is best. Plus Count will be converted to party size.</p></div>
-    <div class="card"><h2>Active Event Guest List</h2>${guestListHtml()}</div></main><aside class="stack"><div class="card"><h2>Events</h2><table><thead><tr><th>Event</th><th>Date</th><th>Status</th></tr></thead><tbody>${state.events.map(e=>`<tr><td><strong>${esc(e.name)}</strong><br><span class="subtle">${esc(e.venue)}</span></td><td>${esc(e.date)}</td><td>${esc(e.status)}</td></tr>`).join("")}</tbody></table></div>${selectedPanel()}</aside></div>`;
+
+function createGuestFromForm(event) {
+  event.preventDefault();
+  if (!requirePermission("manage")) return;
+
+  const form = new FormData(event.target);
+
+  const guest = {
+    id: nextId(state.guests),
+    eventId: state.activeEventId,
+    firstName: String(form.get("firstName") || "").trim(),
+    lastName: String(form.get("lastName") || "").trim(),
+    guestType: String(form.get("guestType") || "General Guest"),
+    partySize: Math.max(1, Number(form.get("partySize") || 1)),
+    checkedInCount: Math.max(0, Number(form.get("checkedInCount") || 0)),
+    approvedBy: String(form.get("approvedBy") || "Management").trim(),
+    notes: String(form.get("notes") || "").trim(),
+    lastCheckedInAt: null,
+    lastCheckedInBy: null,
+    lastDoor: null
+  };
+
+  guest.checkedInCount = Math.min(guest.checkedInCount, guest.partySize);
+
+  if (!guest.firstName || !guest.lastName) {
+    alert("First and last name are required.");
+    return;
+  }
+
+  state.guests.unshift(guest);
+  selectedGuestId = guest.id;
+  modal = null;
+  saveState();
+  render();
 }
-function usersView(){
-  return `<div class="grid"><main class="stack"><div class="card"><h2>Create Staff Account</h2><form onsubmit="createUser(event)" class="form two"><div><label>Name</label><input name="name"></div><div><label>Username</label><input name="username"></div><div><label>PIN</label><input name="pin" type="password"></div><div><label>Access Level</label><select name="role"><option value="door">Door Staff</option><option value="manager">Management</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div><div style="grid-column:1/-1"><button class="btn">Create Account</button></div></form></div><div class="card"><h2>Private Website Access Key</h2><form onsubmit="updatePrivateKey(event)" class="form"><div><label>Current Private Key</label><input name="currentKey" type="password"></div><div><label>New Private Key</label><input name="newKey" type="password"></div><button class="btn">Update Private Key</button></form></div></main><aside class="stack"><div class="card"><h2>Current Accounts</h2><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${state.users.map(u=>`<tr><td><strong>${esc(u.name)}</strong><br><span class="subtle">${esc(u.username)}</span></td><td>${roleLabel(u.role)}</td><td>${u.active?"Active":"Inactive"}</td><td><button class="btn secondary small" onclick="toggleUser(${u.id})">${u.active?"Deactivate":"Activate"}</button></td></tr>`).join("")}</tbody></table></div><div class="card"><h2>Access Levels</h2><p class="subtle"><strong>Management/Admin:</strong> full tools. <br><strong>Door Staff:</strong> check-in only. <br><strong>Viewer:</strong> reports only.</p></div></aside></div>`;
+
+function updateGuestFromForm(event) {
+  event.preventDefault();
+  if (!requirePermission("manage")) return;
+
+  const guest = state.guests.find(item => item.id === editingGuestId);
+  if (!guest) return;
+
+  const form = new FormData(event.target);
+
+  guest.firstName = String(form.get("firstName") || "").trim();
+  guest.lastName = String(form.get("lastName") || "").trim();
+  guest.guestType = String(form.get("guestType") || "General Guest");
+  guest.partySize = Math.max(1, Number(form.get("partySize") || 1));
+  guest.checkedInCount = Math.min(Math.max(0, Number(form.get("checkedInCount") || 0)), guest.partySize);
+  guest.approvedBy = String(form.get("approvedBy") || "Management").trim();
+  guest.notes = String(form.get("notes") || "").trim();
+
+  if (!guest.firstName || !guest.lastName) {
+    alert("First and last name are required.");
+    return;
+  }
+
+  modal = null;
+  editingGuestId = null;
+  saveState();
+  render();
 }
-function reportsView(){
-  const logs=state.logs.filter(l=>l.eventId===state.activeEventId);
-  return `<div class="grid"><main class="stack"><div class="card"><h2>Reports</h2><p class="subtle">Active event: <strong>${esc(eventActive().name)}</strong></p><button class="btn" onclick="exportCsv()">Export Active Event CSV</button></div><div class="card"><h2>Check-In Activity Log</h2>${logs.length?`<table><thead><tr><th>Time</th><th>Guest</th><th>Action</th><th>Amount</th><th>Staff</th><th>Door</th></tr></thead><tbody>${logs.map(l=>`<tr><td>${esc(l.timestamp)}</td><td>${esc(l.guestName)}</td><td>${esc(l.action)}</td><td>${esc(l.amount)}</td><td>${esc(l.staffName)}</td><td>${esc(l.doorLocation)}</td></tr>`).join("")}</tbody></table>`:`<p class="subtle">No check-in activity yet.</p>`}</div></main><aside class="stack">${statsHtml()}</aside></div>`;
+
+function deleteGuest(id) {
+  if (!requirePermission("manage")) return;
+  if (!confirm("Delete this guest/party from this event?")) return;
+
+  state.guests = state.guests.filter(guest => guest.id !== id);
+  state.logs = state.logs.filter(log => log.guestId !== id);
+
+  if (selectedGuestId === id) selectedGuestId = null;
+
+  saveState();
+  render();
 }
-function modalHtml(){
-  if(!modal)return"";
-  if(modal==="addGuest")return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')){modal=null;render()}"><div class="modal"><h2>Add Guest / Party</h2><form onsubmit="addGuest(event)" class="form two"><div><label>First Name</label><input name="firstName"></div><div><label>Last Name</label><input name="lastName"></div><div><label>Guest Type</label><select name="guestType">${guestTypes.map(t=>`<option>${t}</option>`).join("")}</select></div><div><label>Party Size</label><input name="partySize" type="number" min="1" value="1"></div><div style="grid-column:1/-1"><label>Approved By</label><input name="approvedBy" placeholder="Management"></div><div style="grid-column:1/-1"><label>Notes</label><textarea name="notes" rows="3"></textarea></div><div style="grid-column:1/-1;display:flex;gap:10px"><button class="btn">Add Party</button><button class="btn secondary" type="button" onclick="modal=null;render()">Cancel</button></div></form></div></div>`;
-  if(modal==="event")return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')){modal=null;render()}"><div class="modal"><h2>Create Event</h2><form onsubmit="createEvent(event)" class="form"><div><label>Event Name</label><input name="name"></div><div class="form two"><div><label>Date</label><input name="date" type="date"></div><div><label>Venue</label><input name="venue"></div></div><div style="display:flex;gap:10px"><button class="btn">Create Event</button><button class="btn secondary" type="button" onclick="modal=null;render()">Cancel</button></div></form></div></div>`;
+
+function createEventFromForm(event) {
+  event.preventDefault();
+  if (!requirePermission("manage")) return;
+
+  const form = new FormData(event.target);
+
+  const newEvent = {
+    id: nextId(state.events),
+    name: String(form.get("name") || "").trim(),
+    date: String(form.get("date") || "").trim(),
+    venue: String(form.get("venue") || "").trim(),
+    status: String(form.get("status") || "Active")
+  };
+
+  if (!newEvent.name || !newEvent.date || !newEvent.venue) {
+    alert("Event name, date, and venue are required.");
+    return;
+  }
+
+  state.events.unshift(newEvent);
+  state.activeEventId = newEvent.id;
+  selectedGuestId = null;
+  modal = null;
+  saveState();
+  render();
+}
+
+function updateEventFromForm(event) {
+  event.preventDefault();
+  if (!requirePermission("manage")) return;
+
+  const item = state.events.find(eventItem => eventItem.id === editingEventId);
+  if (!item) return;
+
+  const form = new FormData(event.target);
+
+  item.name = String(form.get("name") || "").trim();
+  item.date = String(form.get("date") || "").trim();
+  item.venue = String(form.get("venue") || "").trim();
+  item.status = String(form.get("status") || "Active");
+
+  if (!item.name || !item.date || !item.venue) {
+    alert("Event name, date, and venue are required.");
+    return;
+  }
+
+  modal = null;
+  editingEventId = null;
+  saveState();
+  render();
+}
+
+function deleteEvent(id) {
+  if (!requirePermission("manage")) return;
+
+  const eventItem = state.events.find(item => item.id === id);
+  if (!eventItem) return;
+
+  if (!confirm(`Delete "${eventItem.name}" and all guests/check-in logs for that event?`)) return;
+
+  state.events = state.events.filter(item => item.id !== id);
+  state.guests = state.guests.filter(guest => guest.eventId !== id);
+  state.logs = state.logs.filter(log => log.eventId !== id);
+
+  if (state.activeEventId === id) {
+    state.activeEventId = state.events[0]?.id || null;
+    selectedGuestId = null;
+  }
+
+  saveState();
+  render();
+}
+
+function createUser(event) {
+  event.preventDefault();
+  if (!requirePermission("users")) return;
+
+  const form = new FormData(event.target);
+  const username = String(form.get("username") || "").trim();
+
+  if (state.users.some(user => user.username === username)) {
+    alert("That username already exists.");
+    return;
+  }
+
+  const user = {
+    id: nextId(state.users),
+    name: String(form.get("name") || "").trim(),
+    username,
+    pin: String(form.get("pin") || "").trim(),
+    role: String(form.get("role") || "door"),
+    active: true,
+    createdAt: dateTimeNow()
+  };
+
+  if (!user.name || !user.username || !user.pin) {
+    alert("Name, username, and PIN are required.");
+    return;
+  }
+
+  state.users.push(user);
+  saveState();
+  render();
+}
+
+function toggleUser(id) {
+  if (!requirePermission("users")) return;
+
+  const userItem = state.users.find(item => item.id === id);
+  if (!userItem) return;
+
+  if (userItem.id === state.currentUserId) {
+    alert("You cannot deactivate your own account while signed in.");
+    return;
+  }
+
+  userItem.active = !userItem.active;
+  saveState();
+  render();
+}
+
+function updatePrivateKey(event) {
+  event.preventDefault();
+  if (!requirePermission("key")) return;
+
+  const form = new FormData(event.target);
+  const currentKey = String(form.get("currentKey") || "").trim();
+  const newKey = String(form.get("newKey") || "").trim();
+
+  if (currentKey !== state.siteKey) {
+    alert("Current private key is incorrect.");
+    return;
+  }
+
+  if (newKey.length < 6) {
+    alert("Use a key that is at least 6 characters long.");
+    return;
+  }
+
+  state.siteKey = newKey;
+  saveState();
+  event.target.reset();
+  alert("Private key updated.");
+}
+
+function exportCsv() {
+  if (!requirePermission("reports")) return;
+
+  const eventItem = activeEvent();
+  if (!eventItem) return;
+
+  const rows = [
+    ["Event", "First Name", "Last Name", "Guest Type", "Party Size", "Checked In", "Remaining", "Approved By", "Notes", "Last Door", "Last Staff", "Last Time"],
+    ...activeGuests().map(guest => [
+      eventItem.name,
+      guest.firstName,
+      guest.lastName,
+      guest.guestType,
+      guest.partySize,
+      guest.checkedInCount,
+      remainingCount(guest),
+      guest.approvedBy,
+      guest.notes,
+      guest.lastDoor || "",
+      guest.lastCheckedInBy || "",
+      guest.lastCheckedInAt || ""
+    ])
+  ];
+
+  const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = `${eventItem.name.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_doorflow_report.csv`;
+  link.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function openAddGuestModal() {
+  if (!requirePermission("manage")) return;
+  editingGuestId = null;
+  modal = "guest";
+  render();
+}
+
+function openEditGuestModal(id) {
+  if (!requirePermission("manage")) return;
+  editingGuestId = id;
+  modal = "guest";
+  render();
+}
+
+function openCreateEventModal() {
+  if (!requirePermission("manage")) return;
+  editingEventId = null;
+  modal = "event";
+  render();
+}
+
+function openEditEventModal(id) {
+  if (!requirePermission("manage")) return;
+  editingEventId = id;
+  modal = "event";
+  render();
+}
+
+function closeModal() {
+  modal = null;
+  editingGuestId = null;
+  editingEventId = null;
+  render();
+}
+
+/* RENDERING */
+
+function renderSetup() {
+  return `
+    <div class="auth">
+      <div class="card">
+        <div class="brand" style="margin-bottom:18px;">
+          <div class="logo">DF</div>
+          <div>
+            <h1>DoorFlow Setup</h1>
+            <p>Create the private key and first management account</p>
+          </div>
+        </div>
+
+        <div class="notice warn">
+          <strong>Demo note:</strong> this stores data in this browser. Real security and multi-device syncing come later with a database.
+        </div>
+
+        ${setupError ? `<div class="notice redbox">${escapeHtml(setupError)}</div>` : ""}
+
+        <form onsubmit="setupSystem(event)" class="form">
+          <div>
+            <label>Your Name</label>
+            <input name="name" placeholder="Trevor Eitel" />
+          </div>
+          <div class="form two">
+            <div>
+              <label>Management Username</label>
+              <input name="username" placeholder="trevor" />
+            </div>
+            <div>
+              <label>PIN</label>
+              <input name="pin" type="password" placeholder="4+ digits" />
+            </div>
+          </div>
+          <div>
+            <label>Private Website Access Key</label>
+            <input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026" />
+          </div>
+          <button class="btn" type="submit">Create DoorFlow Demo</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderLogin() {
+  return `
+    <div class="auth">
+      <div class="card">
+        <div class="brand" style="margin-bottom:18px;">
+          <div class="logo">DF</div>
+          <div>
+            <h1>DoorFlow Login</h1>
+            <p>Private key + user account</p>
+          </div>
+        </div>
+
+        ${loginError ? `<div class="notice redbox">${escapeHtml(loginError)}</div>` : ""}
+
+        <form onsubmit="login(event)" class="form">
+          <div>
+            <label>Private Access Key</label>
+            <input name="siteKey" type="password" />
+          </div>
+          <div class="form two">
+            <div>
+              <label>Username</label>
+              <input name="username" />
+            </div>
+            <div>
+              <label>PIN</label>
+              <input name="pin" type="password" />
+            </div>
+          </div>
+          <button class="btn" type="submit">Log In</button>
+        </form>
+
+        <div class="divider"></div>
+        <p class="subtle"><strong>Sample Door Staff:</strong> username <strong>door</strong>, PIN <strong>1234</strong>. They still need the private key.</p>
+        <button class="btn secondary small" onclick="resetDemo()">Reset Local Demo</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderTopbar() {
+  const user = currentUser();
+  const event = activeEvent();
+
+  return `
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="logo">DF</div>
+          <div>
+            <h1>DoorFlow</h1>
+            <p>${escapeHtml(event?.name || "No Event")} · ${escapeHtml(event?.venue || "")}</p>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <span class="pill">${escapeHtml(user.name)} · ${roleLabel(user.role)}</span>
+          <select style="width:220px;" onchange="setActiveEvent(this.value)">
+            ${state.events.map(item => `
+              <option value="${item.id}" ${item.id === state.activeEventId ? "selected" : ""}>${escapeHtml(item.name)}</option>
+            `).join("")}
+          </select>
+          <button class="btn secondary small" onclick="logout()">Log Out</button>
+        </div>
+      </div>
+    </header>
+  `;
+}
+
+function renderTabs() {
+  const permissions = currentPermissions();
+
+  return `
+    <div class="tabs">
+      ${permissions.door ? `<button class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
+      ${permissions.manage ? `<button class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
+      ${permissions.users ? `<button class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Accounts & Private Key</button>` : ""}
+      ${permissions.reports ? `<button class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
+    </div>
+  `;
+}
+
+function renderStats() {
+  const item = stats();
+
+  return `
+    <div class="stats">
+      <div class="stat"><span>Guest Records</span><strong>${item.records}</strong></div>
+      <div class="stat"><span>Parties Started</span><strong>${item.partiesStarted}</strong></div>
+      <div class="stat"><span>Total Expected</span><strong>${item.totalExpected}</strong></div>
+      <div class="stat"><span>Actual Count In</span><strong>${item.actualIn}</strong></div>
+      <div class="stat"><span>Still Remaining</span><strong>${item.remaining}</strong></div>
+    </div>
+  `;
+}
+
+function renderGuestList(showManagementActions = false) {
+  const list = filteredGuests();
+
+  if (!list.length) {
+    return `<div class="card tight"><p class="subtle" style="margin:0;">No guests found for this event.</p></div>`;
+  }
+
+  return `
+    <div class="guest-list">
+      ${list.map(guest => {
+        const remaining = remainingCount(guest);
+        const status = guestStatus(guest);
+        const cardClass =
+          guest.guestType === "Do Not Admit"
+            ? "blocked"
+            : status === "Fully Checked In"
+              ? "full"
+              : status === "Partially Checked In"
+                ? "partial"
+                : "";
+
+        return `
+          <div class="guest-card ${cardClass} ${selectedGuestId === guest.id ? "selected" : ""}" onclick="selectGuest(${guest.id})">
+            <div class="guest-row">
+              <div>
+                <h3 class="guest-name">${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h3>
+                <div class="badges">
+                  <span class="badge ${badgeClass(guest.guestType)}">${escapeHtml(guest.guestType)}</span>
+                  <span class="badge general">Party of ${guest.partySize}</span>
+                  ${guest.checkedInCount > 0 ? `<span class="badge in">${guest.checkedInCount} in</span>` : ""}
+                  ${remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
+                </div>
+                <p class="guest-notes">${escapeHtml(guest.notes)}</p>
+              </div>
+
+              <div class="guest-actions">
+                ${guest.guestType === "Do Not Admit"
+                  ? `<span class="badge blocked">Manager Required</span>`
+                  : remaining <= 0
+                    ? `<span class="badge in">Fully Checked In</span>`
+                    : `<button class="btn small" onclick="event.stopPropagation(); checkInGuest(${guest.id}, 1)">Quick Check In 1</button>`
+                }
+
+                ${showManagementActions ? `
+                  <div class="row-actions">
+                    <button class="btn secondary small" onclick="event.stopPropagation(); openEditGuestModal(${guest.id})">Edit</button>
+                    <button class="btn danger small" onclick="event.stopPropagation(); deleteGuest(${guest.id})">Delete</button>
+                  </div>
+                ` : ""}
+
+                ${guest.lastCheckedInAt ? `<span class="subtle" style="font-size:12px;margin:0;">Last: ${guest.lastCheckedInAt} · ${escapeHtml(guest.lastCheckedInBy)}</span>` : ""}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSelectedPanel() {
+  const guest = selectedGuest();
+  const permissions = currentPermissions();
+
+  if (!guest) {
+    return `
+      <div class="card">
+        <h2>Selected Party</h2>
+        <p class="subtle">Select a party from the list to check in partial groups and view details.</p>
+      </div>
+    `;
+  }
+
+  const remaining = remainingCount(guest);
+  checkInAmount = Math.min(Math.max(1, checkInAmount), Math.max(1, remaining));
+
+  return `
+    <div class="card">
+      <h2>${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h2>
+      <p class="subtle">${escapeHtml(guest.guestType)} · Approved by ${escapeHtml(guest.approvedBy)}</p>
+
+      <div class="mini-grid">
+        <div class="mini-stat"><span>Total</span><strong>${guest.partySize}</strong></div>
+        <div class="mini-stat in"><span>In</span><strong>${guest.checkedInCount}</strong></div>
+        <div class="mini-stat left"><span>Left</span><strong>${remaining}</strong></div>
+      </div>
+
+      <div class="divider"></div>
+
+      ${guest.guestType === "Do Not Admit" ? `
+        <div class="notice redbox"><strong>Do Not Admit.</strong> Contact management before taking action.</div>
+      ` : remaining <= 0 ? `
+        <div class="notice greenbox"><strong>Fully checked in.</strong> This entire party has been checked in.</div>
+        <div class="form">
+          <button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>
+          ${permissions.manage ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
+        </div>
+      ` : `
+        <div class="form">
+          <label>Number checking in now</label>
+          <div class="counter">
+            <button class="btn secondary" onclick="adjustCheckAmount(-1)">−</button>
+            <input type="number" min="1" max="${remaining}" value="${checkInAmount}" oninput="setCheckAmount(this.value)" />
+            <button class="btn secondary" onclick="adjustCheckAmount(1)">+</button>
+          </div>
+          <button class="btn" onclick="checkInGuest(${guest.id}, checkInAmount)">Check In ${checkInAmount}</button>
+          ${guest.checkedInCount > 0 ? `<button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>` : ""}
+          ${permissions.manage && guest.checkedInCount > 0 ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
+        </div>
+      `}
+
+      <div class="divider"></div>
+
+      <h3>Notes</h3>
+      <p class="subtle">${escapeHtml(guest.notes || "No notes listed.")}</p>
+
+      ${permissions.manage ? `
+        <div class="row-actions">
+          <button class="btn secondary small" onclick="openEditGuestModal(${guest.id})">Edit Guest</button>
+          <button class="btn danger small" onclick="deleteGuest(${guest.id})">Delete Guest</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderDoorView() {
+  return `
+    ${renderStats()}
+    <div class="grid">
+      <main>
+        <div class="card tight">
+          <div class="toolbar">
+            <input placeholder="Search name, type, or note..." value="${escapeHtml(searchQuery)}" oninput="searchQuery = this.value; render()" />
+            <select onchange="guestFilter = this.value; render()">
+              ${filterOptions.map(option => `<option ${option === guestFilter ? "selected" : ""}>${option}</option>`).join("")}
+            </select>
+            <select onchange="doorLocation = this.value; render()">
+              ${["Front Door", "Rear Door", "EVE Door", "VIP Check-In"].map(option => `<option ${option === doorLocation ? "selected" : ""}>${option}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+
+        <br />
+
+        <div class="scroll-panel">
+          ${renderGuestList(false)}
+        </div>
+      </main>
+
+      <aside class="stack">
+        <div class="card">
+          <h2>Door Settings</h2>
+          <p class="subtle">Current door: <strong>${escapeHtml(doorLocation)}</strong></p>
+          <p class="subtle" style="margin:0;">Signed in as: <strong>${escapeHtml(currentUser().name)}</strong></p>
+        </div>
+        ${renderSelectedPanel()}
+      </aside>
+    </div>
+  `;
+}
+
+function renderEventsTable() {
+  if (!state.events.length) {
+    return `<p class="subtle">No events created yet.</p>`;
+  }
+
+  return `
+    <div class="scroll-panel short">
+      <table>
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Guests</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${state.events.map(item => {
+            const guestCount = state.guests.filter(guest => guest.eventId === item.id).length;
+
+            return `
+              <tr class="event-row ${item.id === state.activeEventId ? "active-event" : ""}" onclick="setActiveEvent(${item.id})">
+                <td><strong>${escapeHtml(item.name)}</strong><br><span class="subtle">${escapeHtml(item.venue)}</span></td>
+                <td>${escapeHtml(item.date)}</td>
+                <td>${escapeHtml(item.status)}</td>
+                <td>${guestCount}</td>
+                <td>
+                  <div class="row-actions">
+                    <button class="btn secondary small" onclick="event.stopPropagation(); setActiveEvent(${item.id})">${item.id === state.activeEventId ? "Active" : "Open"}</button>
+                    <button class="btn secondary small" onclick="event.stopPropagation(); openEditEventModal(${item.id})">Edit</button>
+                    <button class="btn danger small" onclick="event.stopPropagation(); deleteEvent(${item.id})">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderManagementView() {
+  return `
+    <div class="grid">
+      <main class="stack">
+        <div class="card">
+          <h2>Management Controls</h2>
+          <p class="subtle">Create events, add/edit/delete guests, upload Excel/CSV files, and export reports.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn" onclick="openAddGuestModal()">Add Guest / Party</button>
+            <button class="btn secondary" onclick="openCreateEventModal()">Create Event</button>
+            <button class="btn secondary" onclick="exportCsv()">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Upload Guest List</h2>
+          <p class="subtle">Uploads into the currently active event: <strong>${escapeHtml(activeEvent()?.name || "No Event")}</strong></p>
+          <p class="subtle">Recommended columns: First Name, Last Name, Guest Type, Party Size, Approved By, Notes.</p>
+          ${importMessage ? `<div class="notice ${importMessage.startsWith("Imported") ? "greenbox" : "redbox"}">${escapeHtml(importMessage)}</div>` : ""}
+          <input type="file" accept=".xlsx,.xls,.csv" onchange="handleGuestFileUpload(event)" />
+          <div class="divider"></div>
+          <p class="subtle" style="margin:0;"><strong>Tip:</strong> Full Name or Name also works. Party Size is best. Plus Count will be converted to total party size.</p>
+        </div>
+
+        <div class="card">
+          <h2>Active Event Guest List</h2>
+          <p class="subtle">Quickly edit or delete guests from the active event.</p>
+          <div class="scroll-panel">
+            ${renderGuestList(true)}
+          </div>
+        </div>
+      </main>
+
+      <aside class="stack">
+        <div class="card">
+          <h2>Events</h2>
+          <p class="subtle">Click an event below to switch between Friday, Saturday, or other nights.</p>
+          ${renderEventsTable()}
+        </div>
+
+        ${renderSelectedPanel()}
+      </aside>
+    </div>
+  `;
+}
+
+function renderUsersView() {
+  return `
+    <div class="grid">
+      <main class="stack">
+        <div class="card">
+          <h2>Create Staff Account</h2>
+          <form onsubmit="createUser(event)" class="form two">
+            <div>
+              <label>Name</label>
+              <input name="name" />
+            </div>
+            <div>
+              <label>Username</label>
+              <input name="username" />
+            </div>
+            <div>
+              <label>PIN</label>
+              <input name="pin" type="password" />
+            </div>
+            <div>
+              <label>Access Level</label>
+              <select name="role">
+                <option value="door">Door Staff</option>
+                <option value="manager">Management</option>
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div style="grid-column:1/-1;">
+              <button class="btn">Create Account</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Private Website Access Key</h2>
+          <form onsubmit="updatePrivateKey(event)" class="form">
+            <div>
+              <label>Current Private Key</label>
+              <input name="currentKey" type="password" />
+            </div>
+            <div>
+              <label>New Private Key</label>
+              <input name="newKey" type="password" />
+            </div>
+            <button class="btn">Update Private Key</button>
+          </form>
+        </div>
+      </main>
+
+      <aside class="stack">
+        <div class="card">
+          <h2>Current Accounts</h2>
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${state.users.map(user => `
+                <tr>
+                  <td><strong>${escapeHtml(user.name)}</strong><br><span class="subtle">${escapeHtml(user.username)}</span></td>
+                  <td>${roleLabel(user.role)}</td>
+                  <td>${user.active ? "Active" : "Inactive"}</td>
+                  <td><button class="btn secondary small" onclick="toggleUser(${user.id})">${user.active ? "Deactivate" : "Activate"}</button></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Access Levels</h2>
+          <p class="subtle"><strong>Management/Admin:</strong> full tools.<br><strong>Door Staff:</strong> check-in only.<br><strong>Viewer:</strong> reports only.</p>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderReportsView() {
+  const logs = state.logs.filter(log => log.eventId === state.activeEventId);
+
+  return `
+    <div class="grid">
+      <main class="stack">
+        <div class="card">
+          <h2>Reports</h2>
+          <p class="subtle">Active event: <strong>${escapeHtml(activeEvent()?.name || "No Event")}</strong></p>
+          <button class="btn" onclick="exportCsv()">Export Active Event CSV</button>
+        </div>
+
+        <div class="card">
+          <h2>Check-In Activity Log</h2>
+          <div class="scroll-panel">
+            ${logs.length ? `
+              <table>
+                <thead>
+                  <tr><th>Time</th><th>Guest</th><th>Action</th><th>Amount</th><th>Staff</th><th>Door</th></tr>
+                </thead>
+                <tbody>
+                  ${logs.map(log => `
+                    <tr>
+                      <td>${escapeHtml(log.timestamp)}</td>
+                      <td>${escapeHtml(log.guestName)}</td>
+                      <td>${escapeHtml(log.action)}</td>
+                      <td>${escapeHtml(log.amount)}</td>
+                      <td>${escapeHtml(log.staffName)}</td>
+                      <td>${escapeHtml(log.doorLocation)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            ` : `<p class="subtle">No check-in activity yet for this event.</p>`}
+          </div>
+        </div>
+      </main>
+
+      <aside class="stack">
+        ${renderStats()}
+      </aside>
+    </div>
+  `;
+}
+
+function renderGuestModal() {
+  const guest = editingGuestId ? state.guests.find(item => item.id === editingGuestId) : null;
+  const isEditing = Boolean(guest);
+
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal">
+        <h2>${isEditing ? "Edit Guest / Party" : "Add Guest / Party"}</h2>
+        <p class="subtle">${isEditing ? "Update this guest record." : `Add a guest to ${escapeHtml(activeEvent()?.name || "the active event")}.`}</p>
+
+        <form onsubmit="${isEditing ? "updateGuestFromForm(event)" : "createGuestFromForm(event)"}" class="form two">
+          <div>
+            <label>First Name</label>
+            <input name="firstName" value="${escapeHtml(guest?.firstName || "")}" />
+          </div>
+          <div>
+            <label>Last Name</label>
+            <input name="lastName" value="${escapeHtml(guest?.lastName || "")}" />
+          </div>
+          <div>
+            <label>Guest Type</label>
+            <select name="guestType">
+              ${guestTypes.map(type => `<option ${type === (guest?.guestType || "General Guest") ? "selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label>Party Size</label>
+            <input name="partySize" type="number" min="1" value="${guest?.partySize || 1}" />
+          </div>
+          <div>
+            <label>Checked In Count</label>
+            <input name="checkedInCount" type="number" min="0" value="${guest?.checkedInCount || 0}" />
+          </div>
+          <div>
+            <label>Approved By</label>
+            <input name="approvedBy" value="${escapeHtml(guest?.approvedBy || "Management")}" />
+          </div>
+          <div style="grid-column:1/-1;">
+            <label>Notes</label>
+            <textarea name="notes" rows="3">${escapeHtml(guest?.notes || "")}</textarea>
+          </div>
+          <div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn" type="submit">${isEditing ? "Save Guest" : "Add Guest"}</button>
+            <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderEventModal() {
+  const item = editingEventId ? state.events.find(eventItem => eventItem.id === editingEventId) : null;
+  const isEditing = Boolean(item);
+
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal">
+        <h2>${isEditing ? "Edit Event" : "Create Event"}</h2>
+        <p class="subtle">${isEditing ? "Update event details." : "Create a new event list."}</p>
+
+        <form onsubmit="${isEditing ? "updateEventFromForm(event)" : "createEventFromForm(event)"}" class="form">
+          <div>
+            <label>Event Name</label>
+            <input name="name" value="${escapeHtml(item?.name || "")}" placeholder="EVE Friday Night" />
+          </div>
+          <div class="form two">
+            <div>
+              <label>Date</label>
+              <input name="date" type="date" value="${escapeHtml(item?.date || "")}" />
+            </div>
+            <div>
+              <label>Venue</label>
+              <input name="venue" value="${escapeHtml(item?.venue || "EVE Nightclub")}" />
+            </div>
+          </div>
+          <div>
+            <label>Status</label>
+            <select name="status">
+              ${["Active", "Draft", "Closed"].map(status => `<option ${status === (item?.status || "Active") ? "selected" : ""}>${status}</option>`).join("")}
+            </select>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn" type="submit">${isEditing ? "Save Event" : "Create Event"}</button>
+            <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderModal() {
+  if (modal === "guest") return renderGuestModal();
+  if (modal === "event") return renderEventModal();
   return "";
 }
-function appHtml(){
-  let content=state.view==="door"?doorView():state.view==="manage"?manageView():state.view==="users"?usersView():reportsView();
-  return `${topbar()}<div class="page"><div class="notice warn"><strong>Demo mode:</strong> this version stores data locally in the browser. Excel upload works for testing, but multi-device syncing needs a database later.</div>${tabs()}${content}</div>${modalHtml()}`;
-}
-function render(){
-  const root=document.getElementById("app");
-  if(!state.setup){ root.innerHTML=renderSetup(); return; }
-  if(!state.currentUserId){ root.innerHTML=renderLogin(); return; }
-  root.innerHTML=appHtml();
+
+function renderApp() {
+  let content = "";
+
+  if (state.view === "door") content = renderDoorView();
+  if (state.view === "manage") content = renderManagementView();
+  if (state.view === "users") content = renderUsersView();
+  if (state.view === "reports") content = renderReportsView();
+
+  return `
+    ${renderTopbar()}
+    <div class="page">
+      <div class="notice warn">
+        <strong>Demo mode:</strong> this version stores data locally in the browser. Excel upload works for testing, but multi-device syncing needs a real database later.
+      </div>
+      ${renderTabs()}
+      ${content}
+    </div>
+    ${renderModal()}
+  `;
 }
 
-/* expose functions for inline event handlers */
-Object.assign(window,{setupSystem,login,logout,resetDemo,switchView,setActiveEvent,selectGuest,setCheckAmount,adjustCheckAmount,checkInGuest,undoOne,resetParty,openAddGuestModal,openEventModal,handleGuestFileUpload,addGuest,deleteGuest,createEvent,createUser,toggleUser,updatePrivateKey,exportCsv,render});
+function render() {
+  const root = document.getElementById("app");
+
+  if (!state.setup) {
+    root.innerHTML = renderSetup();
+    return;
+  }
+
+  if (!state.currentUserId) {
+    root.innerHTML = renderLogin();
+    return;
+  }
+
+  root.innerHTML = renderApp();
+}
+
+/* Inline handler exports */
+Object.assign(window, {
+  setupSystem,
+  login,
+  logout,
+  resetDemo,
+  switchView,
+  setActiveEvent,
+  selectGuest,
+  setCheckAmount,
+  adjustCheckAmount,
+  checkInGuest,
+  undoOne,
+  resetParty,
+  openAddGuestModal,
+  openEditGuestModal,
+  openCreateEventModal,
+  openEditEventModal,
+  closeModal,
+  handleGuestFileUpload,
+  createGuestFromForm,
+  updateGuestFromForm,
+  deleteGuest,
+  createEventFromForm,
+  updateEventFromForm,
+  deleteEvent,
+  createUser,
+  toggleUser,
+  updatePrivateKey,
+  exportCsv,
+  render
+});
 
 render();
 </script>
