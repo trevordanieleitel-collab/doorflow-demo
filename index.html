@@ -1,0 +1,1860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DoorFlow Access Prototype</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --dark: #111827;
+      --dark-hover: #1f2937;
+      --green-bg: #ecfdf5;
+      --green-text: #047857;
+      --green-line: #a7f3d0;
+      --amber-bg: #fffbeb;
+      --amber-text: #b45309;
+      --amber-line: #fde68a;
+      --red-bg: #fef2f2;
+      --red-text: #b91c1c;
+      --red-line: #fecaca;
+      --blue-bg: #eff6ff;
+      --blue-text: #1d4ed8;
+      --purple-bg: #f5f3ff;
+      --purple-text: #6d28d9;
+      --cyan-bg: #ecfeff;
+      --cyan-text: #0e7490;
+      --orange-bg: #fff7ed;
+      --orange-text: #c2410c;
+      --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button, input, select, textarea {
+      font-family: inherit;
+    }
+
+    .hidden { display: none !important; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .topbar-inner {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 16px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .logo {
+      width: 46px;
+      height: 46px;
+      border-radius: 16px;
+      background: var(--dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 18px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .brand p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn {
+      border: none;
+      background: var(--dark);
+      color: #fff;
+      padding: 11px 15px;
+      border-radius: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.18s ease;
+    }
+
+    .btn:hover { background: var(--dark-hover); }
+
+    .btn.secondary {
+      background: #fff;
+      color: var(--dark);
+      border: 1px solid var(--line);
+    }
+
+    .btn.secondary:hover { background: #f9fafb; }
+
+    .btn.danger {
+      background: var(--red-bg);
+      color: var(--red-text);
+      border: 1px solid var(--red-line);
+    }
+
+    .btn.danger:hover { background: #fee2e2; }
+
+    .btn.green {
+      background: var(--green-bg);
+      color: var(--green-text);
+      border: 1px solid var(--green-line);
+    }
+
+    .btn.green:hover { background: #d1fae5; }
+
+    .btn.small {
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
+
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 18px 40px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 410px;
+      gap: 22px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid #eef0f3;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .card.tight { padding: 14px; }
+
+    .auth-shell {
+      max-width: 560px;
+      margin: 48px auto;
+    }
+
+    .auth-card h2,
+    .card h2,
+    .card h3 {
+      margin: 0 0 6px;
+      letter-spacing: -0.03em;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+      margin: 0 0 18px;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .two-col {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 13px;
+      font-size: 15px;
+      outline: none;
+      background: #fff;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: #111827;
+      box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.12);
+    }
+
+    .notice {
+      border-radius: 16px;
+      padding: 13px 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      margin-bottom: 14px;
+    }
+
+    .notice.warn {
+      background: var(--amber-bg);
+      color: var(--amber-text);
+      border: 1px solid var(--amber-line);
+    }
+
+    .notice.red {
+      background: var(--red-bg);
+      color: var(--red-text);
+      border: 1px solid var(--red-line);
+    }
+
+    .notice.green {
+      background: var(--green-bg);
+      color: var(--green-text);
+      border: 1px solid var(--green-line);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .stat {
+      background: #fff;
+      border: 1px solid #eef0f3;
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+    }
+
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .stat strong {
+      font-size: 26px;
+      letter-spacing: -0.04em;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 190px 120px;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .guest-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .guest-card {
+      background: #fff;
+      border: 1px solid #eef0f3;
+      border-radius: 22px;
+      padding: 16px;
+      cursor: pointer;
+      transition: 0.18s ease;
+    }
+
+    .guest-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .guest-card.selected { border-color: #111827; }
+    .guest-card.full { border-color: var(--green-line); }
+    .guest-card.partial { border-color: var(--amber-line); }
+    .guest-card.blocked { border-color: var(--red-line); }
+
+    .guest-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .guest-name {
+      margin: 0 0 7px;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .badge.general { background: #f3f4f6; color: #374151; }
+    .badge.vip { background: var(--purple-bg); color: var(--purple-text); border-color: #ddd6fe; }
+    .badge.comp { background: var(--green-bg); color: var(--green-text); border-color: var(--green-line); }
+    .badge.bottle { background: var(--blue-bg); color: var(--blue-text); border-color: #bfdbfe; }
+    .badge.vendor { background: var(--orange-bg); color: var(--orange-text); border-color: #fed7aa; }
+    .badge.staff { background: var(--cyan-bg); color: var(--cyan-text); border-color: #a5f3fc; }
+    .badge.blocked { background: var(--red-bg); color: var(--red-text); border-color: var(--red-line); }
+    .badge.remaining { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-line); }
+    .badge.in { background: var(--green-bg); color: var(--green-text); border-color: var(--green-line); }
+
+    .guest-notes {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .guest-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 7px;
+      min-width: 155px;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .mini-stat {
+      border-radius: 16px;
+      padding: 12px;
+      text-align: center;
+      background: #f9fafb;
+    }
+
+    .mini-stat strong {
+      display: block;
+      font-size: 25px;
+      margin-top: 3px;
+    }
+
+    .mini-stat.in {
+      background: var(--green-bg);
+      color: var(--green-text);
+    }
+
+    .mini-stat.left {
+      background: var(--amber-bg);
+      color: var(--amber-text);
+    }
+
+    .check-controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .counter {
+      display: grid;
+      grid-template-columns: 48px 1fr 48px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .counter input {
+      text-align: center;
+      font-weight: 900;
+      font-size: 22px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 16px;
+    }
+
+    .tab {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--dark);
+      padding: 10px 13px;
+      border-radius: 999px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: var(--dark);
+      color: #fff;
+      border-color: var(--dark);
+    }
+
+    .user-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .user-table th, .user-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .user-table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 24, 39, 0.52);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .modal {
+      max-width: 680px;
+      width: 100%;
+      max-height: 92vh;
+      overflow: auto;
+      background: #fff;
+      border-radius: 26px;
+      box-shadow: 0 22px 60px rgba(0, 0, 0, 0.22);
+      padding: 22px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--line);
+      margin: 16px 0;
+    }
+
+    .help-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .guest-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .guest-actions {
+        align-items: stretch;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const STORAGE_KEY = "doorflow_html_demo_v1";
+
+    const defaultState = {
+      setupComplete: false,
+      siteKey: "",
+      currentUserId: null,
+      activeView: "door",
+      activeEventId: 1,
+      users: [],
+      events: [
+        {
+          id: 1,
+          name: "EVE Saturday Night",
+          date: "2026-05-09",
+          venue: "EVE Nightclub",
+          status: "Active"
+        }
+      ],
+      guests: [
+        {
+          id: 1,
+          eventId: 1,
+          firstName: "Michael",
+          lastName: "Anderson",
+          guestType: "VIP",
+          partySize: 3,
+          checkedInCount: 0,
+          approvedBy: "Owner",
+          notes: "Owner guest. Escort to Ashton if requested.",
+          lastCheckedInAt: null,
+          lastCheckedInBy: null,
+          lastDoor: null
+        },
+        {
+          id: 2,
+          eventId: 1,
+          firstName: "Sarah",
+          lastName: "Johnson",
+          guestType: "Comp",
+          partySize: 2,
+          checkedInCount: 2,
+          approvedBy: "Trevor",
+          notes: "EVE list. No cover.",
+          lastCheckedInAt: "9:42 PM",
+          lastCheckedInBy: "Sam H.",
+          lastDoor: "Front Door"
+        },
+        {
+          id: 3,
+          eventId: 1,
+          firstName: "David",
+          lastName: "Miller",
+          guestType: "Bottle Service",
+          partySize: 10,
+          checkedInCount: 5,
+          approvedBy: "Manager",
+          notes: "Table reservation. Verify with host before sending upstairs.",
+          lastCheckedInAt: "9:55 PM",
+          lastCheckedInBy: "Trevor E.",
+          lastDoor: "EVE Door"
+        },
+        {
+          id: 4,
+          eventId: 1,
+          firstName: "Ashley",
+          lastName: "Brown",
+          guestType: "General Guest",
+          partySize: 1,
+          checkedInCount: 0,
+          approvedBy: "Event Upload",
+          notes: "Imported from Excel list.",
+          lastCheckedInAt: null,
+          lastCheckedInBy: null,
+          lastDoor: null
+        },
+        {
+          id: 5,
+          eventId: 1,
+          firstName: "Jason",
+          lastName: "Reed",
+          guestType: "Vendor",
+          partySize: 1,
+          checkedInCount: 0,
+          approvedBy: "Operations",
+          notes: "DJ crew. Allow gear entry through rear door.",
+          lastCheckedInAt: null,
+          lastCheckedInBy: null,
+          lastDoor: null
+        },
+        {
+          id: 6,
+          eventId: 1,
+          firstName: "Emily",
+          lastName: "Parker",
+          guestType: "Staff Guest",
+          partySize: 2,
+          checkedInCount: 0,
+          approvedBy: "Manager",
+          notes: "Staff guest. Must still show valid ID.",
+          lastCheckedInAt: null,
+          lastCheckedInBy: null,
+          lastDoor: null
+        },
+        {
+          id: 7,
+          eventId: 1,
+          firstName: "Brian",
+          lastName: "Cole",
+          guestType: "Do Not Admit",
+          partySize: 1,
+          checkedInCount: 0,
+          approvedBy: "Security",
+          notes: "Flagged by security. Contact Security Manager before entry.",
+          lastCheckedInAt: null,
+          lastCheckedInBy: null,
+          lastDoor: null
+        }
+      ],
+      logs: []
+    };
+
+    const roles = {
+      admin: {
+        label: "Admin",
+        canDoor: true,
+        canManageGuests: true,
+        canCreateEvents: true,
+        canManageUsers: true,
+        canManagePrivateKey: true,
+        canExport: true
+      },
+      manager: {
+        label: "Management",
+        canDoor: true,
+        canManageGuests: true,
+        canCreateEvents: true,
+        canManageUsers: true,
+        canManagePrivateKey: true,
+        canExport: true
+      },
+      door: {
+        label: "Door Staff",
+        canDoor: true,
+        canManageGuests: false,
+        canCreateEvents: false,
+        canManageUsers: false,
+        canManagePrivateKey: false,
+        canExport: false
+      },
+      viewer: {
+        label: "Viewer",
+        canDoor: false,
+        canManageGuests: false,
+        canCreateEvents: false,
+        canManageUsers: false,
+        canManagePrivateKey: false,
+        canExport: true
+      }
+    };
+
+    const guestTypes = [
+      "General Guest",
+      "VIP",
+      "Comp",
+      "Owner Guest",
+      "Staff Guest",
+      "Vendor",
+      "Performer / DJ",
+      "Bottle Service",
+      "Private Event Guest",
+      "Comedy Guest",
+      "Do Not Admit"
+    ];
+
+    const filterOptions = [
+      "All",
+      "Not Checked In",
+      "Partially Checked In",
+      "Fully Checked In",
+      "VIP",
+      "Comp",
+      "Bottle Service",
+      "Vendor",
+      "Staff Guest",
+      "Do Not Admit"
+    ];
+
+    let state = loadState();
+    let selectedGuestId = null;
+    let searchQuery = "";
+    let guestFilter = "All";
+    let doorLocation = "Front Door";
+    let checkInAmount = 1;
+    let modal = null;
+    let loginError = "";
+    let setupError = "";
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function loadState() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return clone(defaultState);
+      try {
+        return { ...clone(defaultState), ...JSON.parse(saved) };
+      } catch (error) {
+        return clone(defaultState);
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function resetDemo() {
+      if (!confirm("Reset this local demo? This clears accounts, guests, logs, and the private key on this browser.")) return;
+      localStorage.removeItem(STORAGE_KEY);
+      state = clone(defaultState);
+      selectedGuestId = null;
+      modal = null;
+      render();
+    }
+
+    function generateId(collection) {
+      const max = collection.reduce((highest, item) => Math.max(highest, Number(item.id || 0)), 0);
+      return max + 1;
+    }
+
+    function currentUser() {
+      return state.users.find(user => user.id === state.currentUserId) || null;
+    }
+
+    function currentPermissions() {
+      const user = currentUser();
+      if (!user) return null;
+      return roles[user.role] || roles.viewer;
+    }
+
+    function activeEvent() {
+      return state.events.find(event => event.id === state.activeEventId) || state.events[0];
+    }
+
+    function guestsForActiveEvent() {
+      const event = activeEvent();
+      if (!event) return [];
+      return state.guests.filter(guest => guest.eventId === event.id);
+    }
+
+    function getRemainingCount(guest) {
+      return Math.max(0, Number(guest.partySize || 0) - Number(guest.checkedInCount || 0));
+    }
+
+    function getGuestStatus(guest) {
+      if (guest.guestType === "Do Not Admit") return "Manager Required";
+      if (guest.checkedInCount <= 0) return "Not Checked In";
+      if (guest.checkedInCount >= guest.partySize) return "Fully Checked In";
+      return "Partially Checked In";
+    }
+
+    function displayTime() {
+      return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+
+    function displayDateTime() {
+      return new Date().toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function roleLabel(role) {
+      return roles[role]?.label || role;
+    }
+
+    function badgeClass(type) {
+      const normalized = type.toLowerCase();
+      if (normalized.includes("vip")) return "vip";
+      if (normalized.includes("comp")) return "comp";
+      if (normalized.includes("bottle")) return "bottle";
+      if (normalized.includes("vendor")) return "vendor";
+      if (normalized.includes("staff")) return "staff";
+      if (normalized.includes("do not")) return "blocked";
+      return "general";
+    }
+
+    function stats() {
+      const guests = guestsForActiveEvent();
+      return {
+        records: guests.length,
+        partiesStarted: guests.filter(guest => guest.checkedInCount > 0).length,
+        totalExpected: guests.reduce((sum, guest) => sum + Number(guest.partySize || 0), 0),
+        actualIn: guests.reduce((sum, guest) => sum + Number(guest.checkedInCount || 0), 0),
+        remaining: guests.reduce((sum, guest) => sum + getRemainingCount(guest), 0)
+      };
+    }
+
+    function filteredGuests() {
+      const normalized = searchQuery.trim().toLowerCase();
+      return guestsForActiveEvent().filter(guest => {
+        const fullName = `${guest.firstName} ${guest.lastName}`.toLowerCase();
+        const type = guest.guestType.toLowerCase();
+        const notes = (guest.notes || "").toLowerCase();
+        const status = getGuestStatus(guest);
+        const matchesSearch = !normalized || fullName.includes(normalized) || type.includes(normalized) || notes.includes(normalized);
+        const matchesFilter = guestFilter === "All" || guest.guestType === guestFilter || status === guestFilter;
+        return matchesSearch && matchesFilter;
+      });
+    }
+
+    function selectedGuest() {
+      return state.guests.find(guest => guest.id === selectedGuestId) || null;
+    }
+
+    function setupSystem(event) {
+      event.preventDefault();
+      setupError = "";
+      const form = new FormData(event.target);
+      const name = String(form.get("name") || "").trim();
+      const username = String(form.get("username") || "").trim();
+      const pin = String(form.get("pin") || "").trim();
+      const siteKey = String(form.get("siteKey") || "").trim();
+
+      if (!name || !username || !pin || !siteKey) {
+        setupError = "All setup fields are required.";
+        render();
+        return;
+      }
+
+      if (pin.length < 4) {
+        setupError = "Use at least a 4-digit PIN for the demo.";
+        render();
+        return;
+      }
+
+      state.setupComplete = true;
+      state.siteKey = siteKey;
+      state.users = [
+        {
+          id: 1,
+          name,
+          username,
+          pin,
+          role: "admin",
+          active: true,
+          createdAt: displayDateTime()
+        },
+        {
+          id: 2,
+          name: "Sample Door Staff",
+          username: "door",
+          pin: "1234",
+          role: "door",
+          active: true,
+          createdAt: displayDateTime()
+        }
+      ];
+      state.currentUserId = 1;
+      state.activeView = "door";
+      saveState();
+      render();
+    }
+
+    function login(event) {
+      event.preventDefault();
+      loginError = "";
+      const form = new FormData(event.target);
+      const siteKey = String(form.get("siteKey") || "").trim();
+      const username = String(form.get("username") || "").trim();
+      const pin = String(form.get("pin") || "").trim();
+
+      if (siteKey !== state.siteKey) {
+        loginError = "Private access key is incorrect.";
+        render();
+        return;
+      }
+
+      const user = state.users.find(item => item.username === username && item.pin === pin && item.active);
+      if (!user) {
+        loginError = "Username or PIN is incorrect, or the account is inactive.";
+        render();
+        return;
+      }
+
+      state.currentUserId = user.id;
+      state.activeView = roles[user.role].canDoor ? "door" : "reports";
+      saveState();
+      render();
+    }
+
+    function logout() {
+      state.currentUserId = null;
+      saveState();
+      render();
+    }
+
+    function requirePermission(permissionName) {
+      const permissions = currentPermissions();
+      if (!permissions || !permissions[permissionName]) {
+        alert("This account does not have access to that function.");
+        return false;
+      }
+      return true;
+    }
+
+    function switchView(view) {
+      const permissions = currentPermissions();
+      if (view === "door" && !permissions.canDoor) return alert("This account cannot access door check-in.");
+      if (view === "manage" && !permissions.canManageGuests) return alert("This account cannot manage guests/events.");
+      if (view === "users" && !permissions.canManageUsers) return alert("This account cannot manage users.");
+      if (view === "reports" && !permissions.canExport) return alert("This account cannot view reports.");
+      state.activeView = view;
+      saveState();
+      render();
+    }
+
+    function setActiveEvent(eventId) {
+      state.activeEventId = Number(eventId);
+      selectedGuestId = null;
+      saveState();
+      render();
+    }
+
+    function checkInGuest(id, amount) {
+      if (!requirePermission("canDoor")) return;
+      const user = currentUser();
+      const guest = state.guests.find(item => item.id === id);
+      if (!guest) return;
+      if (guest.guestType === "Do Not Admit") {
+        alert("This guest is marked Do Not Admit. Contact management before taking action.");
+        return;
+      }
+
+      const remaining = getRemainingCount(guest);
+      const actualAmount = Math.min(Math.max(1, Number(amount || 1)), remaining);
+      if (actualAmount <= 0) return;
+
+      guest.checkedInCount += actualAmount;
+      guest.lastCheckedInAt = displayTime();
+      guest.lastCheckedInBy = user.name;
+      guest.lastDoor = doorLocation;
+
+      state.logs.unshift({
+        id: generateId(state.logs),
+        eventId: guest.eventId,
+        guestId: guest.id,
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        amount: actualAmount,
+        action: "Check In",
+        staffName: user.name,
+        doorLocation,
+        timestamp: displayDateTime()
+      });
+
+      selectedGuestId = id;
+      checkInAmount = 1;
+      saveState();
+      render();
+    }
+
+    function undoOne(id) {
+      if (!requirePermission("canDoor")) return;
+      const user = currentUser();
+      const guest = state.guests.find(item => item.id === id);
+      if (!guest || guest.checkedInCount <= 0) return;
+
+      guest.checkedInCount = Math.max(0, guest.checkedInCount - 1);
+      if (guest.checkedInCount === 0) {
+        guest.lastCheckedInAt = null;
+        guest.lastCheckedInBy = null;
+        guest.lastDoor = null;
+      }
+
+      state.logs.unshift({
+        id: generateId(state.logs),
+        eventId: guest.eventId,
+        guestId: guest.id,
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        amount: 1,
+        action: "Undo 1",
+        staffName: user.name,
+        doorLocation,
+        timestamp: displayDateTime()
+      });
+
+      saveState();
+      render();
+    }
+
+    function resetParty(id) {
+      if (!requirePermission("canManageGuests")) return;
+      if (!confirm("Reset this party's checked-in count to zero?")) return;
+      const user = currentUser();
+      const guest = state.guests.find(item => item.id === id);
+      if (!guest) return;
+
+      guest.checkedInCount = 0;
+      guest.lastCheckedInAt = null;
+      guest.lastCheckedInBy = null;
+      guest.lastDoor = null;
+
+      state.logs.unshift({
+        id: generateId(state.logs),
+        eventId: guest.eventId,
+        guestId: guest.id,
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        amount: 0,
+        action: "Reset Party",
+        staffName: user.name,
+        doorLocation,
+        timestamp: displayDateTime()
+      });
+
+      saveState();
+      render();
+    }
+
+    function addGuest(event) {
+      event.preventDefault();
+      if (!requirePermission("canManageGuests")) return;
+      const form = new FormData(event.target);
+      const guest = {
+        id: generateId(state.guests),
+        eventId: state.activeEventId,
+        firstName: String(form.get("firstName") || "").trim(),
+        lastName: String(form.get("lastName") || "").trim(),
+        guestType: String(form.get("guestType") || "General Guest"),
+        partySize: Math.max(1, Number(form.get("partySize") || 1)),
+        checkedInCount: 0,
+        approvedBy: String(form.get("approvedBy") || "Management").trim(),
+        notes: String(form.get("notes") || "").trim(),
+        lastCheckedInAt: null,
+        lastCheckedInBy: null,
+        lastDoor: null
+      };
+
+      if (!guest.firstName || !guest.lastName) {
+        alert("First and last name are required.");
+        return;
+      }
+
+      state.guests.unshift(guest);
+      selectedGuestId = guest.id;
+      modal = null;
+      saveState();
+      render();
+    }
+
+    function deleteGuest(id) {
+      if (!requirePermission("canManageGuests")) return;
+      if (!confirm("Delete this guest/party from the event list?")) return;
+      state.guests = state.guests.filter(guest => guest.id !== id);
+      state.logs = state.logs.filter(log => log.guestId !== id);
+      if (selectedGuestId === id) selectedGuestId = null;
+      saveState();
+      render();
+    }
+
+    function createEvent(event) {
+      event.preventDefault();
+      if (!requirePermission("canCreateEvents")) return;
+      const form = new FormData(event.target);
+      const newEvent = {
+        id: generateId(state.events),
+        name: String(form.get("name") || "").trim(),
+        date: String(form.get("date") || ""),
+        venue: String(form.get("venue") || "").trim(),
+        status: "Active"
+      };
+
+      if (!newEvent.name || !newEvent.date || !newEvent.venue) {
+        alert("Event name, date, and venue are required.");
+        return;
+      }
+
+      state.events.unshift(newEvent);
+      state.activeEventId = newEvent.id;
+      selectedGuestId = null;
+      modal = null;
+      saveState();
+      render();
+    }
+
+    function createUser(event) {
+      event.preventDefault();
+      if (!requirePermission("canManageUsers")) return;
+      const form = new FormData(event.target);
+      const username = String(form.get("username") || "").trim();
+      const pin = String(form.get("pin") || "").trim();
+      const name = String(form.get("name") || "").trim();
+      const role = String(form.get("role") || "door");
+
+      if (!name || !username || !pin) {
+        alert("Name, username, and PIN are required.");
+        return;
+      }
+
+      if (state.users.some(user => user.username === username)) {
+        alert("That username already exists.");
+        return;
+      }
+
+      state.users.push({
+        id: generateId(state.users),
+        name,
+        username,
+        pin,
+        role,
+        active: true,
+        createdAt: displayDateTime()
+      });
+
+      saveState();
+      render();
+    }
+
+    function toggleUser(id) {
+      if (!requirePermission("canManageUsers")) return;
+      const user = state.users.find(item => item.id === id);
+      if (!user) return;
+      if (user.id === state.currentUserId) return alert("You cannot deactivate your own account while signed in.");
+      user.active = !user.active;
+      saveState();
+      render();
+    }
+
+    function updatePrivateKey(event) {
+      event.preventDefault();
+      if (!requirePermission("canManagePrivateKey")) return;
+      const form = new FormData(event.target);
+      const currentKey = String(form.get("currentKey") || "").trim();
+      const newKey = String(form.get("newKey") || "").trim();
+
+      if (currentKey !== state.siteKey) {
+        alert("Current private key is incorrect.");
+        return;
+      }
+
+      if (!newKey || newKey.length < 6) {
+        alert("Use a private key that is at least 6 characters long.");
+        return;
+      }
+
+      state.siteKey = newKey;
+      saveState();
+      event.target.reset();
+      alert("Private access key updated. Users will need the new key next time they log in.");
+      render();
+    }
+
+    function exportCsv() {
+      if (!requirePermission("canExport")) return;
+      const event = activeEvent();
+      const rows = [
+        ["Event", "First Name", "Last Name", "Guest Type", "Party Size", "Checked In", "Remaining", "Approved By", "Notes", "Last Door", "Last Staff", "Last Time"],
+        ...guestsForActiveEvent().map(guest => [
+          event.name,
+          guest.firstName,
+          guest.lastName,
+          guest.guestType,
+          guest.partySize,
+          guest.checkedInCount,
+          getRemainingCount(guest),
+          guest.approvedBy,
+          guest.notes,
+          guest.lastDoor || "",
+          guest.lastCheckedInBy || "",
+          guest.lastCheckedInAt || ""
+        ])
+      ];
+
+      const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${event.name.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_doorflow_report.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function renderSetup() {
+      return `
+        <div class="auth-shell">
+          <div class="card auth-card">
+            <div class="brand" style="margin-bottom: 18px;">
+              <div class="logo">DF</div>
+              <div>
+                <h1>DoorFlow Setup</h1>
+                <p>Private access key and first management account</p>
+              </div>
+            </div>
+
+            <div class="notice warn">
+              <strong>Prototype security note:</strong> this single-file HTML version stores accounts and the private key in this browser's local storage. This is fine for a demo, but not secure enough for real door operations.
+            </div>
+
+            ${setupError ? `<div class="notice red">${escapeHtml(setupError)}</div>` : ""}
+
+            <form onsubmit="setupSystem(event)" class="form-grid">
+              <div>
+                <label>Your Name</label>
+                <input name="name" placeholder="Trevor Eitel" />
+              </div>
+              <div class="two-col form-grid">
+                <div>
+                  <label>Management Username</label>
+                  <input name="username" placeholder="trevor" />
+                </div>
+                <div>
+                  <label>PIN</label>
+                  <input name="pin" type="password" placeholder="Use 4+ digits" />
+                </div>
+              </div>
+              <div>
+                <label>Private Website Access Key</label>
+                <input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026" />
+              </div>
+              <button class="btn" type="submit">Create DoorFlow Demo</button>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLogin() {
+      return `
+        <div class="auth-shell">
+          <div class="card auth-card">
+            <div class="brand" style="margin-bottom: 18px;">
+              <div class="logo">DF</div>
+              <div>
+                <h1>DoorFlow Login</h1>
+                <p>Enter the private key and your account PIN</p>
+              </div>
+            </div>
+
+            <div class="notice warn">
+              This demo requires a <strong>private website access key</strong> plus a user account. In the production version, this should be handled by a secure backend.
+            </div>
+
+            ${loginError ? `<div class="notice red">${escapeHtml(loginError)}</div>` : ""}
+
+            <form onsubmit="login(event)" class="form-grid">
+              <div>
+                <label>Private Access Key</label>
+                <input name="siteKey" type="password" placeholder="Private website key" />
+              </div>
+              <div class="two-col form-grid">
+                <div>
+                  <label>Username</label>
+                  <input name="username" placeholder="Username" />
+                </div>
+                <div>
+                  <label>PIN</label>
+                  <input name="pin" type="password" placeholder="PIN" />
+                </div>
+              </div>
+              <button class="btn" type="submit">Log In</button>
+            </form>
+
+            <div class="divider"></div>
+            <p class="subtle"><strong>Demo sample:</strong> after setup, a sample Door Staff account exists with username <strong>door</strong> and PIN <strong>1234</strong>. They still need the private access key.</p>
+            <button class="btn secondary small" onclick="resetDemo()">Reset Local Demo</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTopbar() {
+      const user = currentUser();
+      const event = activeEvent();
+      return `
+        <header class="topbar">
+          <div class="topbar-inner">
+            <div class="brand">
+              <div class="logo">DF</div>
+              <div>
+                <h1>DoorFlow</h1>
+                <p>${escapeHtml(event?.name || "No Event")} · ${escapeHtml(event?.venue || "")}</p>
+              </div>
+            </div>
+            <div class="top-actions">
+              <span class="pill">${escapeHtml(user.name)} · ${roleLabel(user.role)}</span>
+              <select style="width: 170px;" onchange="setActiveEvent(this.value)">
+                ${state.events.map(item => `<option value="${item.id}" ${item.id === state.activeEventId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+              </select>
+              <button class="btn secondary small" onclick="logout()">Log Out</button>
+            </div>
+          </div>
+        </header>
+      `;
+    }
+
+    function renderTabs() {
+      const permissions = currentPermissions();
+      return `
+        <div class="tabs">
+          ${permissions.canDoor ? `<button class="tab ${state.activeView === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
+          ${permissions.canManageGuests ? `<button class="tab ${state.activeView === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
+          ${permissions.canManageUsers ? `<button class="tab ${state.activeView === "users" ? "active" : ""}" onclick="switchView('users')">Accounts & Private Key</button>` : ""}
+          ${permissions.canExport ? `<button class="tab ${state.activeView === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
+        </div>
+      `;
+    }
+
+    function renderStats() {
+      const s = stats();
+      return `
+        <div class="stats">
+          <div class="stat"><span>Guest Records</span><strong>${s.records}</strong></div>
+          <div class="stat"><span>Parties Started</span><strong>${s.partiesStarted}</strong></div>
+          <div class="stat"><span>Total Expected</span><strong>${s.totalExpected}</strong></div>
+          <div class="stat"><span>Actual Count In</span><strong>${s.actualIn}</strong></div>
+          <div class="stat"><span>Still Remaining</span><strong>${s.remaining}</strong></div>
+        </div>
+      `;
+    }
+
+    function renderGuestList() {
+      const guests = filteredGuests();
+      if (!guests.length) {
+        return `<div class="card tight"><p class="subtle" style="margin:0;">No guests found. Try another search or filter.</p></div>`;
+      }
+
+      return `
+        <div class="guest-list">
+          ${guests.map(guest => {
+            const remaining = getRemainingCount(guest);
+            const status = getGuestStatus(guest);
+            const cardClass = guest.guestType === "Do Not Admit" ? "blocked" : status === "Fully Checked In" ? "full" : status === "Partially Checked In" ? "partial" : "";
+            return `
+              <div class="guest-card ${cardClass} ${selectedGuestId === guest.id ? "selected" : ""}" onclick="selectGuest(${guest.id})">
+                <div class="guest-row">
+                  <div>
+                    <h3 class="guest-name">${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h3>
+                    <div class="badges">
+                      <span class="badge ${badgeClass(guest.guestType)}">${escapeHtml(guest.guestType)}</span>
+                      <span class="badge general">Party of ${guest.partySize}</span>
+                      ${guest.checkedInCount > 0 ? `<span class="badge in">${guest.checkedInCount} in</span>` : ""}
+                      ${remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
+                    </div>
+                    <p class="guest-notes">${escapeHtml(guest.notes)}</p>
+                  </div>
+                  <div class="guest-actions">
+                    ${guest.guestType === "Do Not Admit"
+                      ? `<span class="badge blocked">Manager Required</span>`
+                      : remaining <= 0
+                        ? `<span class="badge in">Fully Checked In</span>`
+                        : `<button class="btn small" onclick="event.stopPropagation(); checkInGuest(${guest.id}, 1)">Quick Check In 1</button>`
+                    }
+                    ${guest.lastCheckedInAt ? `<span class="subtle" style="font-size:12px;margin:0;">Last: ${guest.lastCheckedInAt} · ${escapeHtml(guest.lastCheckedInBy)}</span>` : ""}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function renderSelectedPanel() {
+      const guest = selectedGuest();
+      const permissions = currentPermissions();
+
+      if (!guest) {
+        return `
+          <div class="card">
+            <h2>Selected Party</h2>
+            <p class="subtle">Select a party from the list to check in partial groups and view details.</p>
+          </div>
+        `;
+      }
+
+      const remaining = getRemainingCount(guest);
+      const maxAmount = Math.max(1, remaining);
+      checkInAmount = Math.min(Math.max(1, checkInAmount), maxAmount);
+
+      return `
+        <div class="card">
+          <h2>${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h2>
+          <p class="subtle">${escapeHtml(guest.guestType)} · Approved by ${escapeHtml(guest.approvedBy)}</p>
+
+          <div class="mini-grid">
+            <div class="mini-stat"><span>Total</span><strong>${guest.partySize}</strong></div>
+            <div class="mini-stat in"><span>In</span><strong>${guest.checkedInCount}</strong></div>
+            <div class="mini-stat left"><span>Left</span><strong>${remaining}</strong></div>
+          </div>
+
+          <div class="divider"></div>
+
+          ${guest.guestType === "Do Not Admit" ? `
+            <div class="notice red">
+              <strong>Do Not Admit.</strong> Contact Security Manager before taking action.
+            </div>
+          ` : remaining <= 0 ? `
+            <div class="notice green">
+              <strong>Fully checked in.</strong> This entire party has been checked in.
+            </div>
+            <div class="check-controls">
+              <button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>
+              ${permissions.canManageGuests ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
+            </div>
+          ` : `
+            <div class="check-controls">
+              <label>Number checking in now</label>
+              <div class="counter">
+                <button class="btn secondary" onclick="adjustCheckAmount(-1)">−</button>
+                <input type="number" min="1" max="${remaining}" value="${checkInAmount}" oninput="setCheckAmount(this.value)" />
+                <button class="btn secondary" onclick="adjustCheckAmount(1)">+</button>
+              </div>
+              <button class="btn" onclick="checkInGuest(${guest.id}, checkInAmount)">Check In ${checkInAmount}</button>
+              ${guest.checkedInCount > 0 ? `<button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>` : ""}
+              ${permissions.canManageGuests && guest.checkedInCount > 0 ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
+            </div>
+          `}
+
+          <div class="divider"></div>
+          <h3>Notes</h3>
+          <p class="subtle">${escapeHtml(guest.notes || "No notes listed.")}</p>
+          ${guest.lastCheckedInAt ? `<p class="subtle"><strong>Last activity:</strong> ${guest.lastCheckedInAt} by ${escapeHtml(guest.lastCheckedInBy)} at ${escapeHtml(guest.lastDoor)}</p>` : ""}
+          ${permissions.canManageGuests ? `<button class="btn danger small" onclick="deleteGuest(${guest.id})">Delete Guest/Party</button>` : ""}
+        </div>
+      `;
+    }
+
+    function renderDoorView() {
+      return `
+        ${renderStats()}
+        <div class="grid">
+          <main>
+            <div class="card tight">
+              <div class="toolbar">
+                <input placeholder="Search name, guest type, or note..." value="${escapeHtml(searchQuery)}" oninput="searchQuery = this.value; render()" />
+                <select onchange="guestFilter = this.value; render()">
+                  ${filterOptions.map(option => `<option ${option === guestFilter ? "selected" : ""}>${option}</option>`).join("")}
+                </select>
+                <select onchange="doorLocation = this.value; render()">
+                  ${["Front Door", "Rear Door", "EVE Door", "VIP Check-In"].map(option => `<option ${option === doorLocation ? "selected" : ""}>${option}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+            <br />
+            ${renderGuestList()}
+          </main>
+          <aside class="side-stack">
+            <div class="card">
+              <h2>Door Settings</h2>
+              <p class="subtle">Current door location: <strong>${escapeHtml(doorLocation)}</strong></p>
+              <p class="subtle" style="margin-bottom:0;">Signed in as: <strong>${escapeHtml(currentUser().name)}</strong></p>
+            </div>
+            ${renderSelectedPanel()}
+          </aside>
+        </div>
+      `;
+    }
+
+    function renderManagementView() {
+      const permissions = currentPermissions();
+      return `
+        <div class="grid">
+          <main class="side-stack">
+            <div class="card">
+              <h2>Management Controls</h2>
+              <p class="subtle">Managers can create events, add guests, remove guests, and reset party check-in counts.</p>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn" onclick="openAddGuestModal()">Add Guest / Party</button>
+                ${permissions.canCreateEvents ? `<button class="btn secondary" onclick="openEventModal()">Create Event</button>` : ""}
+                <button class="btn secondary" onclick="exportCsv()">Export Active Event CSV</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2>Active Event Guest List</h2>
+              <p class="subtle">Select a guest on the Door Check-In page for partial check-in controls.</p>
+              ${renderGuestList()}
+            </div>
+          </main>
+
+          <aside class="side-stack">
+            <div class="card">
+              <h2>Events</h2>
+              <table class="user-table">
+                <thead><tr><th>Event</th><th>Date</th><th>Status</th></tr></thead>
+                <tbody>
+                  ${state.events.map(event => `
+                    <tr>
+                      <td><strong>${escapeHtml(event.name)}</strong><br><span class="subtle">${escapeHtml(event.venue)}</span></td>
+                      <td>${escapeHtml(event.date)}</td>
+                      <td>${escapeHtml(event.status)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+            ${renderSelectedPanel()}
+          </aside>
+        </div>
+      `;
+    }
+
+    function renderUsersView() {
+      const permissions = currentPermissions();
+      if (!permissions.canManageUsers) return `<div class="notice red">You do not have access to account management.</div>`;
+
+      return `
+        <div class="grid">
+          <main class="side-stack">
+            <div class="card">
+              <h2>Create Staff Account</h2>
+              <p class="subtle">Create account levels for management, door staff, and viewers. All users still need the private access key to log in.</p>
+              <form onsubmit="createUser(event)" class="form-grid two-col">
+                <div>
+                  <label>Name</label>
+                  <input name="name" placeholder="Staff name" />
+                </div>
+                <div>
+                  <label>Username</label>
+                  <input name="username" placeholder="username" />
+                </div>
+                <div>
+                  <label>PIN</label>
+                  <input name="pin" type="password" placeholder="PIN" />
+                </div>
+                <div>
+                  <label>Access Level</label>
+                  <select name="role">
+                    <option value="door">Door Staff</option>
+                    <option value="manager">Management</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div style="grid-column:1/-1;">
+                  <button class="btn" type="submit">Create Account</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="card">
+              <h2>Private Website Access Key</h2>
+              <p class="subtle">Management can change the private key required to access the website as a whole. In a real system, this should be stored securely on the server, not in browser storage.</p>
+              <form onsubmit="updatePrivateKey(event)" class="form-grid">
+                <div>
+                  <label>Current Private Key</label>
+                  <input name="currentKey" type="password" placeholder="Current key" />
+                </div>
+                <div>
+                  <label>New Private Key</label>
+                  <input name="newKey" type="password" placeholder="New key" />
+                </div>
+                <button class="btn" type="submit">Update Private Key</button>
+              </form>
+            </div>
+          </main>
+
+          <aside class="side-stack">
+            <div class="card">
+              <h2>Current Accounts</h2>
+              <table class="user-table">
+                <thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  ${state.users.map(user => `
+                    <tr>
+                      <td><strong>${escapeHtml(user.name)}</strong><br><span class="subtle">${escapeHtml(user.username)}</span></td>
+                      <td>${roleLabel(user.role)}</td>
+                      <td>${user.active ? "Active" : "Inactive"}</td>
+                      <td><button class="btn secondary small" onclick="toggleUser(${user.id})">${user.active ? "Deactivate" : "Activate"}</button></td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card">
+              <h2>Access Levels</h2>
+              <ul class="help-list">
+                <li><strong>Admin:</strong> all access, including private key and users.</li>
+                <li><strong>Management:</strong> manage events, guests, users, private key, and reports.</li>
+                <li><strong>Door Staff:</strong> door check-in only.</li>
+                <li><strong>Viewer:</strong> reports only.</li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      `;
+    }
+
+    function renderReportsView() {
+      const event = activeEvent();
+      const logs = state.logs.filter(log => log.eventId === state.activeEventId);
+      return `
+        <div class="grid">
+          <main class="side-stack">
+            <div class="card">
+              <h2>Reports</h2>
+              <p class="subtle">Active event: <strong>${escapeHtml(event.name)}</strong></p>
+              <button class="btn" onclick="exportCsv()">Export Active Event CSV</button>
+            </div>
+
+            <div class="card">
+              <h2>Check-In Activity Log</h2>
+              ${logs.length ? `
+                <table class="user-table">
+                  <thead><tr><th>Time</th><th>Guest</th><th>Action</th><th>Amount</th><th>Staff</th><th>Door</th></tr></thead>
+                  <tbody>
+                    ${logs.map(log => `
+                      <tr>
+                        <td>${escapeHtml(log.timestamp)}</td>
+                        <td>${escapeHtml(log.guestName)}</td>
+                        <td>${escapeHtml(log.action)}</td>
+                        <td>${escapeHtml(log.amount)}</td>
+                        <td>${escapeHtml(log.staffName)}</td>
+                        <td>${escapeHtml(log.doorLocation)}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : `<p class="subtle">No check-in activity yet for this event.</p>`}
+            </div>
+          </main>
+          <aside class="side-stack">
+            ${renderStats()}
+          </aside>
+        </div>
+      `;
+    }
+
+    function renderModal() {
+      if (!modal) return "";
+
+      if (modal === "addGuest") {
+        return `
+          <div class="modal-backdrop" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+              <h2>Add Guest / Party</h2>
+              <p class="subtle">Add a last-minute name or party to the active event.</p>
+              <form onsubmit="addGuest(event)" class="form-grid two-col">
+                <div>
+                  <label>First Name</label>
+                  <input name="firstName" />
+                </div>
+                <div>
+                  <label>Last Name</label>
+                  <input name="lastName" />
+                </div>
+                <div>
+                  <label>Guest Type</label>
+                  <select name="guestType">
+                    ${guestTypes.map(type => `<option>${type}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Party Size</label>
+                  <input name="partySize" type="number" min="1" value="1" />
+                </div>
+                <div style="grid-column:1/-1;">
+                  <label>Approved By</label>
+                  <input name="approvedBy" placeholder="Management" />
+                </div>
+                <div style="grid-column:1/-1;">
+                  <label>Notes</label>
+                  <textarea name="notes" rows="3"></textarea>
+                </div>
+                <div style="grid-column:1/-1; display:flex; gap:10px;">
+                  <button class="btn" type="submit">Add Party</button>
+                  <button class="btn secondary" type="button" onclick="modal=null; render()">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `;
+      }
+
+      if (modal === "event") {
+        return `
+          <div class="modal-backdrop" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+              <h2>Create Event</h2>
+              <p class="subtle">Create a new active event list.</p>
+              <form onsubmit="createEvent(event)" class="form-grid">
+                <div>
+                  <label>Event Name</label>
+                  <input name="name" placeholder="EVE Saturday Night" />
+                </div>
+                <div class="two-col form-grid">
+                  <div>
+                    <label>Date</label>
+                    <input name="date" type="date" />
+                  </div>
+                  <div>
+                    <label>Venue</label>
+                    <input name="venue" placeholder="EVE Nightclub" />
+                  </div>
+                </div>
+                <div style="display:flex; gap:10px;">
+                  <button class="btn" type="submit">Create Event</button>
+                  <button class="btn secondary" type="button" onclick="modal=null; render()">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        `;
+      }
+
+      return "";
+    }
+
+    function renderApp() {
+      const permissions = currentPermissions();
+      let content = "";
+
+      if (state.activeView === "door") content = renderDoorView();
+      if (state.activeView === "manage") content = renderManagementView();
+      if (state.activeView === "users") content = renderUsersView();
+      if (state.activeView === "reports") content = renderReportsView();
+
+      return `
+        ${renderTopbar()}
+        <div class="page">
+          <div class="notice warn">
+            <strong>Demo mode:</strong> accounts, private key, guests, and check-ins are stored locally in this browser. This proves the workflow, but production needs server-side authentication and a real database.
+          </div>
+          ${renderTabs()}
+          ${content}
+        </div>
+        ${renderModal()}
+      `;
+    }
+
+    function render() {
+      const root = document.getElementById("app");
+      if (!state.setupComplete) {
+        root.innerHTML = renderSetup();
+        return;
+      }
+
+      if (!state.currentUserId) {
+        root.innerHTML = renderLogin();
+        return;
+      }
+
+      root.innerHTML = renderApp();
+    }
+
+    function selectGuest(id) {
+      selectedGuestId = id;
+      checkInAmount = 1;
+      render();
+    }
+
+    function setCheckAmount(value) {
+      const guest = selectedGuest();
+      if (!guest) return;
+      const remaining = getRemainingCount(guest);
+      checkInAmount = Math.max(1, Math.min(remaining, Number(value || 1)));
+      render();
+    }
+
+    function adjustCheckAmount(delta) {
+      const guest = selectedGuest();
+      if (!guest) return;
+      const remaining = getRemainingCount(guest);
+      checkInAmount = Math.max(1, Math.min(remaining, checkInAmount + delta));
+      render();
+    }
+
+    function openAddGuestModal() {
+      if (!requirePermission("canManageGuests")) return;
+      modal = "addGuest";
+      render();
+    }
+
+    function openEventModal() {
+      if (!requirePermission("canCreateEvents")) return;
+      modal = "event";
+      render();
+    }
+
+    function closeModal(event) {
+      if (event.target.classList.contains("modal-backdrop")) {
+        modal = null;
+        render();
+      }
+    }
+
+    window.setupSystem = setupSystem;
+    window.login = login;
+    window.logout = logout;
+    window.resetDemo = resetDemo;
+    window.switchView = switchView;
+    window.setActiveEvent = setActiveEvent;
+    window.selectGuest = selectGuest;
+    window.checkInGuest = checkInGuest;
+    window.undoOne = undoOne;
+    window.resetParty = resetParty;
+    window.setCheckAmount = setCheckAmount;
+    window.adjustCheckAmount = adjustCheckAmount;
+    window.openAddGuestModal = openAddGuestModal;
+    window.openEventModal = openEventModal;
+    window.closeModal = closeModal;
+    window.addGuest = addGuest;
+    window.deleteGuest = deleteGuest;
+    window.createEvent = createEvent;
+    window.createUser = createUser;
+    window.toggleUser = toggleUser;
+    window.updatePrivateKey = updatePrivateKey;
+    window.exportCsv = exportCsv;
+    window.render = render;
+
+    render();
+  </script>
+</body>
+</html>
