@@ -390,10 +390,43 @@
       font-size:16px;
     }
 
+    .name-line {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .inline-check-btn {
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      line-height:1;
+      white-space:nowrap;
+    }
+
     .attendee-detail {
       margin:2px 0 0;
       color:var(--muted);
       font-size:13px;
+    }
+
+    .count-controls {
+      display:flex;
+      gap:6px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .count-pill {
+      border:1px solid var(--line);
+      border-radius:999px;
+      padding:6px 9px;
+      font-size:12px;
+      font-weight:800;
+      background:#fff;
+      white-space:nowrap;
     }
 
     .badges {
@@ -700,9 +733,9 @@ function getOrCreateGeneralList() {
 function partyStats(partyId) {
   const attendees = attendeesForParty(partyId);
   return {
-    total: attendees.length,
-    checked: attendees.filter(attendee => attendee.checkedIn).length,
-    remaining: attendees.filter(attendee => !attendee.checkedIn).length
+    total: attendees.reduce((sum, attendee) => sum + attendeeTotal(attendee), 0),
+    checked: attendees.reduce((sum, attendee) => sum + attendeeCheckedCount(attendee), 0),
+    remaining: attendees.reduce((sum, attendee) => sum + attendeeRemaining(attendee), 0)
   };
 }
 
@@ -711,9 +744,9 @@ function dayStats() {
   const parties = partiesForActiveDate();
   return {
     parties: parties.length,
-    total: attendees.length,
-    checked: attendees.filter(attendee => attendee.checkedIn).length,
-    remaining: attendees.filter(attendee => !attendee.checkedIn).length,
+    total: attendees.reduce((sum, attendee) => sum + attendeeTotal(attendee), 0),
+    checked: attendees.reduce((sum, attendee) => sum + attendeeCheckedCount(attendee), 0),
+    remaining: attendees.reduce((sum, attendee) => sum + attendeeRemaining(attendee), 0),
     completeParties: parties.filter(party => {
       const s = partyStats(party.id);
       return s.total > 0 && s.remaining === 0;
@@ -732,6 +765,31 @@ function typeClass(type) {
   return "general";
 }
 
+function attendeeTotal(attendee) {
+  return Math.max(1, Number(attendee.partySize || attendee.totalAllowed || 1));
+}
+
+function attendeeCheckedCount(attendee) {
+  if (attendee.checkedInCount !== undefined && attendee.checkedInCount !== null) {
+    return Math.max(0, Math.min(attendeeTotal(attendee), Number(attendee.checkedInCount || 0)));
+  }
+
+  return attendee.checkedIn ? 1 : 0;
+}
+
+function attendeeRemaining(attendee) {
+  return Math.max(0, attendeeTotal(attendee) - attendeeCheckedCount(attendee));
+}
+
+function isAttendeeFullyCheckedIn(attendee) {
+  return attendeeCheckedCount(attendee) >= attendeeTotal(attendee);
+}
+
+function syncAttendeeCheckedState(attendee) {
+  attendee.checkedInCount = attendeeCheckedCount(attendee);
+  attendee.checkedIn = attendee.checkedInCount >= attendeeTotal(attendee);
+}
+
 function sortAttendees(list) {
   const last = attendee => `${attendee.lastName} ${attendee.firstName}`.toLowerCase();
   const first = attendee => `${attendee.firstName} ${attendee.lastName}`.toLowerCase();
@@ -740,8 +798,8 @@ function sortAttendees(list) {
   if (sortMode === "LAST_DESC") return list.sort((a,b) => last(b).localeCompare(last(a)));
   if (sortMode === "FIRST_ASC") return list.sort((a,b) => first(a).localeCompare(first(b)));
   if (sortMode === "FIRST_DESC") return list.sort((a,b) => first(b).localeCompare(first(a)));
-  if (sortMode === "UNCHECKED") return list.sort((a,b) => Number(a.checkedIn) - Number(b.checkedIn) || last(a).localeCompare(last(b)));
-  if (sortMode === "CHECKED") return list.sort((a,b) => Number(b.checkedIn) - Number(a.checkedIn) || last(a).localeCompare(last(b)));
+  if (sortMode === "UNCHECKED") return list.sort((a,b) => Number(isAttendeeFullyCheckedIn(a)) - Number(isAttendeeFullyCheckedIn(b)) || last(a).localeCompare(last(b)));
+  if (sortMode === "CHECKED") return list.sort((a,b) => Number(isAttendeeFullyCheckedIn(b)) - Number(isAttendeeFullyCheckedIn(a)) || last(a).localeCompare(last(b)));
 
   return list;
 }
@@ -949,12 +1007,20 @@ function attendeeFromRow(row, partyId) {
     lastName = lastName || split.lastName;
   }
 
+  const partySizeRaw = readField(row, ["Party Size", "Total Guests", "Total", "Group Size"]);
+  const plusCountRaw = readField(row, ["Plus Count", "Plus", "Plus One", "+"]);
+  const partySize = partySizeRaw
+    ? Math.max(1, Number(partySizeRaw) || 1)
+    : Math.max(1, 1 + (Number(plusCountRaw) || 0));
+
   return {
     id: nextId(state.attendees),
     partyId,
     firstName,
     lastName,
     attendeeType: readField(row, ["Attendee Type", "Guest Type", "Type", "Category"]) || "Guest",
+    partySize,
+    checkedInCount: 0,
     checkedIn:false,
     checkedInAt:null,
     checkedInBy:null,
@@ -1075,6 +1141,13 @@ function parseBulkNames(text) {
       let namePart = parts[0] || "";
       let attendeeType = parts[1] || "Guest";
       let notes = parts.slice(2).join(" - ");
+      let partySize = 1;
+
+      const plusMatch = namePart.match(/\s\+(\d+)\s*$/);
+      if (plusMatch) {
+        partySize = 1 + Number(plusMatch[1] || 0);
+        namePart = namePart.replace(/\s\+\d+\s*$/, "").trim();
+      }
 
       let firstName = "";
       let lastName = "";
@@ -1094,7 +1167,7 @@ function parseBulkNames(text) {
         }
       }
 
-      return { firstName, lastName, attendeeType, notes };
+      return { firstName, lastName, attendeeType, notes, partySize };
     });
 }
 
@@ -1135,6 +1208,8 @@ function bulkAddNames(event) {
       firstName: item.firstName,
       lastName: item.lastName,
       attendeeType: item.attendeeType && item.attendeeType !== "Guest" ? item.attendeeType : defaultType,
+      partySize: Math.max(1, Number(item.partySize || 1)),
+      checkedInCount: 0,
       checkedIn: false,
       checkedInAt: null,
       checkedInBy: null,
@@ -1178,7 +1253,7 @@ function setMode(mode) {
   render();
 }
 
-function toggleAttendee(id) {
+function checkInOneAttendee(id) {
   if (!requirePerm("door")) return;
 
   const attendee = state.attendees.find(item => item.id === id);
@@ -1189,19 +1264,23 @@ function toggleAttendee(id) {
     return;
   }
 
+  const remaining = attendeeRemaining(attendee);
+  if (remaining <= 0) return;
+
   const user = currentUser();
 
-  attendee.checkedIn = !attendee.checkedIn;
-  attendee.checkedInAt = attendee.checkedIn ? timeNow() : null;
-  attendee.checkedInBy = attendee.checkedIn ? user.name : null;
-  attendee.door = attendee.checkedIn ? doorLocation : null;
+  attendee.checkedInCount = attendeeCheckedCount(attendee) + 1;
+  attendee.checkedInAt = timeNow();
+  attendee.checkedInBy = user.name;
+  attendee.door = doorLocation;
+  syncAttendeeCheckedState(attendee);
 
   state.logs.unshift({
     id: nextId(state.logs),
     partyId: attendee.partyId,
     attendeeId: attendee.id,
     attendeeName: `${attendee.firstName} ${attendee.lastName}`,
-    action: attendee.checkedIn ? "Check In" : "Undo Check-In",
+    action: "Check In 1",
     staffName: user.name,
     doorLocation,
     timestamp: dateTimeNow()
@@ -1209,6 +1288,53 @@ function toggleAttendee(id) {
 
   saveState();
   render();
+}
+
+function undoOneAttendee(id) {
+  if (!requirePerm("door")) return;
+
+  const attendee = state.attendees.find(item => item.id === id);
+  if (!attendee) return;
+
+  const checked = attendeeCheckedCount(attendee);
+  if (checked <= 0) return;
+
+  const user = currentUser();
+
+  attendee.checkedInCount = checked - 1;
+
+  if (attendee.checkedInCount <= 0) {
+    attendee.checkedInAt = null;
+    attendee.checkedInBy = null;
+    attendee.door = null;
+  }
+
+  syncAttendeeCheckedState(attendee);
+
+  state.logs.unshift({
+    id: nextId(state.logs),
+    partyId: attendee.partyId,
+    attendeeId: attendee.id,
+    attendeeName: `${attendee.firstName} ${attendee.lastName}`,
+    action: "Undo 1",
+    staffName: user.name,
+    doorLocation,
+    timestamp: dateTimeNow()
+  });
+
+  saveState();
+  render();
+}
+
+function toggleAttendee(id) {
+  const attendee = state.attendees.find(item => item.id === id);
+  if (!attendee) return;
+
+  if (attendeeRemaining(attendee) > 0) {
+    checkInOneAttendee(id);
+  } else {
+    undoOneAttendee(id);
+  }
 }
 
 function createParty(event) {
@@ -1317,6 +1443,8 @@ function createAttendee(event) {
     firstName: String(form.get("firstName") || "").trim(),
     lastName: String(form.get("lastName") || "").trim(),
     attendeeType: String(form.get("attendeeType") || "Guest"),
+    partySize: Math.max(1, Number(form.get("partySize") || 1)),
+    checkedInCount: Boolean(form.get("checkedIn")) ? 1 : 0,
     checkedIn: Boolean(form.get("checkedIn")),
     checkedInAt:null,
     checkedInBy:null,
@@ -1354,6 +1482,9 @@ function updateAttendee(event) {
   attendee.firstName = String(form.get("firstName") || "").trim();
   attendee.lastName = String(form.get("lastName") || "").trim();
   attendee.attendeeType = String(form.get("attendeeType") || "Guest");
+  attendee.partySize = Math.max(1, Number(form.get("partySize") || 1));
+  attendee.checkedInCount = Math.min(attendeeCheckedCount(attendee), attendee.partySize);
+  syncAttendeeCheckedState(attendee);
   attendee.notes = String(form.get("notes") || "").trim();
 
   if (!attendee.firstName || !attendee.lastName) {
@@ -1453,7 +1584,7 @@ function exportCsv() {
   if (!requirePerm("reports")) return;
 
   const rows = [
-    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Attendee Type","Checked In","Checked In At","Checked In By","Door","Notes"],
+    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Attendee Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Checked In At","Checked In By","Door","Notes"],
     ...attendeesForActiveDate().map(attendee => {
       const party = state.parties.find(item => item.id === attendee.partyId);
       return [
@@ -1466,7 +1597,10 @@ function exportCsv() {
         attendee.firstName,
         attendee.lastName,
         attendee.attendeeType,
-        attendee.checkedIn ? "Yes" : "No",
+        attendeeTotal(attendee),
+        attendeeCheckedCount(attendee),
+        attendeeRemaining(attendee),
+        isAttendeeFullyCheckedIn(attendee) ? "Yes" : "No",
         attendee.checkedInAt || "",
         attendee.checkedInBy || "",
         attendee.door || "",
@@ -1746,18 +1880,35 @@ function renderAttendeeList(showActions = false) {
     <div class="attendee-list">
       ${attendees.map(attendee => {
         const party = state.parties.find(item => item.id === attendee.partyId);
+        const total = attendeeTotal(attendee);
+        const checked = attendeeCheckedCount(attendee);
+        const remaining = attendeeRemaining(attendee);
+        const fullyChecked = isAttendeeFullyCheckedIn(attendee);
 
         return `
-          <div class="attendee-row ${attendee.checkedIn ? "checked" : ""}">
-            <button class="attendee-check" onclick="toggleAttendee(${attendee.id})">${attendee.checkedIn ? "✓" : ""}</button>
+          <div class="attendee-row ${fullyChecked ? "checked" : ""}">
+            <button class="attendee-check" onclick="toggleAttendee(${attendee.id})">${fullyChecked ? "✓" : checked > 0 ? checked : ""}</button>
 
             <div>
-              <p class="attendee-name">${esc(attendee.firstName)} ${esc(attendee.lastName)}</p>
+              <div class="name-line">
+                <p class="attendee-name">${esc(attendee.firstName)} ${esc(attendee.lastName)}</p>
+
+                <span class="count-pill">${checked}/${total}</span>
+
+                ${remaining > 0
+                  ? `<button class="btn green small inline-check-btn" onclick="checkInOneAttendee(${attendee.id})">Check In 1</button>`
+                  : `<span class="badge in">Fully In</span>`
+                }
+
+                ${checked > 0 ? `<button class="btn secondary small inline-check-btn" onclick="undoOneAttendee(${attendee.id})">Undo 1</button>` : ""}
+              </div>
+
               <p class="attendee-detail">
                 ${esc(attendee.attendeeType)}
                 ${party ? ` · ${esc(party.name)}` : ""}
+                ${total > 1 ? ` · ${remaining} left` : ""}
                 ${attendee.notes ? ` · ${esc(attendee.notes)}` : ""}
-                ${attendee.checkedIn ? ` · Checked in at ${esc(attendee.checkedInAt)} by ${esc(attendee.checkedInBy)} at ${esc(attendee.door)}` : ""}
+                ${checked > 0 && attendee.checkedInAt ? ` · Last check-in at ${esc(attendee.checkedInAt)} by ${esc(attendee.checkedInBy)} at ${esc(attendee.door)}` : ""}
               </p>
             </div>
 
@@ -1864,7 +2015,7 @@ function renderMainWorkspace(showManagement = false) {
 
           <div class="card">
             <h2>Upload Names from Excel / CSV</h2>
-            <p class="subtle">Recommended columns: First Name, Last Name, Attendee Type, Notes. Full Name also works.</p>
+            <p class="subtle">Recommended columns: First Name, Last Name, Attendee Type, Party Size or Plus Count, Notes. Full Name also works.</p>
 
             ${importMessage ? `<div class="notice ${importMessage.startsWith("Imported") ? "greenbox" : "redbox"}">${esc(importMessage)}</div>` : ""}
 
@@ -2118,6 +2269,11 @@ function renderAttendeeModal() {
             </select>
           </div>
 
+          <div>
+            <label>Total Allowed / Party Size</label>
+            <input name="partySize" type="number" min="1" value="${attendeeTotal(attendee || { partySize: 1 })}" />
+          </div>
+
           ${!isEdit ? `
             <div>
               <label style="display:flex;align-items:center;gap:8px;margin-top:30px;">
@@ -2156,6 +2312,7 @@ function renderBulkPasteModal() {
           <strong>Accepted examples:</strong><br>
           John Smith<br>
           Smith, John<br>
+          John Smith +3<br>
           John Smith - VIP - Owner approved<br>
           John Smith, VIP, Owner approved
         </div>
@@ -2180,7 +2337,7 @@ function renderBulkPasteModal() {
 
           <div>
             <label>Paste Names</label>
-            <textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson&#10;David Miller - VIP - Owner approved"></textarea>
+            <textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea>
           </div>
 
           <div class="row-actions">
@@ -2249,6 +2406,8 @@ Object.assign(window, {
   selectParty,
   setMode,
   toggleAttendee,
+  checkInOneAttendee,
+  undoOneAttendee,
   handleFileUpload,
   createParty,
   updateParty,
