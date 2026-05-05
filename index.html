@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DoorFlow Demo</title>
+  <title>DoorFlow</title>
 
-  <!-- Excel/CSV reader. Needed for .xlsx, .xls, and .csv uploads. -->
+  <!-- Used only for Excel/CSV uploads in this demo. -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
   <style>
@@ -16,7 +16,6 @@
       --muted:#6b7280;
       --line:#e5e7eb;
       --dark:#111827;
-      --dark-hover:#1f2937;
       --green-bg:#ecfdf5;
       --green:#047857;
       --green-line:#a7f3d0;
@@ -62,7 +61,7 @@
     }
 
     .topbar-inner {
-      max-width:1320px;
+      max-width:1380px;
       margin:0 auto;
       padding:16px 18px;
       display:flex;
@@ -87,19 +86,10 @@
       align-items:center;
       justify-content:center;
       font-weight:900;
-      font-size:16px;
     }
 
-    .brand h1 {
-      margin:0;
-      font-size:22px;
-    }
-
-    .brand p {
-      margin:3px 0 0;
-      color:var(--muted);
-      font-size:13px;
-    }
+    .brand h1 { margin:0; font-size:22px; }
+    .brand p { margin:3px 0 0; color:var(--muted); font-size:13px; }
 
     .top-actions {
       display:flex;
@@ -119,22 +109,19 @@
     }
 
     .page {
-      max-width:1320px;
+      max-width:1380px;
       margin:0 auto;
       padding:24px 18px 40px;
     }
 
     .grid {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 410px;
+      grid-template-columns:minmax(0,1fr) 430px;
       gap:22px;
       align-items:start;
     }
 
-    .stack {
-      display:grid;
-      gap:16px;
-    }
+    .stack { display:grid; gap:16px; }
 
     .card {
       background:var(--card);
@@ -145,16 +132,19 @@
     }
 
     .card.tight { padding:14px; }
-
-    .card h2, .card h3 {
-      margin:0 0 6px;
-    }
+    .card h2,.card h3 { margin:0 0 6px; }
 
     .subtle {
       color:var(--muted);
       font-size:14px;
       line-height:1.45;
       margin:0 0 16px;
+    }
+
+    .divider {
+      height:1px;
+      background:var(--line);
+      margin:16px 0;
     }
 
     .btn {
@@ -167,7 +157,7 @@
       transition:.16s ease;
     }
 
-    .btn:hover { background:var(--dark-hover); }
+    .btn:hover { background:#1f2937; }
 
     .btn.secondary {
       background:#fff;
@@ -183,15 +173,11 @@
       border:1px solid var(--red-line);
     }
 
-    .btn.danger:hover { background:#fee2e2; }
-
     .btn.green {
       background:var(--green-bg);
       color:var(--green);
       border:1px solid var(--green-line);
     }
-
-    .btn.green:hover { background:#d1fae5; }
 
     .btn.small {
       padding:8px 10px;
@@ -199,7 +185,7 @@
       font-size:13px;
     }
 
-    input, select, textarea {
+    input,select,textarea {
       width:100%;
       border:1px solid var(--line);
       border-radius:14px;
@@ -209,7 +195,7 @@
       background:#fff;
     }
 
-    input:focus, select:focus, textarea:focus {
+    input:focus,select:focus,textarea:focus {
       border-color:#111827;
       box-shadow:0 0 0 3px rgba(17,24,39,.12);
     }
@@ -222,14 +208,9 @@
       margin-bottom:6px;
     }
 
-    .form {
-      display:grid;
-      gap:12px;
-    }
-
-    .two {
-      grid-template-columns:1fr 1fr;
-    }
+    .form { display:grid; gap:12px; }
+    .two { grid-template-columns:1fr 1fr; }
+    .three { grid-template-columns:1fr 1fr 1fr; }
 
     .auth {
       max-width:560px;
@@ -284,6 +265,14 @@
       border-color:var(--dark);
     }
 
+    .datebar {
+      display:grid;
+      grid-template-columns:180px 180px minmax(0,1fr) 180px;
+      gap:10px;
+      align-items:end;
+      margin-bottom:18px;
+    }
+
     .stats {
       display:grid;
       grid-template-columns:repeat(5,1fr);
@@ -313,62 +302,104 @@
 
     .toolbar {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 190px 125px;
+      grid-template-columns:minmax(0,1fr) 170px 170px 170px;
       gap:10px;
       margin-bottom:18px;
     }
 
     .scroll-panel {
-      max-height:430px;
+      max-height:465px;
       overflow-y:auto;
       padding-right:6px;
     }
 
-    .scroll-panel.short {
-      max-height:270px;
-    }
+    .scroll-panel.short { max-height:315px; }
 
-    .guest-list {
-      display:grid;
-      gap:12px;
-    }
+    .party-list { display:grid; gap:10px; }
 
-    .guest-card {
-      background:#fff;
+    .party-card {
       border:1px solid #eef0f3;
-      border-radius:22px;
-      padding:16px;
+      background:#fff;
+      border-radius:20px;
+      padding:14px;
       cursor:pointer;
-      transition:.16s ease;
+      transition:.16s;
     }
 
-    .guest-card:hover {
+    .party-card:hover {
       transform:translateY(-1px);
-      box-shadow:0 10px 24px rgba(15,23,42,.08);
+      box-shadow:0 10px 22px rgba(15,23,42,.08);
     }
 
-    .guest-card.selected { border-color:#111827; }
-    .guest-card.full { border-color:var(--green-line); }
-    .guest-card.partial { border-color:var(--amber-line); }
-    .guest-card.blocked { border-color:var(--red-line); }
+    .party-card.selected { border-color:#111827; }
+    .party-card.complete { border-color:var(--green-line); background:#fbfffd; }
+    .party-card.started { border-color:var(--amber-line); }
 
-    .guest-row {
+    .party-title {
+      margin:0 0 6px;
+      font-size:18px;
+    }
+
+    .party-meta {
       display:flex;
-      justify-content:space-between;
-      gap:18px;
-      align-items:center;
+      flex-wrap:wrap;
+      gap:7px;
+      margin:8px 0;
     }
 
-    .guest-name {
-      margin:0 0 7px;
-      font-size:19px;
+    .attendee-list { display:grid; gap:10px; }
+
+    .attendee-row {
+      display:grid;
+      grid-template-columns:42px minmax(0,1fr) auto;
+      gap:12px;
+      align-items:center;
+      padding:12px;
+      border:1px solid #eef0f3;
+      border-radius:18px;
+      background:#fff;
+    }
+
+    .attendee-row.checked {
+      background:var(--green-bg);
+      border-color:var(--green-line);
+    }
+
+    .attendee-check {
+      width:28px;
+      height:28px;
+      border-radius:9px;
+      border:2px solid var(--line);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:900;
+      background:#fff;
+      color:#fff;
+    }
+
+    .attendee-row.checked .attendee-check {
+      background:var(--green);
+      border-color:var(--green);
+      color:#fff;
+    }
+
+    .attendee-name {
+      margin:0;
+      font-weight:800;
+      font-size:16px;
+    }
+
+    .attendee-detail {
+      margin:2px 0 0;
+      color:var(--muted);
+      font-size:13px;
     }
 
     .badges {
       display:flex;
       flex-wrap:wrap;
       gap:7px;
-      margin-bottom:8px;
     }
 
     .badge {
@@ -382,68 +413,18 @@
 
     .general { background:#f3f4f6; color:#374151; }
     .vip { background:var(--purple-bg); color:var(--purple); border-color:#ddd6fe; }
-    .comp { background:var(--green-bg); color:var(--green); border-color:var(--green-line); }
     .bottle { background:var(--blue-bg); color:var(--blue); border-color:#bfdbfe; }
-    .vendor { background:var(--orange-bg); color:var(--orange); border-color:#fed7aa; }
-    .staff { background:var(--cyan-bg); color:var(--cyan); border-color:#a5f3fc; }
-    .blocked { background:var(--red-bg); color:var(--red); border-color:var(--red-line); }
+    .private { background:var(--cyan-bg); color:var(--cyan); border-color:#a5f3fc; }
     .remaining { background:var(--amber-bg); color:var(--amber); border-color:var(--amber-line); }
     .in { background:var(--green-bg); color:var(--green); border-color:var(--green-line); }
+    .blocked { background:var(--red-bg); color:var(--red); border-color:var(--red-line); }
+    .vendor { background:var(--orange-bg); color:var(--orange); border-color:#fed7aa; }
+    .staff { background:var(--cyan-bg); color:var(--cyan); border-color:#a5f3fc; }
 
-    .guest-notes {
-      color:var(--muted);
-      font-size:13px;
-      margin:0;
-    }
-
-    .guest-actions {
+    .row-actions {
       display:flex;
-      flex-direction:column;
-      align-items:flex-end;
-      gap:7px;
-      min-width:170px;
-    }
-
-    .mini-grid {
-      display:grid;
-      grid-template-columns:repeat(3,1fr);
-      gap:8px;
-    }
-
-    .mini-stat {
-      border-radius:16px;
-      padding:12px;
-      text-align:center;
-      background:#f9fafb;
-    }
-
-    .mini-stat strong {
-      display:block;
-      font-size:25px;
-      margin-top:3px;
-    }
-
-    .mini-stat.in {
-      background:var(--green-bg);
-      color:var(--green);
-    }
-
-    .mini-stat.left {
-      background:var(--amber-bg);
-      color:var(--amber);
-    }
-
-    .counter {
-      display:grid;
-      grid-template-columns:48px 1fr 48px;
-      gap:10px;
-      align-items:center;
-    }
-
-    .counter input {
-      text-align:center;
-      font-weight:900;
-      font-size:22px;
+      gap:6px;
+      flex-wrap:wrap;
     }
 
     table {
@@ -466,20 +447,6 @@
       letter-spacing:.04em;
     }
 
-    .event-row {
-      cursor:pointer;
-      transition:.16s ease;
-    }
-
-    .event-row:hover { background:#f9fafb; }
-    .event-row.active-event { background:var(--green-bg); }
-
-    .row-actions {
-      display:flex;
-      gap:6px;
-      flex-wrap:wrap;
-    }
-
     .modal-backdrop {
       position:fixed;
       inset:0;
@@ -492,7 +459,7 @@
     }
 
     .modal {
-      max-width:720px;
+      max-width:800px;
       width:100%;
       max-height:92vh;
       overflow:auto;
@@ -502,21 +469,15 @@
       padding:22px;
     }
 
-    .divider {
-      height:1px;
-      background:var(--line);
-      margin:16px 0;
-    }
-
-    @media(max-width:980px) {
+    @media(max-width:1080px) {
       .grid { grid-template-columns:1fr; }
       .stats { grid-template-columns:repeat(2,1fr); }
-      .toolbar { grid-template-columns:1fr; }
-      .guest-row { flex-direction:column; align-items:stretch; }
-      .guest-actions { align-items:stretch; }
-      .two { grid-template-columns:1fr; }
+      .datebar,.toolbar { grid-template-columns:1fr; }
+      .two,.three { grid-template-columns:1fr; }
       .topbar-inner { align-items:flex-start; flex-direction:column; }
       .top-actions { justify-content:flex-start; }
+      .attendee-row { grid-template-columns:42px minmax(0,1fr); }
+      .attendee-row .row-actions { grid-column:1/-1; }
     }
   </style>
 </head>
@@ -525,7 +486,7 @@
 <div id="app"></div>
 
 <script>
-const STORAGE_KEY = "doorflow_fresh_start_v1";
+const STORAGE_KEY = "doorflow_clean_party_guestlist_v1";
 
 const roles = {
   admin:   { label:"Admin",      door:true,  manage:true,  users:true,  reports:true,  key:true },
@@ -534,66 +495,82 @@ const roles = {
   viewer:  { label:"Viewer",     door:false, manage:false, users:false, reports:true,  key:false }
 };
 
-const guestTypes = [
-  "General Guest",
-  "VIP",
-  "Comp",
-  "Owner Guest",
-  "Staff Guest",
-  "Vendor",
-  "Performer / DJ",
-  "Bottle Service",
-  "Private Event Guest",
-  "Comedy Guest",
-  "Do Not Admit"
+const partyTypes = ["General Guest List", "Bottle Service", "VIP Party", "Private Party", "Staff Party", "Vendor Group"];
+const attendeeTypes = ["Guest", "VIP", "Comp", "Host", "Birthday", "Bottle Service", "Staff", "Vendor", "Do Not Admit"];
+const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+const sortOptions = [
+  { value:"LAST_ASC", label:"Last Name A-Z" },
+  { value:"LAST_DESC", label:"Last Name Z-A" },
+  { value:"FIRST_ASC", label:"First Name A-Z" },
+  { value:"FIRST_DESC", label:"First Name Z-A" },
+  { value:"UNCHECKED", label:"Unchecked First" },
+  { value:"CHECKED", label:"Checked First" }
 ];
 
-const filterOptions = [
-  "All",
-  "Not Checked In",
-  "Partially Checked In",
-  "Fully Checked In",
-  "VIP",
-  "Comp",
-  "Bottle Service",
-  "Vendor",
-  "Staff Guest",
-  "Do Not Admit"
-];
+function todayISO() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function dayNameFromDate(dateString) {
+  const date = new Date(dateString + "T12:00:00");
+  const jsDay = date.getDay();
+  return days[jsDay === 0 ? 6 : jsDay - 1];
+}
+
+function nextDateForDay(dayName) {
+  const targetIndex = days.indexOf(dayName);
+  const today = new Date();
+  const currentIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
+  const offset = (targetIndex - currentIndex + 7) % 7;
+  const result = new Date(today);
+  result.setDate(today.getDate() + offset);
+  return result.toISOString().slice(0,10);
+}
+
+const fridayDate = nextDateForDay("Friday");
+const saturdayDate = nextDateForDay("Saturday");
 
 const defaultState = {
   setup:false,
   siteKey:"",
   currentUserId:null,
   view:"door",
-  activeEventId:1,
+  activeDate: fridayDate,
+  activeDay: "Friday",
+  selectedPartyId:1,
   users:[],
-  events:[
-    { id:1, name:"EVE Friday Night",   date:"2026-05-08", venue:"EVE Nightclub", status:"Active" },
-    { id:2, name:"EVE Saturday Night", date:"2026-05-09", venue:"EVE Nightclub", status:"Active" }
+  parties:[
+    { id:1, date:fridayDate, day:"Friday", name:"General Guest List", type:"General Guest List", hostName:"Door List", table:"Front Door", approvedBy:"Management", notes:"Individual guests not tied to a bottle service group.", status:"Active" },
+    { id:2, date:fridayDate, day:"Friday", name:"Miller Bottle Service", type:"Bottle Service", hostName:"David Miller", table:"Table 4", approvedBy:"Manager", notes:"Birthday group. Confirm table before sending upstairs.", status:"Active" },
+    { id:3, date:saturdayDate, day:"Saturday", name:"General Guest List", type:"General Guest List", hostName:"Door List", table:"Front Door", approvedBy:"Management", notes:"Individual guests not tied to a bottle service group.", status:"Active" },
+    { id:4, date:saturdayDate, day:"Saturday", name:"Johnson Bottle Service", type:"Bottle Service", hostName:"Sarah Johnson", table:"Table 2", approvedBy:"Michael", notes:"No cover for listed guests.", status:"Active" }
   ],
-  guests:[
-    { id:1, eventId:1, firstName:"Friday", lastName:"VIP", guestType:"VIP", partySize:4, checkedInCount:0, approvedBy:"Management", notes:"Sample Friday guest.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
-    { id:2, eventId:1, firstName:"Ashley", lastName:"Brown", guestType:"General Guest", partySize:2, checkedInCount:0, approvedBy:"Event Upload", notes:"Friday list sample.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
-    { id:3, eventId:2, firstName:"Michael", lastName:"Anderson", guestType:"VIP", partySize:3, checkedInCount:0, approvedBy:"Owner", notes:"Owner guest. Escort to Ashton if requested.", lastCheckedInAt:null, lastCheckedInBy:null, lastDoor:null },
-    { id:4, eventId:2, firstName:"Sarah", lastName:"Johnson", guestType:"Comp", partySize:2, checkedInCount:2, approvedBy:"Trevor", notes:"EVE list. No cover.", lastCheckedInAt:"9:42 PM", lastCheckedInBy:"Sam H.", lastDoor:"Front Door" },
-    { id:5, eventId:2, firstName:"David", lastName:"Miller", guestType:"Bottle Service", partySize:10, checkedInCount:5, approvedBy:"Manager", notes:"Table reservation. Verify with host before sending upstairs.", lastCheckedInAt:"9:55 PM", lastCheckedInBy:"Trevor E.", lastDoor:"EVE Door" }
+  attendees:[
+    { id:1, partyId:1, firstName:"Ashley", lastName:"Brown", attendeeType:"VIP", checkedIn:false, checkedInAt:null, checkedInBy:null, door:null, notes:"Owner approved." },
+    { id:2, partyId:1, firstName:"Morgan", lastName:"Young", attendeeType:"Comp", checkedIn:false, checkedInAt:null, checkedInBy:null, door:null, notes:"No cover." },
+    { id:3, partyId:2, firstName:"David", lastName:"Miller", attendeeType:"Host", checkedIn:false, checkedInAt:null, checkedInBy:null, door:null, notes:"Host." },
+    { id:4, partyId:2, firstName:"Rachel", lastName:"Adams", attendeeType:"Guest", checkedIn:false, checkedInAt:null, checkedInBy:null, door:null, notes:"" },
+    { id:5, partyId:2, firstName:"Brandon", lastName:"Cole", attendeeType:"Guest", checkedIn:true, checkedInAt:"9:42 PM", checkedInBy:"Sam H.", door:"Front Door", notes:"" },
+    { id:6, partyId:4, firstName:"Sarah", lastName:"Johnson", attendeeType:"Host", checkedIn:true, checkedInAt:"9:55 PM", checkedInBy:"Trevor E.", door:"EVE Door", notes:"" },
+    { id:7, partyId:4, firstName:"Mike", lastName:"Roberts", attendeeType:"Guest", checkedIn:false, checkedInAt:null, checkedInBy:null, door:null, notes:"" }
   ],
   logs:[]
 };
 
 let state = loadState();
-let selectedGuestId = null;
-let searchQuery = "";
-let guestFilter = "All";
+let currentMode = "FULL"; // FULL or PARTY
+let selectedPartyId = state.selectedPartyId || null;
+let searchText = "";
+let partySearchText = "";
+let sortMode = "LAST_ASC";
 let doorLocation = "Front Door";
-let checkInAmount = 1;
 let modal = null;
-let editingGuestId = null;
-let editingEventId = null;
-let loginError = "";
-let setupError = "";
+let editingPartyId = null;
+let editingAttendeeId = null;
 let importMessage = "";
+let setupError = "";
+let loginError = "";
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -610,10 +587,23 @@ function loadState() {
 }
 
 function saveState() {
+  state.selectedPartyId = selectedPartyId;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function escapeHtml(value) {
+function resetDemo() {
+  if (!confirm("Reset this demo in this browser? This clears saved demo data.")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  state = clone(defaultState);
+  selectedPartyId = state.selectedPartyId;
+  currentMode = "FULL";
+  searchText = "";
+  partySearchText = "";
+  modal = null;
+  render();
+}
+
+function esc(value) {
   return String(value ?? "")
     .replaceAll("&","&amp;")
     .replaceAll("<","&lt;")
@@ -623,36 +613,25 @@ function escapeHtml(value) {
 }
 
 function nextId(collection) {
-  return collection.reduce((highest, item) => Math.max(highest, Number(item.id || 0)), 0) + 1;
+  return collection.reduce((max, item) => Math.max(max, Number(item.id || 0)), 0) + 1;
 }
 
 function currentUser() {
   return state.users.find(user => user.id === state.currentUserId) || null;
 }
 
-function currentPermissions() {
+function perms() {
   const user = currentUser();
   return user ? roles[user.role] : null;
 }
 
-function activeEvent() {
-  return state.events.find(event => event.id === state.activeEventId) || state.events[0] || null;
-}
-
-function activeGuests() {
-  const event = activeEvent();
-  return event ? state.guests.filter(guest => guest.eventId === event.id) : [];
-}
-
-function remainingCount(guest) {
-  return Math.max(0, Number(guest.partySize || 0) - Number(guest.checkedInCount || 0));
-}
-
-function guestStatus(guest) {
-  if (guest.guestType === "Do Not Admit") return "Manager Required";
-  if (guest.checkedInCount <= 0) return "Not Checked In";
-  if (guest.checkedInCount >= guest.partySize) return "Fully Checked In";
-  return "Partially Checked In";
+function requirePerm(permission) {
+  const p = perms();
+  if (!p || !p[permission]) {
+    alert("This account does not have access to that function.");
+    return false;
+  }
+  return true;
 }
 
 function timeNow() {
@@ -660,78 +639,137 @@ function timeNow() {
 }
 
 function dateTimeNow() {
-  return new Date().toLocaleString([], {
-    month:"short",
-    day:"numeric",
-    hour:"numeric",
-    minute:"2-digit"
-  });
+  return new Date().toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
 }
 
 function roleLabel(role) {
   return roles[role]?.label || role;
 }
 
-function selectedGuest() {
-  return state.guests.find(guest => guest.id === selectedGuestId) || null;
+function selectedParty() {
+  return state.parties.find(party => party.id === selectedPartyId) || partiesForActiveDate()[0] || null;
 }
 
-function badgeClass(type) {
-  const normalized = String(type || "").toLowerCase();
-  if (normalized.includes("vip")) return "vip";
-  if (normalized.includes("comp")) return "comp";
-  if (normalized.includes("bottle")) return "bottle";
-  if (normalized.includes("vendor")) return "vendor";
-  if (normalized.includes("staff")) return "staff";
-  if (normalized.includes("do not")) return "blocked";
-  return "general";
+function partiesForActiveDate() {
+  return state.parties.filter(party => party.date === state.activeDate);
 }
 
-function requirePermission(permissionName) {
-  const permissions = currentPermissions();
-  if (!permissions || !permissions[permissionName]) {
-    alert("This account does not have access to that function.");
-    return false;
-  }
-  return true;
+function attendeesForParty(partyId) {
+  return state.attendees.filter(attendee => attendee.partyId === partyId);
 }
 
-function stats() {
-  const guests = activeGuests();
+function activePartyIds() {
+  return partiesForActiveDate().map(party => party.id);
+}
+
+function attendeesForActiveDate() {
+  const ids = activePartyIds();
+  return state.attendees.filter(attendee => ids.includes(attendee.partyId));
+}
+
+function getOrCreateGeneralList() {
+  let party = state.parties.find(item =>
+    item.date === state.activeDate &&
+    item.type === "General Guest List" &&
+    item.name === "General Guest List"
+  );
+
+  if (party) return party;
+
+  party = {
+    id: nextId(state.parties),
+    date: state.activeDate,
+    day: state.activeDay,
+    name: "General Guest List",
+    type: "General Guest List",
+    hostName: "Door List",
+    table: "Front Door",
+    approvedBy: "Management",
+    notes: "Individual guests not tied to a bottle service group.",
+    status: "Active"
+  };
+
+  state.parties.unshift(party);
+  saveState();
+  return party;
+}
+
+function partyStats(partyId) {
+  const attendees = attendeesForParty(partyId);
   return {
-    records: guests.length,
-    partiesStarted: guests.filter(guest => guest.checkedInCount > 0).length,
-    totalExpected: guests.reduce((sum, guest) => sum + Number(guest.partySize || 0), 0),
-    actualIn: guests.reduce((sum, guest) => sum + Number(guest.checkedInCount || 0), 0),
-    remaining: guests.reduce((sum, guest) => sum + remainingCount(guest), 0)
+    total: attendees.length,
+    checked: attendees.filter(attendee => attendee.checkedIn).length,
+    remaining: attendees.filter(attendee => !attendee.checkedIn).length
   };
 }
 
-function filteredGuests() {
-  const query = searchQuery.trim().toLowerCase();
+function dayStats() {
+  const attendees = attendeesForActiveDate();
+  const parties = partiesForActiveDate();
+  return {
+    parties: parties.length,
+    total: attendees.length,
+    checked: attendees.filter(attendee => attendee.checkedIn).length,
+    remaining: attendees.filter(attendee => !attendee.checkedIn).length,
+    completeParties: parties.filter(party => {
+      const s = partyStats(party.id);
+      return s.total > 0 && s.remaining === 0;
+    }).length
+  };
+}
 
-  return activeGuests().filter(guest => {
-    const fullName = `${guest.firstName} ${guest.lastName}`.toLowerCase();
-    const guestType = String(guest.guestType || "").toLowerCase();
-    const notes = String(guest.notes || "").toLowerCase();
-    const status = guestStatus(guest);
+function typeClass(type) {
+  const value = String(type || "").toLowerCase();
+  if (value.includes("bottle")) return "bottle";
+  if (value.includes("vip")) return "vip";
+  if (value.includes("private")) return "private";
+  if (value.includes("do not")) return "blocked";
+  if (value.includes("vendor")) return "vendor";
+  if (value.includes("staff")) return "staff";
+  return "general";
+}
 
-    const matchesSearch =
-      !query ||
-      fullName.includes(query) ||
-      guestType.includes(query) ||
-      notes.includes(query);
+function sortAttendees(list) {
+  const last = attendee => `${attendee.lastName} ${attendee.firstName}`.toLowerCase();
+  const first = attendee => `${attendee.firstName} ${attendee.lastName}`.toLowerCase();
 
-    const matchesFilter =
-      guestFilter === "All" ||
-      guest.guestType === guestFilter ||
-      status === guestFilter;
+  if (sortMode === "LAST_ASC") return list.sort((a,b) => last(a).localeCompare(last(b)));
+  if (sortMode === "LAST_DESC") return list.sort((a,b) => last(b).localeCompare(last(a)));
+  if (sortMode === "FIRST_ASC") return list.sort((a,b) => first(a).localeCompare(first(b)));
+  if (sortMode === "FIRST_DESC") return list.sort((a,b) => first(b).localeCompare(first(a)));
+  if (sortMode === "UNCHECKED") return list.sort((a,b) => Number(a.checkedIn) - Number(b.checkedIn) || last(a).localeCompare(last(b)));
+  if (sortMode === "CHECKED") return list.sort((a,b) => Number(b.checkedIn) - Number(a.checkedIn) || last(a).localeCompare(last(b)));
 
-    return matchesSearch && matchesFilter;
+  return list;
+}
+
+function visibleAttendees() {
+  const source = currentMode === "FULL"
+    ? attendeesForActiveDate()
+    : selectedParty()
+      ? attendeesForParty(selectedParty().id)
+      : [];
+
+  const query = searchText.trim().toLowerCase();
+
+  const filtered = source.filter(attendee => {
+    const party = state.parties.find(item => item.id === attendee.partyId);
+    const partyText = party ? `${party.name} ${party.type} ${party.hostName}` : "";
+    return !query || `${attendee.firstName} ${attendee.lastName} ${attendee.attendeeType} ${attendee.notes} ${partyText}`.toLowerCase().includes(query);
+  });
+
+  return sortAttendees(filtered);
+}
+
+function visibleParties() {
+  const query = partySearchText.trim().toLowerCase();
+
+  return partiesForActiveDate().filter(party => {
+    return !query || `${party.name} ${party.type} ${party.hostName} ${party.table} ${party.notes}`.toLowerCase().includes(query);
   });
 }
 
-/* SETUP + LOGIN */
+/* SETUP / LOGIN */
 
 function setupSystem(event) {
   event.preventDefault();
@@ -756,8 +794,7 @@ function setupSystem(event) {
     { id:2, name:"Sample Door Staff", username:"door", pin:"1234", role:"door", active:true, createdAt:dateTimeNow() }
   ];
   state.currentUserId = 1;
-  state.activeEventId = 1;
-  state.view = "door";
+  selectedPartyId = partiesForActiveDate()[0]?.id || null;
 
   saveState();
   render();
@@ -779,6 +816,7 @@ function login(event) {
   }
 
   const user = state.users.find(item => item.username === username && item.pin === pin && item.active);
+
   if (!user) {
     loginError = "Username or PIN is incorrect, or the account is inactive.";
     render();
@@ -797,34 +835,46 @@ function logout() {
   render();
 }
 
-function resetDemo() {
-  if (!confirm("Reset this local demo? This clears accounts, guests, events, logs, and the private key in this browser.")) return;
-  localStorage.removeItem(STORAGE_KEY);
-  state = clone(defaultState);
-  selectedGuestId = null;
-  modal = null;
-  editingGuestId = null;
-  editingEventId = null;
+/* DATE / DAY */
+
+function setActiveDay(day) {
+  state.activeDay = day;
+  state.activeDate = nextDateForDay(day);
+  selectedPartyId = partiesForActiveDate()[0]?.id || null;
+  searchText = "";
+  saveState();
   render();
 }
 
-/* EXCEL / CSV IMPORT */
-
-function normalizeHeader(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+function setActiveDate(date) {
+  state.activeDate = date;
+  state.activeDay = dayNameFromDate(date);
+  selectedPartyId = partiesForActiveDate()[0]?.id || null;
+  searchText = "";
+  saveState();
+  render();
 }
 
-function readField(row, possibleHeaders) {
-  const normalizedRow = {};
-  Object.keys(row).forEach(key => {
-    normalizedRow[normalizeHeader(key)] = row[key];
-  });
+function selectParty(id) {
+  selectedPartyId = Number(id);
+  currentMode = "PARTY";
+  searchText = "";
+  saveState();
+  render();
+}
 
-  for (const header of possibleHeaders) {
-    const value = normalizedRow[normalizeHeader(header)];
+/* IMPORT */
+
+function normalizeHeader(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function readField(row, names) {
+  const normalized = {};
+  Object.keys(row).forEach(key => normalized[normalizeHeader(key)] = row[key]);
+
+  for (const name of names) {
+    const value = normalized[normalizeHeader(name)];
     if (value !== undefined && value !== null && String(value).trim() !== "") {
       return String(value).trim();
     }
@@ -837,71 +887,28 @@ function splitFullName(fullName) {
   const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { firstName:"", lastName:"" };
   if (parts.length === 1) return { firstName:parts[0], lastName:"" };
-
-  return {
-    firstName: parts.slice(0, -1).join(" "),
-    lastName: parts[parts.length - 1]
-  };
-}
-
-function normalizeGuestType(value) {
-  const raw = String(value || "General Guest").trim();
-  return guestTypes.find(type => normalizeHeader(type) === normalizeHeader(raw)) || raw || "General Guest";
-}
-
-function rowToGuest(row) {
-  let firstName = readField(row, ["First Name", "First", "FName"]);
-  let lastName = readField(row, ["Last Name", "Last", "LName", "Surname"]);
-  const fullName = readField(row, ["Name", "Full Name", "Guest Name"]);
-
-  if ((!firstName || !lastName) && fullName) {
-    const split = splitFullName(fullName);
-    firstName = firstName || split.firstName;
-    lastName = lastName || split.lastName;
-  }
-
-  const partySizeRaw = readField(row, ["Party Size", "Party", "Guests", "Total Guests", "Total", "Group Size"]);
-  const plusCountRaw = readField(row, ["Plus Count", "Plus", "Plus One", "Guests Plus", "+"]);
-
-  const partySize = partySizeRaw
-    ? Math.max(1, Number(partySizeRaw) || 1)
-    : Math.max(1, 1 + (Number(plusCountRaw) || 0));
-
-  return {
-    id: nextId(state.guests),
-    eventId: state.activeEventId,
-    firstName,
-    lastName,
-    guestType: normalizeGuestType(readField(row, ["Guest Type", "Type", "Category", "List", "Access Level"])),
-    partySize,
-    checkedInCount: 0,
-    approvedBy: readField(row, ["Approved By", "Approved", "Manager", "Submitted By"]) || "Imported File",
-    notes: readField(row, ["Notes", "Note", "Comments", "Comment", "Details"]),
-    lastCheckedInAt: null,
-    lastCheckedInBy: null,
-    lastDoor: null
-  };
+  return { firstName:parts.slice(0,-1).join(" "), lastName:parts[parts.length - 1] };
 }
 
 function parseCsv(text) {
   const rows = [];
   let row = [];
   let cell = "";
-  let insideQuotes = false;
+  let quote = false;
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
-    const next = text[i + 1];
+    const next = text[i+1];
 
-    if (char === '"' && insideQuotes && next === '"') {
+    if (char === '"' && quote && next === '"') {
       cell += '"';
       i++;
     } else if (char === '"') {
-      insideQuotes = !insideQuotes;
-    } else if (char === "," && !insideQuotes) {
+      quote = !quote;
+    } else if (char === "," && !quote) {
       row.push(cell);
       cell = "";
-    } else if ((char === "\n" || char === "\r") && !insideQuotes) {
+    } else if ((char === "\n" || char === "\r") && !quote) {
       if (char === "\r" && next === "\n") i++;
       row.push(cell);
       rows.push(row);
@@ -922,49 +929,80 @@ function parseCsv(text) {
   return rows
     .filter(row => row.some(cell => String(cell || "").trim() !== ""))
     .map(row => {
-      const obj = {};
-      headers.forEach((header, index) => {
-        obj[header] = row[index] || "";
-      });
-      return obj;
+      const object = {};
+      headers.forEach((header, index) => object[header] = row[index] || "");
+      return object;
     });
 }
 
-function importRows(rows) {
-  if (!requirePermission("manage")) return;
+function attendeeFromRow(row, partyId) {
+  let firstName = readField(row, ["First Name", "First", "FName"]);
+  let lastName = readField(row, ["Last Name", "Last", "LName", "Surname"]);
+  const fullName = readField(row, ["Name", "Full Name", "Guest Name", "Attendee Name"]);
 
-  const validGuests = [];
-  const skippedRows = [];
+  if ((!firstName || !lastName) && fullName) {
+    const split = splitFullName(fullName);
+    firstName = firstName || split.firstName;
+    lastName = lastName || split.lastName;
+  }
 
-  rows.forEach((row, index) => {
-    const guest = rowToGuest(row);
+  return {
+    id: nextId(state.attendees),
+    partyId,
+    firstName,
+    lastName,
+    attendeeType: readField(row, ["Attendee Type", "Guest Type", "Type", "Category"]) || "Guest",
+    checkedIn:false,
+    checkedInAt:null,
+    checkedInBy:null,
+    door:null,
+    notes: readField(row, ["Notes", "Note", "Comments", "Details"])
+  };
+}
 
-    if (!guest.firstName || !guest.lastName) {
-      skippedRows.push(index + 2);
-      return;
-    }
+function importRows(rows, targetMode) {
+  if (!requirePerm("manage")) return;
 
-    guest.id = nextId([...state.guests, ...validGuests]);
-    validGuests.push(guest);
-  });
+  let party = targetMode === "general" ? getOrCreateGeneralList() : selectedParty();
 
-  if (!validGuests.length) {
-    importMessage = "No valid guest rows were found. Use First Name and Last Name columns, or a Full Name column.";
+  if (!party) {
+    importMessage = "Select or create a party first.";
     render();
     return;
   }
 
-  state.guests = [...validGuests, ...state.guests];
-  importMessage = `Imported ${validGuests.length} guest record${validGuests.length === 1 ? "" : "s"} into ${activeEvent().name}. ${skippedRows.length ? `Skipped ${skippedRows.length} row${skippedRows.length === 1 ? "" : "s"} missing names.` : ""}`;
+  const valid = [];
+  const skipped = [];
 
+  rows.forEach((row, index) => {
+    const attendee = attendeeFromRow(row, party.id);
+    if (!attendee.firstName || !attendee.lastName) {
+      skipped.push(index + 2);
+      return;
+    }
+    attendee.id = nextId([...state.attendees, ...valid]);
+    valid.push(attendee);
+  });
+
+  if (!valid.length) {
+    importMessage = "No valid names found. Use First Name / Last Name, or Full Name.";
+    render();
+    return;
+  }
+
+  state.attendees = [...valid, ...state.attendees];
+  importMessage = `Imported ${valid.length} name${valid.length === 1 ? "" : "s"} into ${party.name}. ${skipped.length ? `Skipped ${skipped.length} row${skipped.length === 1 ? "" : "s"} missing names.` : ""}`;
+  selectedPartyId = party.id;
   saveState();
   render();
 }
 
-function handleGuestFileUpload(event) {
-  if (!requirePermission("manage")) return;
+function handleFileUpload(event) {
+  if (!requirePerm("manage")) return;
 
+  const targetMode = document.getElementById("uploadTarget")?.value || "selected";
   const file = event.target.files && event.target.files[0];
+
   if (!file) return;
 
   const extension = file.name.split(".").pop().toLowerCase();
@@ -983,138 +1021,73 @@ function handleGuestFileUpload(event) {
         rows = parseCsv(String(loadEvent.target.result || ""));
       } else {
         if (typeof XLSX === "undefined") {
-          importMessage = "Excel reader did not load. Try CSV instead, or check your internet connection.";
+          importMessage = "Excel reader did not load. Try CSV instead, or check internet connection.";
           render();
           return;
         }
 
         const workbook = XLSX.read(loadEvent.target.result, { type:"array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        rows = XLSX.utils.sheet_to_json(worksheet, { defval:"" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
       }
 
-      importRows(rows);
+      importRows(rows, targetMode);
       event.target.value = "";
     } catch (error) {
       console.error(error);
-      importMessage = "Import failed. First row should have headers like First Name, Last Name, Guest Type, and Party Size.";
+      importMessage = "Import failed. First row should include First Name / Last Name, or Full Name.";
       render();
     }
   };
 
-  if (extension === "csv") {
-    reader.readAsText(file);
-  } else {
-    reader.readAsArrayBuffer(file);
-  }
+  if (extension === "csv") reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
 }
 
 /* ACTIONS */
 
 function switchView(view) {
-  const permissions = currentPermissions();
-
-  if (view === "door" && !permissions.door) return alert("No door check-in access.");
-  if (view === "manage" && !permissions.manage) return alert("No management access.");
-  if (view === "users" && !permissions.users) return alert("No account access.");
-  if (view === "reports" && !permissions.reports) return alert("No report access.");
+  const p = perms();
+  if (view === "door" && !p.door) return alert("No door access.");
+  if (view === "manage" && !p.manage) return alert("No management access.");
+  if (view === "users" && !p.users) return alert("No account access.");
+  if (view === "reports" && !p.reports) return alert("No report access.");
 
   state.view = view;
   saveState();
   render();
 }
 
-function setActiveEvent(id) {
-  state.activeEventId = Number(id);
-  selectedGuestId = null;
-  checkInAmount = 1;
-  saveState();
+function setMode(mode) {
+  currentMode = mode;
+  searchText = "";
   render();
 }
 
-function selectGuest(id) {
-  selectedGuestId = id;
-  checkInAmount = 1;
-  render();
-}
+function toggleAttendee(id) {
+  if (!requirePerm("door")) return;
 
-function setCheckAmount(value) {
-  const guest = selectedGuest();
-  if (!guest) return;
+  const attendee = state.attendees.find(item => item.id === id);
+  if (!attendee) return;
 
-  checkInAmount = Math.max(1, Math.min(remainingCount(guest), Number(value || 1)));
-  render();
-}
-
-function adjustCheckAmount(delta) {
-  const guest = selectedGuest();
-  if (!guest) return;
-
-  checkInAmount = Math.max(1, Math.min(remainingCount(guest), checkInAmount + delta));
-  render();
-}
-
-function checkInGuest(id, amount) {
-  if (!requirePermission("door")) return;
-
-  const user = currentUser();
-  const guest = state.guests.find(item => item.id === id);
-  if (!guest) return;
-
-  if (guest.guestType === "Do Not Admit") {
-    alert("This guest is marked Do Not Admit. Contact management.");
+  if (attendee.attendeeType === "Do Not Admit") {
+    alert("This attendee is marked Do Not Admit. Contact management.");
     return;
   }
 
-  const actualAmount = Math.min(Math.max(1, Number(amount || 1)), remainingCount(guest));
-  if (actualAmount <= 0) return;
-
-  guest.checkedInCount += actualAmount;
-  guest.lastCheckedInAt = timeNow();
-  guest.lastCheckedInBy = user.name;
-  guest.lastDoor = doorLocation;
-
-  state.logs.unshift({
-    id: nextId(state.logs),
-    eventId: guest.eventId,
-    guestId: guest.id,
-    guestName: `${guest.firstName} ${guest.lastName}`,
-    amount: actualAmount,
-    action: "Check In",
-    staffName: user.name,
-    doorLocation,
-    timestamp: dateTimeNow()
-  });
-
-  selectedGuestId = id;
-  checkInAmount = 1;
-  saveState();
-  render();
-}
-
-function undoOne(id) {
-  if (!requirePermission("door")) return;
-
   const user = currentUser();
-  const guest = state.guests.find(item => item.id === id);
-  if (!guest || guest.checkedInCount <= 0) return;
 
-  guest.checkedInCount = Math.max(0, guest.checkedInCount - 1);
-
-  if (guest.checkedInCount === 0) {
-    guest.lastCheckedInAt = null;
-    guest.lastCheckedInBy = null;
-    guest.lastDoor = null;
-  }
+  attendee.checkedIn = !attendee.checkedIn;
+  attendee.checkedInAt = attendee.checkedIn ? timeNow() : null;
+  attendee.checkedInBy = attendee.checkedIn ? user.name : null;
+  attendee.door = attendee.checkedIn ? doorLocation : null;
 
   state.logs.unshift({
     id: nextId(state.logs),
-    eventId: guest.eventId,
-    guestId: guest.id,
-    guestName: `${guest.firstName} ${guest.lastName}`,
-    amount: 1,
-    action: "Undo 1",
+    partyId: attendee.partyId,
+    attendeeId: attendee.id,
+    attendeeName: `${attendee.firstName} ${attendee.lastName}`,
+    action: attendee.checkedIn ? "Check In" : "Undo Check-In",
     staffName: user.name,
     doorLocation,
     timestamp: dateTimeNow()
@@ -1124,187 +1097,175 @@ function undoOne(id) {
   render();
 }
 
-function resetParty(id) {
-  if (!requirePermission("manage")) return;
-  if (!confirm("Reset this party's checked-in count to zero?")) return;
-
-  const user = currentUser();
-  const guest = state.guests.find(item => item.id === id);
-  if (!guest) return;
-
-  guest.checkedInCount = 0;
-  guest.lastCheckedInAt = null;
-  guest.lastCheckedInBy = null;
-  guest.lastDoor = null;
-
-  state.logs.unshift({
-    id: nextId(state.logs),
-    eventId: guest.eventId,
-    guestId: guest.id,
-    guestName: `${guest.firstName} ${guest.lastName}`,
-    amount: 0,
-    action: "Reset Party",
-    staffName: user.name,
-    doorLocation,
-    timestamp: dateTimeNow()
-  });
-
-  saveState();
-  render();
-}
-
-function createGuestFromForm(event) {
+function createParty(event) {
   event.preventDefault();
-  if (!requirePermission("manage")) return;
+  if (!requirePerm("manage")) return;
 
   const form = new FormData(event.target);
 
-  const guest = {
-    id: nextId(state.guests),
-    eventId: state.activeEventId,
-    firstName: String(form.get("firstName") || "").trim(),
-    lastName: String(form.get("lastName") || "").trim(),
-    guestType: String(form.get("guestType") || "General Guest"),
-    partySize: Math.max(1, Number(form.get("partySize") || 1)),
-    checkedInCount: Math.max(0, Number(form.get("checkedInCount") || 0)),
+  const party = {
+    id: nextId(state.parties),
+    date: String(form.get("date") || state.activeDate),
+    day: dayNameFromDate(String(form.get("date") || state.activeDate)),
+    name: String(form.get("name") || "").trim(),
+    type: String(form.get("type") || "Bottle Service"),
+    hostName: String(form.get("hostName") || "").trim(),
+    table: String(form.get("table") || "").trim(),
     approvedBy: String(form.get("approvedBy") || "Management").trim(),
     notes: String(form.get("notes") || "").trim(),
-    lastCheckedInAt: null,
-    lastCheckedInBy: null,
-    lastDoor: null
-  };
-
-  guest.checkedInCount = Math.min(guest.checkedInCount, guest.partySize);
-
-  if (!guest.firstName || !guest.lastName) {
-    alert("First and last name are required.");
-    return;
-  }
-
-  state.guests.unshift(guest);
-  selectedGuestId = guest.id;
-  modal = null;
-  saveState();
-  render();
-}
-
-function updateGuestFromForm(event) {
-  event.preventDefault();
-  if (!requirePermission("manage")) return;
-
-  const guest = state.guests.find(item => item.id === editingGuestId);
-  if (!guest) return;
-
-  const form = new FormData(event.target);
-
-  guest.firstName = String(form.get("firstName") || "").trim();
-  guest.lastName = String(form.get("lastName") || "").trim();
-  guest.guestType = String(form.get("guestType") || "General Guest");
-  guest.partySize = Math.max(1, Number(form.get("partySize") || 1));
-  guest.checkedInCount = Math.min(Math.max(0, Number(form.get("checkedInCount") || 0)), guest.partySize);
-  guest.approvedBy = String(form.get("approvedBy") || "Management").trim();
-  guest.notes = String(form.get("notes") || "").trim();
-
-  if (!guest.firstName || !guest.lastName) {
-    alert("First and last name are required.");
-    return;
-  }
-
-  modal = null;
-  editingGuestId = null;
-  saveState();
-  render();
-}
-
-function deleteGuest(id) {
-  if (!requirePermission("manage")) return;
-  if (!confirm("Delete this guest/party from this event?")) return;
-
-  state.guests = state.guests.filter(guest => guest.id !== id);
-  state.logs = state.logs.filter(log => log.guestId !== id);
-
-  if (selectedGuestId === id) selectedGuestId = null;
-
-  saveState();
-  render();
-}
-
-function createEventFromForm(event) {
-  event.preventDefault();
-  if (!requirePermission("manage")) return;
-
-  const form = new FormData(event.target);
-
-  const newEvent = {
-    id: nextId(state.events),
-    name: String(form.get("name") || "").trim(),
-    date: String(form.get("date") || "").trim(),
-    venue: String(form.get("venue") || "").trim(),
     status: String(form.get("status") || "Active")
   };
 
-  if (!newEvent.name || !newEvent.date || !newEvent.venue) {
-    alert("Event name, date, and venue are required.");
+  if (!party.name || !party.date) {
+    alert("Party name and date are required.");
     return;
   }
 
-  state.events.unshift(newEvent);
-  state.activeEventId = newEvent.id;
-  selectedGuestId = null;
+  state.parties.unshift(party);
+  state.activeDate = party.date;
+  state.activeDay = party.day;
+  selectedPartyId = party.id;
+  currentMode = "PARTY";
   modal = null;
   saveState();
   render();
 }
 
-function updateEventFromForm(event) {
+function updateParty(event) {
   event.preventDefault();
-  if (!requirePermission("manage")) return;
+  if (!requirePerm("manage")) return;
 
-  const item = state.events.find(eventItem => eventItem.id === editingEventId);
-  if (!item) return;
+  const party = state.parties.find(item => item.id === editingPartyId);
+  if (!party) return;
 
   const form = new FormData(event.target);
 
-  item.name = String(form.get("name") || "").trim();
-  item.date = String(form.get("date") || "").trim();
-  item.venue = String(form.get("venue") || "").trim();
-  item.status = String(form.get("status") || "Active");
+  party.date = String(form.get("date") || state.activeDate);
+  party.day = dayNameFromDate(party.date);
+  party.name = String(form.get("name") || "").trim();
+  party.type = String(form.get("type") || "Bottle Service");
+  party.hostName = String(form.get("hostName") || "").trim();
+  party.table = String(form.get("table") || "").trim();
+  party.approvedBy = String(form.get("approvedBy") || "Management").trim();
+  party.notes = String(form.get("notes") || "").trim();
+  party.status = String(form.get("status") || "Active");
 
-  if (!item.name || !item.date || !item.venue) {
-    alert("Event name, date, and venue are required.");
+  if (!party.name || !party.date) {
+    alert("Party name and date are required.");
     return;
   }
 
+  state.activeDate = party.date;
+  state.activeDay = party.day;
+  selectedPartyId = party.id;
   modal = null;
-  editingEventId = null;
+  editingPartyId = null;
   saveState();
   render();
 }
 
-function deleteEvent(id) {
-  if (!requirePermission("manage")) return;
+function deleteParty(id) {
+  if (!requirePerm("manage")) return;
 
-  const eventItem = state.events.find(item => item.id === id);
-  if (!eventItem) return;
+  const party = state.parties.find(item => item.id === id);
+  if (!party) return;
 
-  if (!confirm(`Delete "${eventItem.name}" and all guests/check-in logs for that event?`)) return;
+  if (!confirm(`Delete "${party.name}" and all names under it?`)) return;
 
-  state.events = state.events.filter(item => item.id !== id);
-  state.guests = state.guests.filter(guest => guest.eventId !== id);
-  state.logs = state.logs.filter(log => log.eventId !== id);
+  state.parties = state.parties.filter(item => item.id !== id);
+  state.attendees = state.attendees.filter(item => item.partyId !== id);
+  state.logs = state.logs.filter(item => item.partyId !== id);
 
-  if (state.activeEventId === id) {
-    state.activeEventId = state.events[0]?.id || null;
-    selectedGuestId = null;
+  if (selectedPartyId === id) {
+    selectedPartyId = partiesForActiveDate()[0]?.id || null;
   }
 
+  saveState();
+  render();
+}
+
+function createAttendee(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const form = new FormData(event.target);
+  const target = String(form.get("target") || "general");
+  const party = target === "general" ? getOrCreateGeneralList() : selectedParty();
+
+  if (!party) {
+    alert("Select or create a party first.");
+    return;
+  }
+
+  const attendee = {
+    id: nextId(state.attendees),
+    partyId: party.id,
+    firstName: String(form.get("firstName") || "").trim(),
+    lastName: String(form.get("lastName") || "").trim(),
+    attendeeType: String(form.get("attendeeType") || "Guest"),
+    checkedIn: Boolean(form.get("checkedIn")),
+    checkedInAt:null,
+    checkedInBy:null,
+    door:null,
+    notes: String(form.get("notes") || "").trim()
+  };
+
+  if (!attendee.firstName || !attendee.lastName) {
+    alert("First and last name are required.");
+    return;
+  }
+
+  if (attendee.checkedIn) {
+    attendee.checkedInAt = timeNow();
+    attendee.checkedInBy = currentUser().name;
+    attendee.door = doorLocation;
+  }
+
+  state.attendees.unshift(attendee);
+  selectedPartyId = party.id;
+  modal = null;
+  saveState();
+  render();
+}
+
+function updateAttendee(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const attendee = state.attendees.find(item => item.id === editingAttendeeId);
+  if (!attendee) return;
+
+  const form = new FormData(event.target);
+
+  attendee.firstName = String(form.get("firstName") || "").trim();
+  attendee.lastName = String(form.get("lastName") || "").trim();
+  attendee.attendeeType = String(form.get("attendeeType") || "Guest");
+  attendee.notes = String(form.get("notes") || "").trim();
+
+  if (!attendee.firstName || !attendee.lastName) {
+    alert("First and last name are required.");
+    return;
+  }
+
+  modal = null;
+  editingAttendeeId = null;
+  saveState();
+  render();
+}
+
+function deleteAttendee(id) {
+  if (!requirePerm("manage")) return;
+  if (!confirm("Delete this name from the list?")) return;
+
+  state.attendees = state.attendees.filter(item => item.id !== id);
+  state.logs = state.logs.filter(item => item.attendeeId !== id);
   saveState();
   render();
 }
 
 function createUser(event) {
   event.preventDefault();
-  if (!requirePermission("users")) return;
+  if (!requirePerm("users")) return;
 
   const form = new FormData(event.target);
   const username = String(form.get("username") || "").trim();
@@ -1320,7 +1281,7 @@ function createUser(event) {
     username,
     pin: String(form.get("pin") || "").trim(),
     role: String(form.get("role") || "door"),
-    active: true,
+    active:true,
     createdAt: dateTimeNow()
   };
 
@@ -1335,24 +1296,24 @@ function createUser(event) {
 }
 
 function toggleUser(id) {
-  if (!requirePermission("users")) return;
+  if (!requirePerm("users")) return;
 
-  const userItem = state.users.find(item => item.id === id);
-  if (!userItem) return;
+  const user = state.users.find(item => item.id === id);
+  if (!user) return;
 
-  if (userItem.id === state.currentUserId) {
-    alert("You cannot deactivate your own account while signed in.");
+  if (user.id === state.currentUserId) {
+    alert("You cannot deactivate your own account.");
     return;
   }
 
-  userItem.active = !userItem.active;
+  user.active = !user.active;
   saveState();
   render();
 }
 
 function updatePrivateKey(event) {
   event.preventDefault();
-  if (!requirePermission("key")) return;
+  if (!requirePerm("key")) return;
 
   const form = new FormData(event.target);
   const currentKey = String(form.get("currentKey") || "").trim();
@@ -1375,77 +1336,65 @@ function updatePrivateKey(event) {
 }
 
 function exportCsv() {
-  if (!requirePermission("reports")) return;
-
-  const eventItem = activeEvent();
-  if (!eventItem) return;
+  if (!requirePerm("reports")) return;
 
   const rows = [
-    ["Event", "First Name", "Last Name", "Guest Type", "Party Size", "Checked In", "Remaining", "Approved By", "Notes", "Last Door", "Last Staff", "Last Time"],
-    ...activeGuests().map(guest => [
-      eventItem.name,
-      guest.firstName,
-      guest.lastName,
-      guest.guestType,
-      guest.partySize,
-      guest.checkedInCount,
-      remainingCount(guest),
-      guest.approvedBy,
-      guest.notes,
-      guest.lastDoor || "",
-      guest.lastCheckedInBy || "",
-      guest.lastCheckedInAt || ""
-    ])
+    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Attendee Type","Checked In","Checked In At","Checked In By","Door","Notes"],
+    ...attendeesForActiveDate().map(attendee => {
+      const party = state.parties.find(item => item.id === attendee.partyId);
+      return [
+        party?.date || "",
+        party?.day || "",
+        party?.name || "",
+        party?.type || "",
+        party?.hostName || "",
+        party?.table || "",
+        attendee.firstName,
+        attendee.lastName,
+        attendee.attendeeType,
+        attendee.checkedIn ? "Yes" : "No",
+        attendee.checkedInAt || "",
+        attendee.checkedInBy || "",
+        attendee.door || "",
+        attendee.notes || ""
+      ];
+    })
   ];
 
-  const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
   link.href = url;
-  link.download = `${eventItem.name.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_doorflow_report.csv`;
+  link.download = `doorflow_${state.activeDate}.csv`;
   link.click();
 
   URL.revokeObjectURL(url);
 }
 
-function openAddGuestModal() {
-  if (!requirePermission("manage")) return;
-  editingGuestId = null;
-  modal = "guest";
+function openPartyModal(id = null) {
+  if (!requirePerm("manage")) return;
+  editingPartyId = id;
+  modal = "party";
   render();
 }
 
-function openEditGuestModal(id) {
-  if (!requirePermission("manage")) return;
-  editingGuestId = id;
-  modal = "guest";
-  render();
-}
-
-function openCreateEventModal() {
-  if (!requirePermission("manage")) return;
-  editingEventId = null;
-  modal = "event";
-  render();
-}
-
-function openEditEventModal(id) {
-  if (!requirePermission("manage")) return;
-  editingEventId = id;
-  modal = "event";
+function openAttendeeModal(id = null) {
+  if (!requirePerm("manage")) return;
+  editingAttendeeId = id;
+  modal = "attendee";
   render();
 }
 
 function closeModal() {
   modal = null;
-  editingGuestId = null;
-  editingEventId = null;
+  editingPartyId = null;
+  editingAttendeeId = null;
   render();
 }
 
-/* RENDERING */
+/* RENDER */
 
 function renderSetup() {
   return `
@@ -1453,37 +1402,22 @@ function renderSetup() {
       <div class="card">
         <div class="brand" style="margin-bottom:18px;">
           <div class="logo">DF</div>
-          <div>
-            <h1>DoorFlow Setup</h1>
-            <p>Create the private key and first management account</p>
-          </div>
+          <div><h1>DoorFlow Setup</h1><p>Create the private key and first management account</p></div>
         </div>
 
         <div class="notice warn">
-          <strong>Demo note:</strong> this stores data in this browser. Real security and multi-device syncing come later with a database.
+          <strong>Demo note:</strong> this stores data in this browser. Real syncing comes later with a database.
         </div>
 
-        ${setupError ? `<div class="notice redbox">${escapeHtml(setupError)}</div>` : ""}
+        ${setupError ? `<div class="notice redbox">${esc(setupError)}</div>` : ""}
 
         <form onsubmit="setupSystem(event)" class="form">
-          <div>
-            <label>Your Name</label>
-            <input name="name" placeholder="Trevor Eitel" />
-          </div>
+          <div><label>Your Name</label><input name="name" placeholder="Trevor Eitel" /></div>
           <div class="form two">
-            <div>
-              <label>Management Username</label>
-              <input name="username" placeholder="trevor" />
-            </div>
-            <div>
-              <label>PIN</label>
-              <input name="pin" type="password" placeholder="4+ digits" />
-            </div>
+            <div><label>Management Username</label><input name="username" placeholder="trevor" /></div>
+            <div><label>PIN</label><input name="pin" type="password" placeholder="4+ digits" /></div>
           </div>
-          <div>
-            <label>Private Website Access Key</label>
-            <input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026" />
-          </div>
+          <div><label>Private Website Access Key</label><input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026" /></div>
           <button class="btn" type="submit">Create DoorFlow Demo</button>
         </form>
       </div>
@@ -1497,28 +1431,16 @@ function renderLogin() {
       <div class="card">
         <div class="brand" style="margin-bottom:18px;">
           <div class="logo">DF</div>
-          <div>
-            <h1>DoorFlow Login</h1>
-            <p>Private key + user account</p>
-          </div>
+          <div><h1>DoorFlow Login</h1><p>Private key + user account</p></div>
         </div>
 
-        ${loginError ? `<div class="notice redbox">${escapeHtml(loginError)}</div>` : ""}
+        ${loginError ? `<div class="notice redbox">${esc(loginError)}</div>` : ""}
 
         <form onsubmit="login(event)" class="form">
-          <div>
-            <label>Private Access Key</label>
-            <input name="siteKey" type="password" />
-          </div>
+          <div><label>Private Access Key</label><input name="siteKey" type="password" /></div>
           <div class="form two">
-            <div>
-              <label>Username</label>
-              <input name="username" />
-            </div>
-            <div>
-              <label>PIN</label>
-              <input name="pin" type="password" />
-            </div>
+            <div><label>Username</label><input name="username" /></div>
+            <div><label>PIN</label><input name="pin" type="password" /></div>
           </div>
           <button class="btn" type="submit">Log In</button>
         </form>
@@ -1533,7 +1455,6 @@ function renderLogin() {
 
 function renderTopbar() {
   const user = currentUser();
-  const event = activeEvent();
 
   return `
     <header class="topbar">
@@ -1542,17 +1463,12 @@ function renderTopbar() {
           <div class="logo">DF</div>
           <div>
             <h1>DoorFlow</h1>
-            <p>${escapeHtml(event?.name || "No Event")} · ${escapeHtml(event?.venue || "")}</p>
+            <p>${esc(state.activeDay)} · ${esc(state.activeDate)} · Guest List + Party Check-In</p>
           </div>
         </div>
 
         <div class="top-actions">
-          <span class="pill">${escapeHtml(user.name)} · ${roleLabel(user.role)}</span>
-          <select style="width:220px;" onchange="setActiveEvent(this.value)">
-            ${state.events.map(item => `
-              <option value="${item.id}" ${item.id === state.activeEventId ? "selected" : ""}>${escapeHtml(item.name)}</option>
-            `).join("")}
-          </select>
+          <span class="pill">${esc(user.name)} · ${roleLabel(user.role)}</span>
           <button class="btn secondary small" onclick="logout()">Log Out</button>
         </div>
       </div>
@@ -1561,84 +1477,143 @@ function renderTopbar() {
 }
 
 function renderTabs() {
-  const permissions = currentPermissions();
+  const p = perms();
 
   return `
     <div class="tabs">
-      ${permissions.door ? `<button class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
-      ${permissions.manage ? `<button class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
-      ${permissions.users ? `<button class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Accounts & Private Key</button>` : ""}
-      ${permissions.reports ? `<button class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
+      ${p.door ? `<button class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
+      ${p.manage ? `<button class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
+      ${p.users ? `<button class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Accounts & Private Key</button>` : ""}
+      ${p.reports ? `<button class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
+    </div>
+  `;
+}
+
+function renderDateBar() {
+  const party = selectedParty();
+
+  return `
+    <div class="card tight">
+      <div class="datebar">
+        <div>
+          <label>Day</label>
+          <select onchange="setActiveDay(this.value)">
+            ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
+          </select>
+        </div>
+
+        <div>
+          <label>Calendar Date</label>
+          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+        </div>
+
+        <div>
+          <label>Selected Party / Group</label>
+          <select onchange="selectParty(this.value)">
+            ${partiesForActiveDate().length
+              ? partiesForActiveDate().map(item => `<option value="${item.id}" ${item.id === party?.id ? "selected" : ""}>${esc(item.name)} — ${esc(item.hostName || item.type)}</option>`).join("")
+              : `<option>No parties for this date</option>`
+            }
+          </select>
+        </div>
+
+        <div>
+          <label>Door Location</label>
+          <select onchange="doorLocation=this.value;render()">
+            ${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(option => `<option ${option === doorLocation ? "selected" : ""}>${option}</option>`).join("")}
+          </select>
+        </div>
+      </div>
     </div>
   `;
 }
 
 function renderStats() {
-  const item = stats();
+  const s = dayStats();
 
   return `
     <div class="stats">
-      <div class="stat"><span>Guest Records</span><strong>${item.records}</strong></div>
-      <div class="stat"><span>Parties Started</span><strong>${item.partiesStarted}</strong></div>
-      <div class="stat"><span>Total Expected</span><strong>${item.totalExpected}</strong></div>
-      <div class="stat"><span>Actual Count In</span><strong>${item.actualIn}</strong></div>
-      <div class="stat"><span>Still Remaining</span><strong>${item.remaining}</strong></div>
+      <div class="stat"><span>Groups</span><strong>${s.parties}</strong></div>
+      <div class="stat"><span>Complete Groups</span><strong>${s.completeParties}</strong></div>
+      <div class="stat"><span>Total Names</span><strong>${s.total}</strong></div>
+      <div class="stat"><span>Checked In</span><strong>${s.checked}</strong></div>
+      <div class="stat"><span>Still Remaining</span><strong>${s.remaining}</strong></div>
     </div>
   `;
 }
 
-function renderGuestList(showManagementActions = false) {
-  const list = filteredGuests();
+function renderPartyList(showActions = false) {
+  const parties = visibleParties();
 
-  if (!list.length) {
-    return `<div class="card tight"><p class="subtle" style="margin:0;">No guests found for this event.</p></div>`;
+  if (!parties.length) {
+    return `<div class="notice warn">No parties or guest lists are scheduled for ${esc(state.activeDay)} ${esc(state.activeDate)}.</div>`;
   }
 
   return `
-    <div class="guest-list">
-      ${list.map(guest => {
-        const remaining = remainingCount(guest);
-        const status = guestStatus(guest);
-        const cardClass =
-          guest.guestType === "Do Not Admit"
-            ? "blocked"
-            : status === "Fully Checked In"
-              ? "full"
-              : status === "Partially Checked In"
-                ? "partial"
-                : "";
+    <div class="party-list">
+      ${parties.map(party => {
+        const s = partyStats(party.id);
+        const complete = s.total > 0 && s.remaining === 0;
+        const started = s.checked > 0 && s.remaining > 0;
 
         return `
-          <div class="guest-card ${cardClass} ${selectedGuestId === guest.id ? "selected" : ""}" onclick="selectGuest(${guest.id})">
-            <div class="guest-row">
-              <div>
-                <h3 class="guest-name">${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h3>
-                <div class="badges">
-                  <span class="badge ${badgeClass(guest.guestType)}">${escapeHtml(guest.guestType)}</span>
-                  <span class="badge general">Party of ${guest.partySize}</span>
-                  ${guest.checkedInCount > 0 ? `<span class="badge in">${guest.checkedInCount} in</span>` : ""}
-                  ${remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
-                </div>
-                <p class="guest-notes">${escapeHtml(guest.notes)}</p>
+          <div class="party-card ${party.id === selectedParty()?.id ? "selected" : ""} ${complete ? "complete" : started ? "started" : ""}" onclick="selectParty(${party.id})">
+            <h3 class="party-title">${esc(party.name)}</h3>
+
+            <div class="party-meta">
+              <span class="badge ${typeClass(party.type)}">${esc(party.type)}</span>
+              <span class="badge general">Host: ${esc(party.hostName || "N/A")}</span>
+              ${party.table ? `<span class="badge general">${esc(party.table)}</span>` : ""}
+              <span class="badge in">${s.checked} in</span>
+              <span class="badge remaining">${s.remaining} left</span>
+            </div>
+
+            <p class="subtle" style="margin:0;">${esc(party.notes || "No notes listed.")}</p>
+
+            ${showActions ? `
+              <div class="row-actions" style="margin-top:10px;">
+                <button class="btn secondary small" onclick="event.stopPropagation(); openPartyModal(${party.id})">Edit</button>
+                <button class="btn danger small" onclick="event.stopPropagation(); deleteParty(${party.id})">Delete</button>
               </div>
+            ` : ""}
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
 
-              <div class="guest-actions">
-                ${guest.guestType === "Do Not Admit"
-                  ? `<span class="badge blocked">Manager Required</span>`
-                  : remaining <= 0
-                    ? `<span class="badge in">Fully Checked In</span>`
-                    : `<button class="btn small" onclick="event.stopPropagation(); checkInGuest(${guest.id}, 1)">Quick Check In 1</button>`
-                }
+function renderAttendeeList(showActions = false) {
+  const attendees = visibleAttendees();
 
-                ${showManagementActions ? `
-                  <div class="row-actions">
-                    <button class="btn secondary small" onclick="event.stopPropagation(); openEditGuestModal(${guest.id})">Edit</button>
-                    <button class="btn danger small" onclick="event.stopPropagation(); deleteGuest(${guest.id})">Delete</button>
-                  </div>
-                ` : ""}
+  if (!attendees.length) {
+    return `<div class="notice warn">No names found for the selected view.</div>`;
+  }
 
-                ${guest.lastCheckedInAt ? `<span class="subtle" style="font-size:12px;margin:0;">Last: ${guest.lastCheckedInAt} · ${escapeHtml(guest.lastCheckedInBy)}</span>` : ""}
-              </div>
+  return `
+    <div class="attendee-list">
+      ${attendees.map(attendee => {
+        const party = state.parties.find(item => item.id === attendee.partyId);
+
+        return `
+          <div class="attendee-row ${attendee.checkedIn ? "checked" : ""}">
+            <button class="attendee-check" onclick="toggleAttendee(${attendee.id})">${attendee.checkedIn ? "✓" : ""}</button>
+
+            <div>
+              <p class="attendee-name">${esc(attendee.firstName)} ${esc(attendee.lastName)}</p>
+              <p class="attendee-detail">
+                ${esc(attendee.attendeeType)}
+                ${party ? ` · ${esc(party.name)}` : ""}
+                ${attendee.notes ? ` · ${esc(attendee.notes)}` : ""}
+                ${attendee.checkedIn ? ` · Checked in at ${esc(attendee.checkedInAt)} by ${esc(attendee.checkedInBy)} at ${esc(attendee.door)}` : ""}
+              </p>
+            </div>
+
+            <div class="row-actions">
+              ${showActions ? `
+                <button class="btn secondary small" onclick="openAttendeeModal(${attendee.id})">Edit</button>
+                <button class="btn danger small" onclick="deleteAttendee(${attendee.id})">Delete</button>
+              ` : ""}
             </div>
           </div>
         `;
@@ -1647,216 +1622,155 @@ function renderGuestList(showManagementActions = false) {
   `;
 }
 
-function renderSelectedPanel() {
-  const guest = selectedGuest();
-  const permissions = currentPermissions();
+function renderSelectedPartyPanel() {
+  const party = selectedParty();
 
-  if (!guest) {
+  if (!party) {
     return `
       <div class="card">
-        <h2>Selected Party</h2>
-        <p class="subtle">Select a party from the list to check in partial groups and view details.</p>
+        <h2>Selected Group</h2>
+        <p class="subtle">No party or guest list selected.</p>
       </div>
     `;
   }
 
-  const remaining = remainingCount(guest);
-  checkInAmount = Math.min(Math.max(1, checkInAmount), Math.max(1, remaining));
+  const s = partyStats(party.id);
 
   return `
     <div class="card">
-      <h2>${escapeHtml(guest.firstName)} ${escapeHtml(guest.lastName)}</h2>
-      <p class="subtle">${escapeHtml(guest.guestType)} · Approved by ${escapeHtml(guest.approvedBy)}</p>
+      <h2>${esc(party.name)}</h2>
+      <p class="subtle">${esc(party.type)} · Host: ${esc(party.hostName || "N/A")}</p>
 
-      <div class="mini-grid">
-        <div class="mini-stat"><span>Total</span><strong>${guest.partySize}</strong></div>
-        <div class="mini-stat in"><span>In</span><strong>${guest.checkedInCount}</strong></div>
-        <div class="mini-stat left"><span>Left</span><strong>${remaining}</strong></div>
+      <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
+        <div class="stat"><span>Total</span><strong>${s.total}</strong></div>
+        <div class="stat"><span>In</span><strong>${s.checked}</strong></div>
+        <div class="stat"><span>Left</span><strong>${s.remaining}</strong></div>
       </div>
 
       <div class="divider"></div>
 
-      ${guest.guestType === "Do Not Admit" ? `
-        <div class="notice redbox"><strong>Do Not Admit.</strong> Contact management before taking action.</div>
-      ` : remaining <= 0 ? `
-        <div class="notice greenbox"><strong>Fully checked in.</strong> This entire party has been checked in.</div>
-        <div class="form">
-          <button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>
-          ${permissions.manage ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
-        </div>
-      ` : `
-        <div class="form">
-          <label>Number checking in now</label>
-          <div class="counter">
-            <button class="btn secondary" onclick="adjustCheckAmount(-1)">−</button>
-            <input type="number" min="1" max="${remaining}" value="${checkInAmount}" oninput="setCheckAmount(this.value)" />
-            <button class="btn secondary" onclick="adjustCheckAmount(1)">+</button>
-          </div>
-          <button class="btn" onclick="checkInGuest(${guest.id}, checkInAmount)">Check In ${checkInAmount}</button>
-          ${guest.checkedInCount > 0 ? `<button class="btn secondary" onclick="undoOne(${guest.id})">Undo 1 Guest</button>` : ""}
-          ${permissions.manage && guest.checkedInCount > 0 ? `<button class="btn danger" onclick="resetParty(${guest.id})">Reset Entire Party</button>` : ""}
-        </div>
-      `}
+      <p class="subtle"><strong>Table/Location:</strong> ${esc(party.table || "Not listed")}</p>
+      <p class="subtle"><strong>Approved By:</strong> ${esc(party.approvedBy || "Not listed")}</p>
+      <p class="subtle"><strong>Notes:</strong> ${esc(party.notes || "No notes listed.")}</p>
 
-      <div class="divider"></div>
-
-      <h3>Notes</h3>
-      <p class="subtle">${escapeHtml(guest.notes || "No notes listed.")}</p>
-
-      ${permissions.manage ? `
+      ${perms().manage ? `
         <div class="row-actions">
-          <button class="btn secondary small" onclick="openEditGuestModal(${guest.id})">Edit Guest</button>
-          <button class="btn danger small" onclick="deleteGuest(${guest.id})">Delete Guest</button>
+          <button class="btn secondary small" onclick="openPartyModal(${party.id})">Edit Group</button>
+          <button class="btn danger small" onclick="deleteParty(${party.id})">Delete Group</button>
         </div>
       ` : ""}
     </div>
   `;
 }
 
-function renderDoorView() {
+function renderMainWorkspace(showManagement = false) {
+  const title = currentMode === "FULL" ? "Full Guest List" : `${selectedParty() ? esc(selectedParty().name) : "Selected Group"} Names`;
+  const subtitle = currentMode === "FULL"
+    ? "This shows every name scheduled for the selected date, including individual guests and all party/bottle-service names."
+    : "This shows only the names under the selected party or group.";
+
   return `
+    ${renderDateBar()}
     ${renderStats()}
-    <div class="grid">
-      <main>
-        <div class="card tight">
-          <div class="toolbar">
-            <input placeholder="Search name, type, or note..." value="${escapeHtml(searchQuery)}" oninput="searchQuery = this.value; render()" />
-            <select onchange="guestFilter = this.value; render()">
-              ${filterOptions.map(option => `<option ${option === guestFilter ? "selected" : ""}>${option}</option>`).join("")}
-            </select>
-            <select onchange="doorLocation = this.value; render()">
-              ${["Front Door", "Rear Door", "EVE Door", "VIP Check-In"].map(option => `<option ${option === doorLocation ? "selected" : ""}>${option}</option>`).join("")}
-            </select>
-          </div>
-        </div>
 
-        <br />
-
-        <div class="scroll-panel">
-          ${renderGuestList(false)}
-        </div>
-      </main>
-
-      <aside class="stack">
-        <div class="card">
-          <h2>Door Settings</h2>
-          <p class="subtle">Current door: <strong>${escapeHtml(doorLocation)}</strong></p>
-          <p class="subtle" style="margin:0;">Signed in as: <strong>${escapeHtml(currentUser().name)}</strong></p>
-        </div>
-        ${renderSelectedPanel()}
-      </aside>
-    </div>
-  `;
-}
-
-function renderEventsTable() {
-  if (!state.events.length) {
-    return `<p class="subtle">No events created yet.</p>`;
-  }
-
-  return `
-    <div class="scroll-panel short">
-      <table>
-        <thead>
-          <tr>
-            <th>Event</th>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Guests</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.events.map(item => {
-            const guestCount = state.guests.filter(guest => guest.eventId === item.id).length;
-
-            return `
-              <tr class="event-row ${item.id === state.activeEventId ? "active-event" : ""}" onclick="setActiveEvent(${item.id})">
-                <td><strong>${escapeHtml(item.name)}</strong><br><span class="subtle">${escapeHtml(item.venue)}</span></td>
-                <td>${escapeHtml(item.date)}</td>
-                <td>${escapeHtml(item.status)}</td>
-                <td>${guestCount}</td>
-                <td>
-                  <div class="row-actions">
-                    <button class="btn secondary small" onclick="event.stopPropagation(); setActiveEvent(${item.id})">${item.id === state.activeEventId ? "Active" : "Open"}</button>
-                    <button class="btn secondary small" onclick="event.stopPropagation(); openEditEventModal(${item.id})">Edit</button>
-                    <button class="btn danger small" onclick="event.stopPropagation(); deleteEvent(${item.id})">Delete</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderManagementView() {
-  return `
     <div class="grid">
       <main class="stack">
-        <div class="card">
-          <h2>Management Controls</h2>
-          <p class="subtle">Create events, add/edit/delete guests, upload Excel/CSV files, and export reports.</p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn" onclick="openAddGuestModal()">Add Guest / Party</button>
-            <button class="btn secondary" onclick="openCreateEventModal()">Create Event</button>
-            <button class="btn secondary" onclick="exportCsv()">Export CSV</button>
+        <div class="card tight">
+          <div class="toolbar">
+            <input placeholder="${currentMode === "FULL" ? "Search full guest list..." : "Search selected group..."}" value="${esc(searchText)}" oninput="searchText=this.value;render()" />
+
+            <select onchange="setMode(this.value)">
+              <option value="FULL" ${currentMode === "FULL" ? "selected" : ""}>Full Guest List</option>
+              <option value="PARTY" ${currentMode === "PARTY" ? "selected" : ""}>Selected Party Only</option>
+            </select>
+
+            <select onchange="sortMode=this.value;render()">
+              ${sortOptions.map(option => `<option value="${option.value}" ${option.value === sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+            </select>
+
+            ${showManagement
+              ? `<button class="btn" onclick="openAttendeeModal()">Add Individual Guest</button>`
+              : `<button class="btn secondary" onclick="searchText='';render()">Clear Search</button>`
+            }
           </div>
         </div>
 
         <div class="card">
-          <h2>Upload Guest List</h2>
-          <p class="subtle">Uploads into the currently active event: <strong>${escapeHtml(activeEvent()?.name || "No Event")}</strong></p>
-          <p class="subtle">Recommended columns: First Name, Last Name, Guest Type, Party Size, Approved By, Notes.</p>
-          ${importMessage ? `<div class="notice ${importMessage.startsWith("Imported") ? "greenbox" : "redbox"}">${escapeHtml(importMessage)}</div>` : ""}
-          <input type="file" accept=".xlsx,.xls,.csv" onchange="handleGuestFileUpload(event)" />
-          <div class="divider"></div>
-          <p class="subtle" style="margin:0;"><strong>Tip:</strong> Full Name or Name also works. Party Size is best. Plus Count will be converted to total party size.</p>
-        </div>
-
-        <div class="card">
-          <h2>Active Event Guest List</h2>
-          <p class="subtle">Quickly edit or delete guests from the active event.</p>
+          <h2>${title}</h2>
+          <p class="subtle">${subtitle}</p>
           <div class="scroll-panel">
-            ${renderGuestList(true)}
+            ${renderAttendeeList(showManagement)}
           </div>
         </div>
+
+        ${showManagement ? `
+          <div class="card">
+            <h2>Upload Names from Excel / CSV</h2>
+            <p class="subtle">Recommended columns: First Name, Last Name, Attendee Type, Notes. Full Name also works.</p>
+
+            ${importMessage ? `<div class="notice ${importMessage.startsWith("Imported") ? "greenbox" : "redbox"}">${esc(importMessage)}</div>` : ""}
+
+            <div class="form two">
+              <div>
+                <label>Upload Target</label>
+                <select id="uploadTarget">
+                  <option value="general">General Guest List for This Date</option>
+                  <option value="selected">Selected Party / Group</option>
+                </select>
+              </div>
+              <div>
+                <label>Excel / CSV File</label>
+                <input type="file" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)" />
+              </div>
+            </div>
+          </div>
+        ` : ""}
       </main>
 
       <aside class="stack">
         <div class="card">
-          <h2>Events</h2>
-          <p class="subtle">Click an event below to switch between Friday, Saturday, or other nights.</p>
-          ${renderEventsTable()}
+          <h2>Party / Bottle Service Groups</h2>
+          <p class="subtle">Click a group to view only its names, or choose Full Guest List to see everyone.</p>
+          <input placeholder="Search groups..." value="${esc(partySearchText)}" oninput="partySearchText=this.value;render()" style="margin-bottom:12px;" />
+          <div class="scroll-panel short">
+            ${renderPartyList(showManagement)}
+          </div>
         </div>
 
-        ${renderSelectedPanel()}
+        ${renderSelectedPartyPanel()}
       </aside>
     </div>
   `;
 }
 
-function renderUsersView() {
+function renderManagement() {
+  return `
+    <div class="stack">
+      <div class="card">
+        <h2>Management Controls</h2>
+        <p class="subtle">Create parties, add individual guests to the full guest list, upload names, and edit/delete groups or names.</p>
+        <div class="row-actions">
+          <button class="btn" onclick="openPartyModal()">Create Party</button>
+          <button class="btn secondary" onclick="openAttendeeModal()">Add Individual Guest</button>
+          <button class="btn secondary" onclick="setMode('FULL')">View Full Guest List</button>
+          <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
+        </div>
+      </div>
+      ${renderMainWorkspace(true)}
+    </div>
+  `;
+}
+
+function renderUsers() {
   return `
     <div class="grid">
       <main class="stack">
         <div class="card">
           <h2>Create Staff Account</h2>
           <form onsubmit="createUser(event)" class="form two">
-            <div>
-              <label>Name</label>
-              <input name="name" />
-            </div>
-            <div>
-              <label>Username</label>
-              <input name="username" />
-            </div>
-            <div>
-              <label>PIN</label>
-              <input name="pin" type="password" />
-            </div>
+            <div><label>Name</label><input name="name" /></div>
+            <div><label>Username</label><input name="username" /></div>
+            <div><label>PIN</label><input name="pin" type="password" /></div>
             <div>
               <label>Access Level</label>
               <select name="role">
@@ -1866,23 +1780,15 @@ function renderUsersView() {
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <div style="grid-column:1/-1;">
-              <button class="btn">Create Account</button>
-            </div>
+            <div style="grid-column:1/-1;"><button class="btn">Create Account</button></div>
           </form>
         </div>
 
         <div class="card">
           <h2>Private Website Access Key</h2>
           <form onsubmit="updatePrivateKey(event)" class="form">
-            <div>
-              <label>Current Private Key</label>
-              <input name="currentKey" type="password" />
-            </div>
-            <div>
-              <label>New Private Key</label>
-              <input name="newKey" type="password" />
-            </div>
+            <div><label>Current Private Key</label><input name="currentKey" type="password" /></div>
+            <div><label>New Private Key</label><input name="newKey" type="password" /></div>
             <button class="btn">Update Private Key</button>
           </form>
         </div>
@@ -1892,13 +1798,11 @@ function renderUsersView() {
         <div class="card">
           <h2>Current Accounts</h2>
           <table>
-            <thead>
-              <tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
-            </thead>
+            <thead><tr><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
             <tbody>
               ${state.users.map(user => `
                 <tr>
-                  <td><strong>${escapeHtml(user.name)}</strong><br><span class="subtle">${escapeHtml(user.username)}</span></td>
+                  <td><strong>${esc(user.name)}</strong><br><span class="subtle">${esc(user.username)}</span></td>
                   <td>${roleLabel(user.role)}</td>
                   <td>${user.active ? "Active" : "Inactive"}</td>
                   <td><button class="btn secondary small" onclick="toggleUser(${user.id})">${user.active ? "Deactivate" : "Activate"}</button></td>
@@ -1907,26 +1811,24 @@ function renderUsersView() {
             </tbody>
           </table>
         </div>
-
-        <div class="card">
-          <h2>Access Levels</h2>
-          <p class="subtle"><strong>Management/Admin:</strong> full tools.<br><strong>Door Staff:</strong> check-in only.<br><strong>Viewer:</strong> reports only.</p>
-        </div>
       </aside>
     </div>
   `;
 }
 
-function renderReportsView() {
-  const logs = state.logs.filter(log => log.eventId === state.activeEventId);
+function renderReports() {
+  const logs = state.logs.filter(log => activePartyIds().includes(log.partyId));
 
   return `
+    ${renderDateBar()}
+    ${renderStats()}
+
     <div class="grid">
       <main class="stack">
         <div class="card">
           <h2>Reports</h2>
-          <p class="subtle">Active event: <strong>${escapeHtml(activeEvent()?.name || "No Event")}</strong></p>
-          <button class="btn" onclick="exportCsv()">Export Active Event CSV</button>
+          <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
+          <button class="btn" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
 
         <div class="card">
@@ -1934,77 +1836,90 @@ function renderReportsView() {
           <div class="scroll-panel">
             ${logs.length ? `
               <table>
-                <thead>
-                  <tr><th>Time</th><th>Guest</th><th>Action</th><th>Amount</th><th>Staff</th><th>Door</th></tr>
-                </thead>
+                <thead><tr><th>Time</th><th>Name</th><th>Action</th><th>Staff</th><th>Door</th></tr></thead>
                 <tbody>
                   ${logs.map(log => `
                     <tr>
-                      <td>${escapeHtml(log.timestamp)}</td>
-                      <td>${escapeHtml(log.guestName)}</td>
-                      <td>${escapeHtml(log.action)}</td>
-                      <td>${escapeHtml(log.amount)}</td>
-                      <td>${escapeHtml(log.staffName)}</td>
-                      <td>${escapeHtml(log.doorLocation)}</td>
+                      <td>${esc(log.timestamp)}</td>
+                      <td>${esc(log.attendeeName)}</td>
+                      <td>${esc(log.action)}</td>
+                      <td>${esc(log.staffName)}</td>
+                      <td>${esc(log.doorLocation)}</td>
                     </tr>
                   `).join("")}
                 </tbody>
               </table>
-            ` : `<p class="subtle">No check-in activity yet for this event.</p>`}
+            ` : `<p class="subtle">No check-in activity yet for this date.</p>`}
           </div>
         </div>
       </main>
 
       <aside class="stack">
-        ${renderStats()}
+        ${renderSelectedPartyPanel()}
       </aside>
     </div>
   `;
 }
 
-function renderGuestModal() {
-  const guest = editingGuestId ? state.guests.find(item => item.id === editingGuestId) : null;
-  const isEditing = Boolean(guest);
+/* MODALS */
+
+function renderPartyModal() {
+  const party = editingPartyId ? state.parties.find(item => item.id === editingPartyId) : null;
+  const isEdit = Boolean(party);
 
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
       <div class="modal">
-        <h2>${isEditing ? "Edit Guest / Party" : "Add Guest / Party"}</h2>
-        <p class="subtle">${isEditing ? "Update this guest record." : `Add a guest to ${escapeHtml(activeEvent()?.name || "the active event")}.`}</p>
+        <h2>${isEdit ? "Edit Party / Group" : "Create Party / Group"}</h2>
+        <p class="subtle">${isEdit ? "Update this party or guest-list group." : "Create a bottle service group, VIP party, or other group for a specific date."}</p>
 
-        <form onsubmit="${isEditing ? "updateGuestFromForm(event)" : "createGuestFromForm(event)"}" class="form two">
+        <form onsubmit="${isEdit ? "updateParty(event)" : "createParty(event)"}" class="form two">
           <div>
-            <label>First Name</label>
-            <input name="firstName" value="${escapeHtml(guest?.firstName || "")}" />
+            <label>Party / Group Name</label>
+            <input name="name" value="${esc(party?.name || "")}" placeholder="Smith Bottle Service" />
           </div>
+
           <div>
-            <label>Last Name</label>
-            <input name="lastName" value="${escapeHtml(guest?.lastName || "")}" />
-          </div>
-          <div>
-            <label>Guest Type</label>
-            <select name="guestType">
-              ${guestTypes.map(type => `<option ${type === (guest?.guestType || "General Guest") ? "selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+            <label>Type</label>
+            <select name="type">
+              ${partyTypes.map(type => `<option ${type === (party?.type || "Bottle Service") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
+
           <div>
-            <label>Party Size</label>
-            <input name="partySize" type="number" min="1" value="${guest?.partySize || 1}" />
+            <label>Date</label>
+            <input name="date" type="date" value="${esc(party?.date || state.activeDate)}" />
           </div>
+
           <div>
-            <label>Checked In Count</label>
-            <input name="checkedInCount" type="number" min="0" value="${guest?.checkedInCount || 0}" />
+            <label>Host Name</label>
+            <input name="hostName" value="${esc(party?.hostName || "")}" placeholder="Main contact / host" />
           </div>
+
+          <div>
+            <label>Table / Location</label>
+            <input name="table" value="${esc(party?.table || "")}" placeholder="Table 4 / VIP / Door List" />
+          </div>
+
           <div>
             <label>Approved By</label>
-            <input name="approvedBy" value="${escapeHtml(guest?.approvedBy || "Management")}" />
+            <input name="approvedBy" value="${esc(party?.approvedBy || "Management")}" />
           </div>
+
+          <div>
+            <label>Status</label>
+            <select name="status">
+              ${["Active","Draft","Closed"].map(status => `<option ${status === (party?.status || "Active") ? "selected" : ""}>${status}</option>`).join("")}
+            </select>
+          </div>
+
           <div style="grid-column:1/-1;">
             <label>Notes</label>
-            <textarea name="notes" rows="3">${escapeHtml(guest?.notes || "")}</textarea>
+            <textarea name="notes" rows="3">${esc(party?.notes || "")}</textarea>
           </div>
-          <div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn" type="submit">${isEditing ? "Save Guest" : "Add Guest"}</button>
+
+          <div style="grid-column:1/-1;" class="row-actions">
+            <button class="btn" type="submit">${isEdit ? "Save Group" : "Create Group"}</button>
             <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
           </div>
         </form>
@@ -2013,39 +1928,53 @@ function renderGuestModal() {
   `;
 }
 
-function renderEventModal() {
-  const item = editingEventId ? state.events.find(eventItem => eventItem.id === editingEventId) : null;
-  const isEditing = Boolean(item);
+function renderAttendeeModal() {
+  const attendee = editingAttendeeId ? state.attendees.find(item => item.id === editingAttendeeId) : null;
+  const isEdit = Boolean(attendee);
 
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
       <div class="modal">
-        <h2>${isEditing ? "Edit Event" : "Create Event"}</h2>
-        <p class="subtle">${isEditing ? "Update event details." : "Create a new event list."}</p>
+        <h2>${isEdit ? "Edit Name" : "Add Name"}</h2>
+        <p class="subtle">${isEdit ? "Update this name." : "Add a person to the general guest list or the selected party/group."}</p>
 
-        <form onsubmit="${isEditing ? "updateEventFromForm(event)" : "createEventFromForm(event)"}" class="form">
-          <div>
-            <label>Event Name</label>
-            <input name="name" value="${escapeHtml(item?.name || "")}" placeholder="EVE Friday Night" />
-          </div>
-          <div class="form two">
-            <div>
-              <label>Date</label>
-              <input name="date" type="date" value="${escapeHtml(item?.date || "")}" />
+        <form onsubmit="${isEdit ? "updateAttendee(event)" : "createAttendee(event)"}" class="form two">
+          ${!isEdit ? `
+            <div style="grid-column:1/-1;">
+              <label>Add To</label>
+              <select name="target">
+                <option value="general">General Guest List for This Date</option>
+                <option value="selected">Selected Party / Group</option>
+              </select>
             </div>
-            <div>
-              <label>Venue</label>
-              <input name="venue" value="${escapeHtml(item?.venue || "EVE Nightclub")}" />
-            </div>
-          </div>
+          ` : ""}
+
+          <div><label>First Name</label><input name="firstName" value="${esc(attendee?.firstName || "")}" /></div>
+          <div><label>Last Name</label><input name="lastName" value="${esc(attendee?.lastName || "")}" /></div>
+
           <div>
-            <label>Status</label>
-            <select name="status">
-              ${["Active", "Draft", "Closed"].map(status => `<option ${status === (item?.status || "Active") ? "selected" : ""}>${status}</option>`).join("")}
+            <label>Guest Type</label>
+            <select name="attendeeType">
+              ${attendeeTypes.map(type => `<option ${type === (attendee?.attendeeType || "Guest") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn" type="submit">${isEditing ? "Save Event" : "Create Event"}</button>
+
+          ${!isEdit ? `
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:30px;">
+                <input style="width:auto;" type="checkbox" name="checkedIn" />
+                Already checked in
+              </label>
+            </div>
+          ` : `<div></div>`}
+
+          <div style="grid-column:1/-1;">
+            <label>Notes</label>
+            <textarea name="notes" rows="3">${esc(attendee?.notes || "")}</textarea>
+          </div>
+
+          <div style="grid-column:1/-1;" class="row-actions">
+            <button class="btn" type="submit">${isEdit ? "Save Name" : "Add Name"}</button>
             <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
           </div>
         </form>
@@ -2055,24 +1984,24 @@ function renderEventModal() {
 }
 
 function renderModal() {
-  if (modal === "guest") return renderGuestModal();
-  if (modal === "event") return renderEventModal();
+  if (modal === "party") return renderPartyModal();
+  if (modal === "attendee") return renderAttendeeModal();
   return "";
 }
 
 function renderApp() {
   let content = "";
 
-  if (state.view === "door") content = renderDoorView();
-  if (state.view === "manage") content = renderManagementView();
-  if (state.view === "users") content = renderUsersView();
-  if (state.view === "reports") content = renderReportsView();
+  if (state.view === "door") content = renderMainWorkspace(false);
+  if (state.view === "manage") content = renderManagement();
+  if (state.view === "users") content = renderUsers();
+  if (state.view === "reports") content = renderReports();
 
   return `
     ${renderTopbar()}
     <div class="page">
       <div class="notice warn">
-        <strong>Demo mode:</strong> this version stores data locally in the browser. Excel upload works for testing, but multi-device syncing needs a real database later.
+        <strong>Demo mode:</strong> this version stores data locally in the browser. Real multi-device syncing needs a database later.
       </div>
       ${renderTabs()}
       ${content}
@@ -2097,36 +2026,31 @@ function render() {
   root.innerHTML = renderApp();
 }
 
-/* Inline handler exports */
 Object.assign(window, {
   setupSystem,
   login,
   logout,
   resetDemo,
   switchView,
-  setActiveEvent,
-  selectGuest,
-  setCheckAmount,
-  adjustCheckAmount,
-  checkInGuest,
-  undoOne,
-  resetParty,
-  openAddGuestModal,
-  openEditGuestModal,
-  openCreateEventModal,
-  openEditEventModal,
-  closeModal,
-  handleGuestFileUpload,
-  createGuestFromForm,
-  updateGuestFromForm,
-  deleteGuest,
-  createEventFromForm,
-  updateEventFromForm,
-  deleteEvent,
+  setActiveDay,
+  setActiveDate,
+  selectParty,
+  setMode,
+  toggleAttendee,
+  handleFileUpload,
+  createParty,
+  updateParty,
+  deleteParty,
+  createAttendee,
+  updateAttendee,
+  deleteAttendee,
   createUser,
   toggleUser,
   updatePrivateKey,
   exportCsv,
+  openPartyModal,
+  openAttendeeModal,
+  closeModal,
   render
 });
 
