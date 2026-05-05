@@ -559,7 +559,7 @@ const defaultState = {
 };
 
 let state = loadState();
-let currentMode = "FULL"; // FULL or PARTY
+let currentMode = "GENERAL"; // GENERAL shows every name for the date; PARTY shows selected group only
 let selectedPartyId = state.selectedPartyId || null;
 let searchText = "";
 let partySearchText = "";
@@ -596,7 +596,7 @@ function resetDemo() {
   localStorage.removeItem(STORAGE_KEY);
   state = clone(defaultState);
   selectedPartyId = state.selectedPartyId;
-  currentMode = "FULL";
+  currentMode = "GENERAL";
   searchText = "";
   partySearchText = "";
   modal = null;
@@ -647,7 +647,10 @@ function roleLabel(role) {
 }
 
 function selectedParty() {
-  return state.parties.find(party => party.id === selectedPartyId) || partiesForActiveDate()[0] || null;
+  const selected = state.parties.find(party => party.id === selectedPartyId);
+  if (selected && !(selected.type === "General Guest List" || selected.name === "General Guest List")) return selected;
+
+  return partiesForActiveDate().find(party => !(party.type === "General Guest List" || party.name === "General Guest List")) || null;
 }
 
 function partiesForActiveDate() {
@@ -744,7 +747,7 @@ function sortAttendees(list) {
 }
 
 function visibleAttendees() {
-  const source = currentMode === "FULL"
+  const source = currentMode === "GENERAL"
     ? attendeesForActiveDate()
     : selectedParty()
       ? attendeesForParty(selectedParty().id)
@@ -794,7 +797,7 @@ function setupSystem(event) {
     { id:2, name:"Sample Door Staff", username:"door", pin:"1234", role:"door", active:true, createdAt:dateTimeNow() }
   ];
   state.currentUserId = 1;
-  selectedPartyId = partiesForActiveDate()[0]?.id || null;
+  selectedPartyId = partiesForActiveDate().find(party => !(party.type === "General Guest List" || party.name === "General Guest List"))?.id || null;
 
   saveState();
   render();
@@ -840,7 +843,7 @@ function logout() {
 function setActiveDay(day) {
   state.activeDay = day;
   state.activeDate = nextDateForDay(day);
-  selectedPartyId = partiesForActiveDate()[0]?.id || null;
+  selectedPartyId = partiesForActiveDate().find(party => !(party.type === "General Guest List" || party.name === "General Guest List"))?.id || null;
   searchText = "";
   saveState();
   render();
@@ -849,7 +852,7 @@ function setActiveDay(day) {
 function setActiveDate(date) {
   state.activeDate = date;
   state.activeDay = dayNameFromDate(date);
-  selectedPartyId = partiesForActiveDate()[0]?.id || null;
+  selectedPartyId = partiesForActiveDate().find(party => !(party.type === "General Guest List" || party.name === "General Guest List"))?.id || null;
   searchText = "";
   saveState();
   render();
@@ -1044,6 +1047,117 @@ function handleFileUpload(event) {
   else reader.readAsArrayBuffer(file);
 }
 
+
+/* BULK PASTE IMPORT */
+
+function parseBulkNames(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      // Supports:
+      // John Smith
+      // Smith, John
+      // John Smith - VIP - Notes
+      // John Smith, VIP, Notes
+      let cleanLine = line.replace(/\t+/g, " ").trim();
+      let parts = [];
+
+      if (cleanLine.includes(" - ")) {
+        parts = cleanLine.split(" - ").map(part => part.trim());
+      } else if (cleanLine.includes(",")) {
+        parts = cleanLine.split(",").map(part => part.trim());
+      } else {
+        parts = [cleanLine];
+      }
+
+      let namePart = parts[0] || "";
+      let attendeeType = parts[1] || "Guest";
+      let notes = parts.slice(2).join(" - ");
+
+      let firstName = "";
+      let lastName = "";
+
+      if (namePart.includes(",")) {
+        const namePieces = namePart.split(",").map(piece => piece.trim()).filter(Boolean);
+        lastName = namePieces[0] || "";
+        firstName = namePieces.slice(1).join(" ") || "";
+      } else {
+        const namePieces = namePart.split(/\s+/).filter(Boolean);
+        if (namePieces.length === 1) {
+          firstName = namePieces[0];
+          lastName = "";
+        } else {
+          firstName = namePieces.slice(0, -1).join(" ");
+          lastName = namePieces[namePieces.length - 1];
+        }
+      }
+
+      return { firstName, lastName, attendeeType, notes };
+    });
+}
+
+function bulkAddNames(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const form = new FormData(event.target);
+  const target = String(form.get("target") || "general");
+  const bulkText = String(form.get("bulkNames") || "").trim();
+  const defaultType = String(form.get("defaultType") || "Guest");
+
+  if (!bulkText) {
+    alert("Paste at least one name first.");
+    return;
+  }
+
+  const party = target === "general" ? getOrCreateGeneralList() : selectedParty();
+
+  if (!party) {
+    alert("Select or create a party first.");
+    return;
+  }
+
+  const parsed = parseBulkNames(bulkText);
+  const valid = [];
+  const skipped = [];
+
+  parsed.forEach((item, index) => {
+    if (!item.firstName || !item.lastName) {
+      skipped.push(index + 1);
+      return;
+    }
+
+    valid.push({
+      id: nextId([...state.attendees, ...valid]),
+      partyId: party.id,
+      firstName: item.firstName,
+      lastName: item.lastName,
+      attendeeType: item.attendeeType && item.attendeeType !== "Guest" ? item.attendeeType : defaultType,
+      checkedIn: false,
+      checkedInAt: null,
+      checkedInBy: null,
+      door: null,
+      notes: item.notes || ""
+    });
+  });
+
+  if (!valid.length) {
+    alert("No valid names found. Use one full name per line, like: John Smith");
+    return;
+  }
+
+  state.attendees = [...valid, ...state.attendees];
+  selectedPartyId = party.id;
+  currentMode = target === "general" ? "GENERAL" : "PARTY";
+  importMessage = `Bulk added ${valid.length} name${valid.length === 1 ? "" : "s"} into ${party.name}. ${skipped.length ? `Skipped ${skipped.length} line${skipped.length === 1 ? "" : "s"} missing first/last name.` : ""}`;
+  modal = null;
+  saveState();
+  render();
+}
+
+
 /* ACTIONS */
 
 function switchView(view) {
@@ -1177,7 +1291,7 @@ function deleteParty(id) {
   state.logs = state.logs.filter(item => item.partyId !== id);
 
   if (selectedPartyId === id) {
-    selectedPartyId = partiesForActiveDate()[0]?.id || null;
+    selectedPartyId = partiesForActiveDate().find(party => !(party.type === "General Guest List" || party.name === "General Guest List"))?.id || null;
   }
 
   saveState();
@@ -1387,6 +1501,12 @@ function openAttendeeModal(id = null) {
   render();
 }
 
+function openBulkPasteModal() {
+  if (!requirePerm("manage")) return;
+  modal = "bulkPaste";
+  render();
+}
+
 function closeModal() {
   modal = null;
   editingPartyId = null;
@@ -1510,9 +1630,11 @@ function renderDateBar() {
         <div>
           <label>Selected Party / Group</label>
           <select onchange="selectParty(this.value)">
-            ${partiesForActiveDate().length
-              ? partiesForActiveDate().map(item => `<option value="${item.id}" ${item.id === party?.id ? "selected" : ""}>${esc(item.name)} — ${esc(item.hostName || item.type)}</option>`).join("")
-              : `<option>No parties for this date</option>`
+            ${partiesForActiveDate().filter(item => !(item.type === "General Guest List" || item.name === "General Guest List")).length
+              ? partiesForActiveDate()
+                  .filter(item => !(item.type === "General Guest List" || item.name === "General Guest List"))
+                  .map(item => `<option value="${item.id}" ${item.id === party?.id ? "selected" : ""}>${esc(item.name)} — ${esc(item.hostName || item.type)}</option>`).join("")
+              : `<option>No specific parties for this date</option>`
             }
           </select>
         </div>
@@ -1543,21 +1665,51 @@ function renderStats() {
 }
 
 function renderPartyList(showActions = false) {
-  const parties = visibleParties();
+  const allParties = visibleParties();
+  const day = dayStats();
+  const realGeneralParty = allParties.find(party => party.type === "General Guest List" || party.name === "General Guest List");
+  const bottleAndSpecialParties = allParties.filter(party => !(party.type === "General Guest List" || party.name === "General Guest List"));
 
-  if (!parties.length) {
-    return `<div class="notice warn">No parties or guest lists are scheduled for ${esc(state.activeDay)} ${esc(state.activeDate)}.</div>`;
+  const generalCard = `
+    <div class="party-card ${currentMode === "GENERAL" ? "selected" : ""}" onclick="setMode('GENERAL')">
+      <h3 class="party-title">General Guest List</h3>
+
+      <div class="party-meta">
+        <span class="badge general">Master List</span>
+        <span class="badge in">${day.checked} in</span>
+        <span class="badge remaining">${day.remaining} left</span>
+      </div>
+
+      <p class="subtle" style="margin:0;">Shows every name for ${esc(state.activeDay)} ${esc(state.activeDate)}, including individual guests, bottle service, and party attendees.</p>
+
+      ${showActions && realGeneralParty ? `
+        <div class="row-actions" style="margin-top:10px;">
+          <button class="btn secondary small" onclick="event.stopPropagation(); openPartyModal(${realGeneralParty.id})">Edit</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+
+  if (!bottleAndSpecialParties.length) {
+    return `
+      <div class="party-list">
+        ${generalCard}
+        <div class="notice warn">No bottle service or special party groups are scheduled for ${esc(state.activeDay)} ${esc(state.activeDate)}.</div>
+      </div>
+    `;
   }
 
   return `
     <div class="party-list">
-      ${parties.map(party => {
+      ${generalCard}
+
+      ${bottleAndSpecialParties.map(party => {
         const s = partyStats(party.id);
         const complete = s.total > 0 && s.remaining === 0;
         const started = s.checked > 0 && s.remaining > 0;
 
         return `
-          <div class="party-card ${party.id === selectedParty()?.id ? "selected" : ""} ${complete ? "complete" : started ? "started" : ""}" onclick="selectParty(${party.id})">
+          <div class="party-card ${currentMode === "PARTY" && party.id === selectedParty()?.id ? "selected" : ""} ${complete ? "complete" : started ? "started" : ""}" onclick="selectParty(${party.id})">
             <h3 class="party-title">${esc(party.name)}</h3>
 
             <div class="party-meta">
@@ -1664,9 +1816,9 @@ function renderSelectedPartyPanel() {
 }
 
 function renderMainWorkspace(showManagement = false) {
-  const title = currentMode === "FULL" ? "Full Guest List" : `${selectedParty() ? esc(selectedParty().name) : "Selected Group"} Names`;
-  const subtitle = currentMode === "FULL"
-    ? "This shows every name scheduled for the selected date, including individual guests and all party/bottle-service names."
+  const title = currentMode === "GENERAL" ? "General Guest List" : `${selectedParty() ? esc(selectedParty().name) : "Selected Group"} Names`;
+  const subtitle = currentMode === "GENERAL"
+    ? "This is the master list for the selected date. It shows individual guests plus every name attached to bottle service groups and special parties."
     : "This shows only the names under the selected party or group.";
 
   return `
@@ -1677,10 +1829,10 @@ function renderMainWorkspace(showManagement = false) {
       <main class="stack">
         <div class="card tight">
           <div class="toolbar">
-            <input placeholder="${currentMode === "FULL" ? "Search full guest list..." : "Search selected group..."}" value="${esc(searchText)}" oninput="searchText=this.value;render()" />
+            <input placeholder="${currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(searchText)}" oninput="searchText=this.value;render()" />
 
             <select onchange="setMode(this.value)">
-              <option value="FULL" ${currentMode === "FULL" ? "selected" : ""}>Full Guest List</option>
+              <option value="GENERAL" ${currentMode === "GENERAL" ? "selected" : ""}>General Guest List</option>
               <option value="PARTY" ${currentMode === "PARTY" ? "selected" : ""}>Selected Party Only</option>
             </select>
 
@@ -1705,6 +1857,12 @@ function renderMainWorkspace(showManagement = false) {
 
         ${showManagement ? `
           <div class="card">
+            <h2>Bulk Paste Names</h2>
+            <p class="subtle">Paste one name per line and add them to the General Guest List or the selected party/group.</p>
+            <button class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button>
+          </div>
+
+          <div class="card">
             <h2>Upload Names from Excel / CSV</h2>
             <p class="subtle">Recommended columns: First Name, Last Name, Attendee Type, Notes. Full Name also works.</p>
 
@@ -1714,7 +1872,7 @@ function renderMainWorkspace(showManagement = false) {
               <div>
                 <label>Upload Target</label>
                 <select id="uploadTarget">
-                  <option value="general">General Guest List for This Date</option>
+                  <option value="general">General Guest List / Individual Guest</option>
                   <option value="selected">Selected Party / Group</option>
                 </select>
               </div>
@@ -1730,7 +1888,7 @@ function renderMainWorkspace(showManagement = false) {
       <aside class="stack">
         <div class="card">
           <h2>Party / Bottle Service Groups</h2>
-          <p class="subtle">Click a group to view only its names, or choose Full Guest List to see everyone.</p>
+          <p class="subtle">Click General Guest List to see everyone for the date, or click a bottle service group to view only that group.</p>
           <input placeholder="Search groups..." value="${esc(partySearchText)}" oninput="partySearchText=this.value;render()" style="margin-bottom:12px;" />
           <div class="scroll-panel short">
             ${renderPartyList(showManagement)}
@@ -1752,7 +1910,8 @@ function renderManagement() {
         <div class="row-actions">
           <button class="btn" onclick="openPartyModal()">Create Party</button>
           <button class="btn secondary" onclick="openAttendeeModal()">Add Individual Guest</button>
-          <button class="btn secondary" onclick="setMode('FULL')">View Full Guest List</button>
+          <button class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
+          <button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
           <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
       </div>
@@ -1943,7 +2102,7 @@ function renderAttendeeModal() {
             <div style="grid-column:1/-1;">
               <label>Add To</label>
               <select name="target">
-                <option value="general">General Guest List for This Date</option>
+                <option value="general">General Guest List / Individual Guest</option>
                 <option value="selected">Selected Party / Group</option>
               </select>
             </div>
@@ -1983,9 +2142,62 @@ function renderAttendeeModal() {
   `;
 }
 
+
+function renderBulkPasteModal() {
+  const party = selectedParty();
+
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal">
+        <h2>Bulk Paste Names</h2>
+        <p class="subtle">Paste one name per line. This is useful when management receives a text, email, or simple list of names.</p>
+
+        <div class="notice warn">
+          <strong>Accepted examples:</strong><br>
+          John Smith<br>
+          Smith, John<br>
+          John Smith - VIP - Owner approved<br>
+          John Smith, VIP, Owner approved
+        </div>
+
+        <form onsubmit="bulkAddNames(event)" class="form">
+          <div class="form two">
+            <div>
+              <label>Add To</label>
+              <select name="target">
+                <option value="general">General Guest List / Individual Guest</option>
+                <option value="selected">Selected Party / Group${party ? ` — ${esc(party.name)}` : ""}</option>
+              </select>
+            </div>
+
+            <div>
+              <label>Default Guest Type</label>
+              <select name="defaultType">
+                ${attendeeTypes.map(type => `<option ${type === "Guest" ? "selected" : ""}>${esc(type)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label>Paste Names</label>
+            <textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson&#10;David Miller - VIP - Owner approved"></textarea>
+          </div>
+
+          <div class="row-actions">
+            <button class="btn" type="submit">Add Names</button>
+            <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+
 function renderModal() {
   if (modal === "party") return renderPartyModal();
   if (modal === "attendee") return renderAttendeeModal();
+  if (modal === "bulkPaste") return renderBulkPasteModal();
   return "";
 }
 
@@ -2050,6 +2262,8 @@ Object.assign(window, {
   exportCsv,
   openPartyModal,
   openAttendeeModal,
+  openBulkPasteModal,
+  bulkAddNames,
   closeModal,
   render
 });
