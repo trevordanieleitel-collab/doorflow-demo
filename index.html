@@ -1580,6 +1580,44 @@ function updatePrivateKey(event) {
   alert("Private key updated.");
 }
 
+function clearGeneralGuestList() {
+  if (!requirePerm("manage")) return;
+
+  const generalParty = state.parties.find(item =>
+    item.date === state.activeDate &&
+    (item.type === "General Guest List" || item.name === "General Guest List")
+  );
+
+  if (!generalParty) {
+    alert("There is no General Guest List for this date yet.");
+    return;
+  }
+
+  const count = state.attendees.filter(item => item.partyId === generalParty.id).length;
+
+  if (count === 0) {
+    alert("The General Guest List is already empty for this date.");
+    return;
+  }
+
+  const confirmed = confirm(
+    `Clear ${count} name${count === 1 ? "" : "s"} from the General Guest List for ${state.activeDay} ${state.activeDate}?\n\nThis will only clear individual General Guest List names. Bottle service and party/group names will NOT be deleted.`
+  );
+
+  if (!confirmed) return;
+
+  state.attendees = state.attendees.filter(item => item.partyId !== generalParty.id);
+  state.logs = state.logs.filter(item => item.partyId !== generalParty.id);
+
+  currentMode = "GENERAL";
+  searchText = "";
+  importMessage = `Cleared ${count} name${count === 1 ? "" : "s"} from the General Guest List for ${state.activeDate}.`;
+
+  saveState();
+  render();
+}
+
+
 function exportCsv() {
   if (!requirePerm("reports")) return;
 
@@ -1980,7 +2018,7 @@ function renderMainWorkspace(showManagement = false) {
       <main class="stack">
         <div class="card tight">
           <div class="toolbar">
-            <input placeholder="${currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(searchText)}" oninput="searchText=this.value;render()" />
+            <input id="mainSearchInput" placeholder="${currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(searchText)}" oninput="updateSearchText(this.value)" />
 
             <select onchange="setMode(this.value)">
               <option value="GENERAL" ${currentMode === "GENERAL" ? "selected" : ""}>General Guest List</option>
@@ -2001,7 +2039,7 @@ function renderMainWorkspace(showManagement = false) {
         <div class="card">
           <h2>${title}</h2>
           <p class="subtle">${subtitle}</p>
-          <div class="scroll-panel">
+          <div id="attendeeScrollPanel" class="scroll-panel">
             ${renderAttendeeList(showManagement)}
           </div>
         </div>
@@ -2010,7 +2048,10 @@ function renderMainWorkspace(showManagement = false) {
           <div class="card">
             <h2>Bulk Paste Names</h2>
             <p class="subtle">Paste one name per line and add them to the General Guest List or the selected party/group.</p>
-            <button class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button>
+            <div class="row-actions">
+              <button class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button>
+              <button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
+            </div>
           </div>
 
           <div class="card">
@@ -2040,8 +2081,8 @@ function renderMainWorkspace(showManagement = false) {
         <div class="card">
           <h2>Party / Bottle Service Groups</h2>
           <p class="subtle">Click General Guest List to see everyone for the date, or click a bottle service group to view only that group.</p>
-          <input placeholder="Search groups..." value="${esc(partySearchText)}" oninput="partySearchText=this.value;render()" style="margin-bottom:12px;" />
-          <div class="scroll-panel short">
+          <input id="partySearchInput" placeholder="Search groups..." value="${esc(partySearchText)}" oninput="updatePartySearchText(this.value)" style="margin-bottom:12px;" />
+          <div id="partyScrollPanel" class="scroll-panel short">
             ${renderPartyList(showManagement)}
           </div>
         </div>
@@ -2063,6 +2104,7 @@ function renderManagement() {
           <button class="btn secondary" onclick="openAttendeeModal()">Add Individual Guest</button>
           <button class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
           <button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
+          <button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
           <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
       </div>
@@ -2143,7 +2185,7 @@ function renderReports() {
 
         <div class="card">
           <h2>Check-In Activity Log</h2>
-          <div class="scroll-panel">
+          <div id="reportScrollPanel" class="scroll-panel">
             ${logs.length ? `
               <table>
                 <thead><tr><th>Time</th><th>Name</th><th>Action</th><th>Staff</th><th>Door</th></tr></thead>
@@ -2379,20 +2421,98 @@ function renderApp() {
   `;
 }
 
+function captureScrollPositions() {
+  const ids = ["attendeeScrollPanel", "partyScrollPanel", "reportScrollPanel"];
+  const positions = {};
+
+  ids.forEach(id => {
+    const element = document.getElementById(id);
+    if (element) {
+      positions[id] = element.scrollTop;
+    }
+  });
+
+  return positions;
+}
+
+function restoreScrollPositions(positions) {
+  if (!positions) return;
+
+  requestAnimationFrame(() => {
+    Object.keys(positions).forEach(id => {
+      const element = document.getElementById(id);
+      if (element) {
+        element.scrollTop = positions[id];
+      }
+    });
+  });
+}
+
+function captureFocusedInput() {
+  const active = document.activeElement;
+  if (!active || !active.id) return null;
+
+  const isTextInput = active.tagName === "INPUT" || active.tagName === "TEXTAREA";
+  if (!isTextInput) return null;
+
+  return {
+    id: active.id,
+    start: active.selectionStart,
+    end: active.selectionEnd
+  };
+}
+
+function restoreFocusedInput(focusInfo) {
+  if (!focusInfo || !focusInfo.id) return;
+
+  requestAnimationFrame(() => {
+    const element = document.getElementById(focusInfo.id);
+    if (!element) return;
+
+    element.focus();
+
+    try {
+      if (focusInfo.start !== null && focusInfo.start !== undefined) {
+        element.setSelectionRange(focusInfo.start, focusInfo.end);
+      }
+    } catch (error) {
+      // Some input types do not support selection ranges.
+    }
+  });
+}
+
+function updateSearchText(value) {
+  searchText = value;
+  render();
+}
+
+function updatePartySearchText(value) {
+  partySearchText = value;
+  render();
+}
+
 function render() {
+  const focusInfo = captureFocusedInput();
+  const scrollPositions = captureScrollPositions();
   const root = document.getElementById("app");
 
   if (!state.setup) {
     root.innerHTML = renderSetup();
+    restoreFocusedInput(focusInfo);
+    restoreScrollPositions(scrollPositions);
     return;
   }
 
   if (!state.currentUserId) {
     root.innerHTML = renderLogin();
+    restoreFocusedInput(focusInfo);
+    restoreScrollPositions(scrollPositions);
     return;
   }
 
   root.innerHTML = renderApp();
+  restoreFocusedInput(focusInfo);
+  restoreScrollPositions(scrollPositions);
 }
 
 Object.assign(window, {
@@ -2405,6 +2525,8 @@ Object.assign(window, {
   setActiveDate,
   selectParty,
   setMode,
+  updateSearchText,
+  updatePartySearchText,
   toggleAttendee,
   checkInOneAttendee,
   undoOneAttendee,
@@ -2419,6 +2541,7 @@ Object.assign(window, {
   toggleUser,
   updatePrivateKey,
   exportCsv,
+  clearGeneralGuestList,
   openPartyModal,
   openAttendeeModal,
   openBulkPasteModal,
