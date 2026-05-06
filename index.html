@@ -174,18 +174,86 @@ function toggleGuest(id){const g=state.guests.find(x=>x.id===id);if(!g)return;if
 async function createGroup(e){e.preventDefault();if(!requirePerm("manage"))return;const f=new FormData(e.target),date=String(f.get("date")||state.activeDate);await loadDataForDate(date);const payload={service_day_id:state.serviceDay.id,name:String(f.get("name")||"").trim(),group_type:String(f.get("group_type")||"Bottle Service"),host_name:String(f.get("host_name")||"").trim(),table_location:String(f.get("table_location")||"").trim(),approved_by:String(f.get("approved_by")||"Management").trim(),notes:String(f.get("notes")||"").trim(),status:String(f.get("status")||"Active")};if(!payload.name){alert("Group name is required.");return}await runDb("Create group",async()=>{const r=await db.from("groups").insert(payload).select("*").single();const group=must(r.data,r.error);state.selectedGroupId=group.id;state.currentMode="GROUP";state.modal=null;await loadDataForDate(date)})}
 async function updateGroup(e){e.preventDefault();if(!requirePerm("manage"))return;const group=state.groups.find(x=>x.id===state.editingGroupId);if(!group)return;const f=new FormData(e.target),payload={name:String(f.get("name")||"").trim(),group_type:String(f.get("group_type")||"Bottle Service"),host_name:String(f.get("host_name")||"").trim(),table_location:String(f.get("table_location")||"").trim(),approved_by:String(f.get("approved_by")||"Management").trim(),notes:String(f.get("notes")||"").trim(),status:String(f.get("status")||"Active")};if(!payload.name){alert("Group name is required.");return}await runDb("Update group",async()=>{const r=await db.from("groups").update(payload).eq("id",group.id);must(r.data,r.error);state.modal=null;state.editingGroupId=null;await loadDataForDate(state.activeDate)})}
 async function deleteGroup(id){if(!requirePerm("manage"))return;const g=state.groups.find(x=>x.id===id);if(!g)return;if(!confirm('Delete "'+g.name+'" and all names under it?'))return;await runDb("Delete group",async()=>{const r=await db.from("groups").delete().eq("id",id);must(r.data,r.error);state.selectedGroupId=specificGroups()[0]?.id||null;state.currentMode="GENERAL";await loadDataForDate(state.activeDate)})}
-async function createGuest(e){e.preventDefault();if(!requirePerm("manage"))return;const f=new FormData(e.target),target=String(f.get("target")||"general"),group=target==="general"?generalGroup():selectedGroup();if(!group){alert("Select or create a group first.");return}const payload={group_id:group.id,first_name:String(f.get("first_name")||"").trim(),last_name:String(f.get("last_name")||"").trim(),guest_type:String(f.get("guest_type")||"Guest"),total_allowed:Math.max(1,Number(f.get("total_allowed")||1)),checked_in_count:f.get("checked_in")?1:0,notes:String(f.get("notes")||"").trim(),last_checked_in_at:f.get("checked_in")?new Date().toISOString():null,last_checked_in_by_name:f.get("checked_in")?currentUser().name:null,last_door_location:f.get("checked_in")?state.doorLocation:null};if(!payload.first_name||!payload.last_name){alert("First and last name are required.");return}await runDb("Create guest",async()=>{const r=await db.from("guests").insert(payload);must(r.data,r.error);state.selectedGroupId=group.id;state.modal=null;await loadDataForDate(state.activeDate)})}
-async function updateGuest(e){e.preventDefault();if(!requirePerm("manage"))return;const g=state.guests.find(x=>x.id===state.editingGuestId);if(!g)return;const f=new FormData(e.target),total=Math.max(1,Number(f.get("total_allowed")||1)),payload={first_name:String(f.get("first_name")||"").trim(),last_name:String(f.get("last_name")||"").trim(),guest_type:String(f.get("guest_type")||"Guest"),total_allowed:total,checked_in_count:Math.min(guestChecked(g),total),notes:String(f.get("notes")||"").trim()};if(!payload.first_name||!payload.last_name){alert("First and last name are required.");return}await runDb("Update guest",async()=>{const r=await db.from("guests").update(payload).eq("id",g.id);must(r.data,r.error);state.modal=null;state.editingGuestId=null;await loadDataForDate(state.activeDate)})}
+
+function normalizeGuestName(first,last){
+  return `${String(first||"").trim().toLowerCase()}|${String(last||"").trim().toLowerCase()}`;
+}
+
+function duplicateMatchesForName(first,last,excludeGuestId=null){
+  const key=normalizeGuestName(first,last);
+  return state.guests.filter(g=>g.id!==excludeGuestId&&normalizeGuestName(g.first_name,g.last_name)===key);
+}
+
+function groupNameForGuest(guest){
+  const group=state.groups.find(x=>x.id===guest.group_id);
+  return group?group.name:"Unknown Group";
+}
+
+function duplicateWarningText(duplicates,first,last){
+  const locations=[...new Set(duplicates.map(groupNameForGuest))].join(", ");
+  return `"${first} ${last}" already exists on ${state.activeDate} under: ${locations}.`;
+}
+
+function confirmDuplicateSingle(first,last,excludeGuestId=null){
+  const duplicates=duplicateMatchesForName(first,last,excludeGuestId);
+  if(!duplicates.length)return true;
+  return confirm(`${duplicateWarningText(duplicates,first,last)}\n\nAdd anyway?`);
+}
+
+function duplicateWarningsForRows(rows){
+  const existing=new Map();
+  state.guests.forEach(g=>{
+    const key=normalizeGuestName(g.first_name,g.last_name);
+    if(!existing.has(key))existing.set(key,[]);
+    existing.get(key).push(g);
+  });
+
+  const incoming=new Map();
+  const warnings=[];
+
+  rows.forEach((row,index)=>{
+    const key=normalizeGuestName(row.first_name,row.last_name);
+    const name=`${row.first_name} ${row.last_name}`;
+
+    if(existing.has(key)){
+      const locations=[...new Set(existing.get(key).map(groupNameForGuest))].join(", ");
+      warnings.push(`${name} already exists under: ${locations}`);
+    }
+
+    if(incoming.has(key)){
+      warnings.push(`${name} appears more than once in this import/paste list`);
+    }
+
+    incoming.set(key,true);
+  });
+
+  return warnings;
+}
+
+function confirmDuplicateRows(rows,sourceLabel){
+  const warnings=duplicateWarningsForRows(rows);
+  if(!warnings.length)return true;
+
+  const preview=warnings.slice(0,12).join("\n");
+  const extra=warnings.length>12?`\n...and ${warnings.length-12} more possible duplicate issue(s).`:"";
+
+  return confirm(
+    `${sourceLabel} found ${warnings.length} possible duplicate issue(s):\n\n${preview}${extra}\n\nAdd anyway?`
+  );
+}
+
+async function createGuest(e){e.preventDefault();if(!requirePerm("manage"))return;const f=new FormData(e.target),target=String(f.get("target")||"general"),group=target==="general"?generalGroup():selectedGroup();if(!group){alert("Select or create a group first.");return}const payload={group_id:group.id,first_name:String(f.get("first_name")||"").trim(),last_name:String(f.get("last_name")||"").trim(),guest_type:String(f.get("guest_type")||"Guest"),total_allowed:Math.max(1,Number(f.get("total_allowed")||1)),checked_in_count:f.get("checked_in")?1:0,notes:String(f.get("notes")||"").trim(),last_checked_in_at:f.get("checked_in")?new Date().toISOString():null,last_checked_in_by_name:f.get("checked_in")?currentUser().name:null,last_door_location:f.get("checked_in")?state.doorLocation:null};if(!payload.first_name||!payload.last_name){alert("First and last name are required.");return}if(!confirmDuplicateSingle(payload.first_name,payload.last_name)){return}await runDb("Create guest",async()=>{const r=await db.from("guests").insert(payload);must(r.data,r.error);state.selectedGroupId=group.id;state.modal=null;await loadDataForDate(state.activeDate)})}
+async function updateGuest(e){e.preventDefault();if(!requirePerm("manage"))return;const g=state.guests.find(x=>x.id===state.editingGuestId);if(!g)return;const f=new FormData(e.target),total=Math.max(1,Number(f.get("total_allowed")||1)),payload={first_name:String(f.get("first_name")||"").trim(),last_name:String(f.get("last_name")||"").trim(),guest_type:String(f.get("guest_type")||"Guest"),total_allowed:total,checked_in_count:Math.min(guestChecked(g),total),notes:String(f.get("notes")||"").trim()};if(!payload.first_name||!payload.last_name){alert("First and last name are required.");return}if(!confirmDuplicateSingle(payload.first_name,payload.last_name,g.id)){return}await runDb("Update guest",async()=>{const r=await db.from("guests").update(payload).eq("id",g.id);must(r.data,r.error);state.modal=null;state.editingGuestId=null;await loadDataForDate(state.activeDate)})}
 async function deleteGuest(id){if(!requirePerm("manage"))return;if(!confirm("Delete this name from the list?"))return;await runDb("Delete guest",async()=>{const r=await db.from("guests").delete().eq("id",id);must(r.data,r.error);await loadDataForDate(state.activeDate)})}
 async function clearGeneralGuestList(){if(!requirePerm("manage"))return;const g=generalGroup();if(!g){alert("No General Guest List found.");return}const count=guestsForGroup(g.id).length;if(!count){alert("The General Guest List is already empty.");return}if(!confirm("Clear "+count+" names from General Guest List? Bottle service and party names will NOT be deleted."))return;await runDb("Clear General Guest List",async()=>{const r=await db.from("guests").delete().eq("group_id",g.id);must(r.data,r.error);state.importMessage="Cleared "+count+" names from General Guest List.";await loadDataForDate(state.activeDate)})}
 function parseBulkNames(text){return String(text||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(line=>{let parts=line.includes(" - ")?line.split(" - ").map(x=>x.trim()):[line],name=parts[0]||"",guest_type=parts[1]||"Guest",notes=parts.slice(2).join(" - "),total_allowed=1;const m=name.match(/\s\+(\d+)\s*$/);if(m){total_allowed=1+Number(m[1]||0);name=name.replace(/\s\+\d+\s*$/,"").trim()}const p=name.split(/\s+/).filter(Boolean);return{first_name:p.length>1?p.slice(0,-1).join(" "):p[0]||"",last_name:p.length>1?p[p.length-1]:"",guest_type,notes,total_allowed}})}
-async function bulkAddNames(e){e.preventDefault();if(!requirePerm("manage"))return;const f=new FormData(e.target),target=String(f.get("target")||"general"),group=target==="general"?generalGroup():selectedGroup(),defaultType=String(f.get("defaultType")||"Guest"),bulkText=String(f.get("bulkNames")||"").trim();if(!bulkText){alert("Paste at least one name first.");return}if(!group){alert("Select or create a group first.");return}const rows=parseBulkNames(bulkText).filter(x=>x.first_name&&x.last_name).map(x=>({group_id:group.id,first_name:x.first_name,last_name:x.last_name,guest_type:x.guest_type&&x.guest_type!=="Guest"?x.guest_type:defaultType,total_allowed:Math.max(1,Number(x.total_allowed||1)),checked_in_count:0,notes:x.notes||""}));if(!rows.length){alert("No valid names found.");return}await runDb("Bulk add names",async()=>{const r=await db.from("guests").insert(rows);must(r.data,r.error);state.selectedGroupId=group.id;state.currentMode=target==="general"?"GENERAL":"GROUP";state.importMessage="Bulk added "+rows.length+" names into "+group.name+".";state.modal=null;await loadDataForDate(state.activeDate)})}
+async function bulkAddNames(e){e.preventDefault();if(!requirePerm("manage"))return;const f=new FormData(e.target),target=String(f.get("target")||"general"),group=target==="general"?generalGroup():selectedGroup(),defaultType=String(f.get("defaultType")||"Guest"),bulkText=String(f.get("bulkNames")||"").trim();if(!bulkText){alert("Paste at least one name first.");return}if(!group){alert("Select or create a group first.");return}const rows=parseBulkNames(bulkText).filter(x=>x.first_name&&x.last_name).map(x=>({group_id:group.id,first_name:x.first_name,last_name:x.last_name,guest_type:x.guest_type&&x.guest_type!=="Guest"?x.guest_type:defaultType,total_allowed:Math.max(1,Number(x.total_allowed||1)),checked_in_count:0,notes:x.notes||""}));if(!rows.length){alert("No valid names found.");return}if(!confirmDuplicateRows(rows,"Bulk paste")){return}await runDb("Bulk add names",async()=>{const r=await db.from("guests").insert(rows);must(r.data,r.error);state.selectedGroupId=group.id;state.currentMode=target==="general"?"GENERAL":"GROUP";state.importMessage="Bulk added "+rows.length+" names into "+group.name+".";state.modal=null;await loadDataForDate(state.activeDate)})}
 function normalizeHeader(v){return String(v||"").trim().toLowerCase().replace(/[^a-z0-9]/g,"")}
 function readField(row,names){const normalized={};Object.keys(row).forEach(k=>normalized[normalizeHeader(k)]=row[k]);for(const n of names){const v=normalized[normalizeHeader(n)];if(v!==undefined&&v!==null&&String(v).trim()!=="")return String(v).trim()}return""}
 function splitFullName(name){const p=String(name||"").trim().split(/\s+/).filter(Boolean);if(p.length===0)return{first_name:"",last_name:""};if(p.length===1)return{first_name:p[0],last_name:""};return{first_name:p.slice(0,-1).join(" "),last_name:p[p.length-1]}}
 function rowToGuest(row,groupId){let first_name=readField(row,["First Name","First","FName"]),last_name=readField(row,["Last Name","Last","LName","Surname"]),full=readField(row,["Name","Full Name","Guest Name","Attendee Name"]);if((!first_name||!last_name)&&full){const s=splitFullName(full);first_name=first_name||s.first_name;last_name=last_name||s.last_name}const partySize=readField(row,["Party Size","Total Guests","Total","Group Size"]),plus=readField(row,["Plus Count","Plus","Plus One","+"]),total_allowed=partySize?Math.max(1,Number(partySize)||1):Math.max(1,1+(Number(plus)||0));return{group_id:groupId,first_name,last_name,guest_type:readField(row,["Guest Type","Attendee Type","Type","Category"])||"Guest",total_allowed,checked_in_count:0,notes:readField(row,["Notes","Note","Comments","Details"])}}
 function parseCsv(text){const rows=[];let row=[],cell="",quote=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c=='"'&&quote&&n=='"'){cell+='"';i++}else if(c=='"')quote=!quote;else if(c===","&&!quote){row.push(cell);cell=""}else if((c==="\n"||c==="\r")&&!quote){if(c==="\r"&&n==="\n")i++;row.push(cell);rows.push(row);row=[];cell=""}else cell+=c}if(cell||row.length){row.push(cell);rows.push(row)}const headers=rows.shift()||[];return rows.filter(r=>r.some(c=>String(c||"").trim()!=="")).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]||"");return o})}
-async function importRows(rows,targetMode){if(!requirePerm("manage"))return;const group=targetMode==="general"?generalGroup():selectedGroup();if(!group){state.importMessage="Select or create a group first.";render();return}const valid=[],skipped=[];rows.forEach((row,i)=>{const g=rowToGuest(row,group.id);if(!g.first_name||!g.last_name){skipped.push(i+2);return}valid.push(g)});if(!valid.length){state.importMessage="No valid names found.";render();return}await runDb("Import file",async()=>{const r=await db.from("guests").insert(valid);must(r.data,r.error);state.selectedGroupId=group.id;state.importMessage="Imported "+valid.length+" names into "+group.name+".";await loadDataForDate(state.activeDate)})}
+async function importRows(rows,targetMode){if(!requirePerm("manage"))return;const group=targetMode==="general"?generalGroup():selectedGroup();if(!group){state.importMessage="Select or create a group first.";render();return}const valid=[],skipped=[];rows.forEach((row,i)=>{const g=rowToGuest(row,group.id);if(!g.first_name||!g.last_name){skipped.push(i+2);return}valid.push(g)});if(!valid.length){state.importMessage="No valid names found.";render();return}if(!confirmDuplicateRows(valid,"Excel/CSV import")){return}await runDb("Import file",async()=>{const r=await db.from("guests").insert(valid);must(r.data,r.error);state.selectedGroupId=group.id;state.importMessage="Imported "+valid.length+" names into "+group.name+".";await loadDataForDate(state.activeDate)})}
 function handleFileUpload(e){if(!requirePerm("manage"))return;const target=document.getElementById("uploadTarget")?.value||"general",file=e.target.files&&e.target.files[0];if(!file)return;const ext=file.name.split(".").pop().toLowerCase(),reader=new FileReader();reader.onerror=()=>{state.importMessage="The file could not be read.";render()};reader.onload=async ev=>{try{let rows=[];if(ext==="csv")rows=parseCsv(String(ev.target.result||""));else{const wb=XLSX.read(ev.target.result,{type:"array"}),sheet=wb.Sheets[wb.SheetNames[0]];rows=XLSX.utils.sheet_to_json(sheet,{defval:""})}await importRows(rows,target);e.target.value=""}catch(err){console.error(err);state.importMessage="Import failed.";render()}};if(ext==="csv")reader.readAsText(file);else reader.readAsArrayBuffer(file)}
 function exportCsv(){if(!requirePerm("reports"))return;const rows=[["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Guest Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Checked In At","Checked In By","Door","Notes"],...state.guests.map(g=>{const group=state.groups.find(x=>x.id===g.group_id);return[state.activeDate,state.activeDay,group?.name||"",group?.group_type||"",group?.host_name||"",group?.table_location||"",g.first_name,g.last_name,g.guest_type,guestTotal(g),guestChecked(g),guestRemaining(g),isGuestFullyIn(g)?"Yes":"No",g.last_checked_in_at||"",g.last_checked_in_by_name||"",g.last_door_location||"",g.notes||""]})],csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n"),blob=new Blob([csv],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`doorflow_${state.activeDate}.csv`;a.click();URL.revokeObjectURL(url)}
 function openGroupModal(id=null){if(!requirePerm("manage"))return;state.editingGroupId=id;state.modal="group";render()}
