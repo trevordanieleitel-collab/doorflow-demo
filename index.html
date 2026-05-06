@@ -148,12 +148,7 @@ async function refreshStaffProfiles(){
   render();
 }
 
-function guestNameFromLog(log){
-  const guest=state.guests.find(item=>item.id===log.guest_id);
-  if(!guest)return log.guest_id||"";
-  const group=state.groups.find(item=>item.id===guest.group_id);
-  return `${guest.first_name} ${guest.last_name}${group?` · ${group.name}`:""}`;
-}
+
 
 function generalGroup(){return state.groups.find(g=>g.name==="General Guest List"||g.group_type==="General Guest List")||null}
 function specificGroups(){return state.groups.filter(g=>!(g.name==="General Guest List"||g.group_type==="General Guest List"))}
@@ -294,7 +289,149 @@ function renderStaffManagement(){
   `;
 }
 
-function renderReports(){return `${renderDateBar()}${renderStats()}<div class="grid"><main class="stack"><div class="card"><h2>Reports</h2><p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p><button class="btn" onclick="exportCsv()">Export Current Day CSV</button></div><div class="card"><h2>Check-In Activity Log</h2><div id="reportScrollPanel" class="scroll-panel">${state.logs.length?`<table><thead><tr><th>Time</th><th>Action</th><th>Staff</th><th>Door</th></tr></thead><tbody>${state.logs.map(log=>`<tr><td>${new Date(log.created_at).toLocaleString()}</td><td>${esc(log.action)}</td><td>${esc(log.staff_name||"")}</td><td>${esc(log.door_location||"")}</td></tr>`).join("")}</tbody></table>`:`<p class="subtle">No check-in activity yet for this date.</p>`}</div></div></main><aside class="stack">${renderSelectedGroupPanel()}</aside></div>`}
+
+function guestFromLog(log){
+  return state.guests.find(item=>item.id===log.guest_id)||null;
+}
+
+function groupFromLog(log){
+  const guest=guestFromLog(log);
+  if(guest){
+    return state.groups.find(item=>item.id===guest.group_id)||null;
+  }
+  return state.groups.find(item=>item.id===log.group_id)||null;
+}
+
+function guestNameFromLog(log){
+  const guest=guestFromLog(log);
+  if(!guest)return "Guest record not found";
+  return `${guest.first_name} ${guest.last_name}`;
+}
+
+function groupNameFromLog(log){
+  const group=groupFromLog(log);
+  return group?group.name:"Group not found";
+}
+
+function logTime(log){
+  try{
+    return new Date(log.created_at).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"});
+  }catch{
+    return log.created_at||"";
+  }
+}
+
+
+function renderReports(){
+  const s=dayStats();
+
+  return `
+    ${renderDateBar()}
+    ${renderStats()}
+
+    <div class="grid">
+      <main class="stack">
+        <div class="card">
+          <h2>Reports</h2>
+          <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
+          <div class="row-actions">
+            <button class="btn" onclick="exportCsv()">Export Current Day CSV</button>
+            <button class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Daily Summary</h2>
+          <div class="stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;">
+            <div class="stat"><span>Total Allowed</span><strong>${s.total}</strong></div>
+            <div class="stat"><span>Checked In</span><strong>${s.checked}</strong></div>
+            <div class="stat"><span>Remaining</span><strong>${s.remaining}</strong></div>
+            <div class="stat"><span>Activity Logs</span><strong>${state.logs.length}</strong></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Check-In Activity Log</h2>
+          <p class="subtle">Shows who was checked in, which group they were under, who checked them in, where, and when.</p>
+          <div id="reportScrollPanel" class="scroll-panel">
+            ${state.logs.length ? `
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Guest</th>
+                    <th>Group</th>
+                    <th>Action</th>
+                    <th>Staff</th>
+                    <th>Door</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${state.logs.map(log=>`
+                    <tr>
+                      <td>${esc(logTime(log))}</td>
+                      <td><strong>${esc(guestNameFromLog(log))}</strong></td>
+                      <td>${esc(groupNameFromLog(log))}</td>
+                      <td>${esc(log.action || "")}</td>
+                      <td>${esc(log.staff_name || "")}</td>
+                      <td>${esc(log.door_location || "")}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            ` : `<p class="subtle">No check-in activity yet for this date.</p>`}
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Current Guest Status</h2>
+          <p class="subtle">Quick operational view of all names for this date.</p>
+          <div class="scroll-panel">
+            ${state.guests.length ? `
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Group</th>
+                    <th>Type</th>
+                    <th>Checked In</th>
+                    <th>Remaining</th>
+                    <th>Door</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sortGuests([...state.guests]).map(guest=>{
+                    const group=state.groups.find(item=>item.id===guest.group_id);
+                    return `
+                      <tr>
+                        <td><strong>${esc(guest.first_name)} ${esc(guest.last_name)}</strong></td>
+                        <td>${esc(group?.name||"")}</td>
+                        <td>${esc(guest.guest_type||"")}</td>
+                        <td>${guestChecked(guest)} / ${guestTotal(guest)}</td>
+                        <td>${guestRemaining(guest)}</td>
+                        <td>${esc(guest.last_door_location||"")}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            ` : `<p class="subtle">No guests are listed for this date.</p>`}
+          </div>
+        </div>
+      </main>
+
+      <aside class="stack">
+        ${renderSelectedGroupPanel()}
+        <div class="card">
+          <h2>Report Notes</h2>
+          <p class="subtle">Use this page after a shift to review check-ins, door location activity, and remaining guests.</p>
+          <p class="subtle" style="margin-bottom:0;">Exporting CSV gives you the full daily guest status report.</p>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
 function renderGroupModal(){const group=state.editingGroupId?state.groups.find(x=>x.id===state.editingGroupId):null,is=!!group;return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>${is?"Edit Party / Group":"Create Party / Group"}</h2><form onsubmit="${is?"updateGroup(event)":"createGroup(event)"}" class="form two"><div><label>Party / Group Name</label><input name="name" value="${esc(group?.name||"")}" placeholder="Smith Bottle Service" /></div><div><label>Type</label><select name="group_type">${partyTypes.map(t=>`<option ${t===(group?.group_type||"Bottle Service")?"selected":""}>${esc(t)}</option>`).join("")}</select></div><div><label>Date</label><input name="date" type="date" value="${esc(state.activeDate)}" /></div><div><label>Host Name</label><input name="host_name" value="${esc(group?.host_name||"")}" /></div><div><label>Table / Location</label><input name="table_location" value="${esc(group?.table_location||"")}" /></div><div><label>Approved By</label><input name="approved_by" value="${esc(group?.approved_by||"Management")}" /></div><div><label>Status</label><select name="status">${["Active","Draft","Closed"].map(s=>`<option ${s===(group?.status||"Active")?"selected":""}>${s}</option>`).join("")}</select></div><div style="grid-column:1/-1;"><label>Notes</label><textarea name="notes" rows="3">${esc(group?.notes||"")}</textarea></div><div style="grid-column:1/-1;" class="row-actions"><button class="btn" type="submit">${is?"Save Group":"Create Group"}</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderGuestModal(){const g=state.editingGuestId?state.guests.find(x=>x.id===state.editingGuestId):null,is=!!g;return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>${is?"Edit Name":"Add Name"}</h2><form onsubmit="${is?"updateGuest(event)":"createGuest(event)"}" class="form two">${!is?`<div style="grid-column:1/-1;"><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group</option></select></div>`:""}<div><label>First Name</label><input name="first_name" value="${esc(g?.first_name||"")}" /></div><div><label>Last Name</label><input name="last_name" value="${esc(g?.last_name||"")}" /></div><div><label>Guest Type</label><select name="guest_type">${guestTypes.map(t=>`<option ${t===(g?.guest_type||"Guest")?"selected":""}>${esc(t)}</option>`).join("")}</select></div><div><label>Total Allowed / Party Size</label><input name="total_allowed" type="number" min="1" value="${guestTotal(g||{total_allowed:1})}" /></div>${!is?`<div><label style="display:flex;align-items:center;gap:8px;margin-top:30px;"><input style="width:auto;" type="checkbox" name="checked_in" /> Already checked in</label></div>`:`<div></div>`}<div style="grid-column:1/-1;"><label>Notes</label><textarea name="notes" rows="3">${esc(g?.notes||"")}</textarea></div><div style="grid-column:1/-1;" class="row-actions"><button class="btn" type="submit">${is?"Save Name":"Add Name"}</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderBulkModal(){const group=selectedGroup();return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p><div class="notice warn"><strong>Examples:</strong><br>John Smith<br>Sarah Johnson +2<br>David Miller - VIP - Owner approved</div><form onsubmit="bulkAddNames(event)" class="form"><div class="form two"><div><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group${group?` — ${esc(group.name)}`:""}</option></select></div><div><label>Default Guest Type</label><select name="defaultType">${guestTypes.map(t=>`<option ${t==="Guest"?"selected":""}>${esc(t)}</option>`).join("")}</select></div></div><div><label>Paste Names</label><textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea></div><div class="row-actions"><button class="btn" type="submit">Add Names</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
