@@ -18,7 +18,12 @@
 const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
-const roles={admin:{label:"Admin",door:true,manage:true,reports:true},manager:{label:"Management",door:true,manage:true,reports:true},door:{label:"Door Staff",door:true,manage:false,reports:false},viewer:{label:"Viewer",door:false,manage:false,reports:true}};
+const roles={
+  admin:{label:"Admin",door:true,manage:true,users:true,reports:true},
+  manager:{label:"Management",door:true,manage:true,users:false,reports:true},
+  door:{label:"Door Staff",door:true,manage:false,users:false,reports:false},
+  viewer:{label:"Viewer",door:false,manage:false,users:false,reports:true}
+};
 const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const partyTypes=["Bottle Service","VIP Party","Private Party","Staff Party","Vendor Group"];
 const guestTypes=["Guest","VIP","Comp","Host","Birthday","Bottle Service","Staff","Vendor","Do Not Admit"];
@@ -63,6 +68,7 @@ async function loadStaffProfile(user){
   auth.currentUser={id:user.id,email:user.email,name:data.full_name,role:data.role,active:data.active};
   state.error="";
   state.view=roles[data.role].door?"door":"reports";
+  if(data.role==="admin"){await loadStaffProfilesForAdmin();}
   render();
 }
 async function login(e){
@@ -193,7 +199,15 @@ function openBulkPasteModal(){if(!requirePerm("manage"))return;state.modal="bulk
 function closeModal(){state.modal=null;state.editingGroupId=null;state.editingGuestId=null;render()}
 function renderLogin(){return `<div class="auth"><div class="card"><div class="brand" style="margin-bottom:18px;"><div class="logo">DF</div><div><h1>DoorFlow Login</h1><p>Supabase email/password account</p></div></div><div class="notice greenbox"><strong>Real account mode:</strong> sign in with the email/password account created in Supabase Authentication.</div>${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<form onsubmit="login(event)" class="form"><div><label>Email</label><input name="email" type="email" autocomplete="email" placeholder="you@example.com" /></div><div><label>Password</label><input name="password" type="password" autocomplete="current-password" /></div><button class="btn" type="submit">Log In</button></form><div class="divider"></div><p class="subtle" style="margin:0;">Staff access is controlled by the <strong>staff_profiles</strong> table in Supabase.</p></div></div>`}
 function renderTopbar(){const u=currentUser();return `<header class="topbar"><div class="topbar-inner"><div class="brand"><div class="logo">DF</div><div><h1>DoorFlow</h1><p>${esc(state.activeDay)} · ${esc(state.activeDate)} · Live Database</p></div></div><div class="top-actions"><span class="pill">${state.loading?"Syncing...":"Live DB Connected"}</span><span class="pill">${esc(u.name)} · ${roleLabel(u.role)}</span><button type="button" class="btn secondary small" onclick="logout()">Log Out</button></div></div></header>`}
-function renderTabs(){const p=perms();return `<div class="tabs">${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}${p.users?`<button class="tab ${state.view==="users"?"active":""}" onclick="switchView('users')">Staff</button>`:""}${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}</div>`}
+function renderTabs(){
+  const p=perms();
+  return `<div class="tabs">
+    ${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}
+    ${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}
+    ${p.users?`<button class="tab ${state.view==="users"?"active":""}" onclick="switchView('users')">Staff</button>`:""}
+    ${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}
+  </div>`;
+}
 function switchView(view){const p=perms();if(view==="door"&&!p.door)return alert("No door access.");if(view==="manage"&&!p.manage)return alert("No management access.");if(view==="reports"&&!p.reports)return alert("No report access.");if(view==="users"&&!p.users)return alert("No staff management access.");state.view=view;if(view==="users")loadStaffProfilesForAdmin();render()}
 function renderDateBar(){const group=selectedGroup();return `<div class="card tight"><div class="datebar"><div><label>Day</label><select onchange="setActiveDay(this.value)">${days.map(day=>`<option ${day===state.activeDay?"selected":""}>${day}</option>`).join("")}</select></div><div><label>Calendar Date</label><input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" /></div><div><label>Selected Party / Group</label><select onchange="selectGroup(this.value)">${specificGroups().length?specificGroups().map(item=>`<option value="${item.id}" ${item.id===group?.id?"selected":""}>${esc(item.name)} — ${esc(item.host_name||item.group_type)}</option>`).join(""):`<option>No specific groups for this date</option>`}</select></div><div><label>Door Location</label><select onchange="state.doorLocation=this.value;render()">${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(o=>`<option ${o===state.doorLocation?"selected":""}>${o}</option>`).join("")}</select></div></div></div>`}
 function renderStats(){const s=dayStats();return `<div class="stats"><div class="stat"><span>Groups</span><strong>${s.groups}</strong></div><div class="stat"><span>Complete Groups</span><strong>${s.completeGroups}</strong></div><div class="stat"><span>Total Allowed</span><strong>${s.total}</strong></div><div class="stat"><span>Checked In</span><strong>${s.checked}</strong></div><div class="stat"><span>Still Remaining</span><strong>${s.remaining}</strong></div></div>`}
@@ -286,8 +300,4 @@ function renderGuestModal(){const g=state.editingGuestId?state.guests.find(x=>x.
 function renderBulkModal(){const group=selectedGroup();return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p><div class="notice warn"><strong>Examples:</strong><br>John Smith<br>Sarah Johnson +2<br>David Miller - VIP - Owner approved</div><form onsubmit="bulkAddNames(event)" class="form"><div class="form two"><div><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group${group?` — ${esc(group.name)}`:""}</option></select></div><div><label>Default Guest Type</label><select name="defaultType">${guestTypes.map(t=>`<option ${t==="Guest"?"selected":""}>${esc(t)}</option>`).join("")}</select></div></div><div><label>Paste Names</label><textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea></div><div class="row-actions"><button class="btn" type="submit">Add Names</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderModal(){if(state.modal==="group")return renderGroupModal();if(state.modal==="guest")return renderGuestModal();if(state.modal==="bulk")return renderBulkModal();return""}
 function renderApp(){let content="";if(state.view==="door")content=renderMainWorkspace(false);if(state.view==="manage")content=renderManagement();if(state.view==="users")content=renderStaffManagement();if(state.view==="reports")content=renderReports();return `${renderTopbar()}<div class="page">${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are now stored in Supabase and should sync across devices.</div>${renderTabs()}${content}</div>${renderModal()}`}
-Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,updateStaffProfile,refreshStaffProfiles,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
-render();initAuth();
-</script>
-</body>
-</html>
+Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,updateStaffProfile,refreshStaffProfiles,bul
