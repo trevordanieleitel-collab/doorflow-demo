@@ -184,6 +184,22 @@ async function setActiveDay(day){await loadDataForDate(nextDateForDay(day))}
 async function setActiveDate(date){await loadDataForDate(date)}
 function selectGroup(id){state.selectedGroupId=id;state.currentMode="GROUP";state.searchText="";render()}
 function setSortMode(value){state.sortMode=value;render()}
+
+function selectTabletList(value){
+  if(value==="GENERAL"){
+    state.currentMode="GENERAL";
+    state.selectedGroupId=null;
+    state.searchText="";
+    render();
+    return;
+  }
+
+  state.selectedGroupId=value;
+  state.currentMode="GROUP";
+  state.searchText="";
+  render();
+}
+
 function setMode(mode){state.currentMode=mode;state.searchText="";render()}
 async function checkInOneGuest(id){if(!requirePerm("door"))return;const g=state.guests.find(x=>x.id===id);if(!g)return;if(g.guest_type==="Do Not Admit"){alert("This guest is marked Do Not Admit. Contact management.");return}if(guestRemaining(g)<=0)return;const newCount=guestChecked(g)+1,u=currentUser(),nowIso=new Date().toISOString();await runDb("Check in",async()=>{let r=await db.from("guests").update({checked_in_count:newCount,last_checked_in_at:nowIso,last_checked_in_by_name:u.name,last_door_location:state.doorLocation}).eq("id",id);must(r.data,r.error);r=await db.from("check_in_logs").insert({guest_id:g.id,group_id:g.group_id,action:"Check In 1",amount:1,door_location:state.doorLocation,staff_name:u.name});must(r.data,r.error);g.checked_in_count=newCount;g.last_checked_in_at=nowIso;g.last_checked_in_by_name=u.name;g.last_door_location=state.doorLocation;render()})}
 async function undoOneGuest(id){if(!requirePerm("door"))return;const g=state.guests.find(x=>x.id===id);if(!g)return;const checked=guestChecked(g);if(checked<=0)return;const newCount=checked-1,u=currentUser();await runDb("Undo check-in",async()=>{let r=await db.from("guests").update({checked_in_count:newCount,last_checked_in_at:newCount>0?g.last_checked_in_at:null,last_checked_in_by_name:newCount>0?g.last_checked_in_by_name:null,last_door_location:newCount>0?g.last_door_location:null}).eq("id",id);must(r.data,r.error);r=await db.from("check_in_logs").insert({guest_id:g.id,group_id:g.group_id,action:"Undo 1",amount:1,door_location:state.doorLocation,staff_name:u.name});must(r.data,r.error);g.checked_in_count=newCount;render()})}
@@ -321,6 +337,8 @@ function renderSelectedGroupPanel(){const group=selectedGroup();if(!group)return
 function renderTabletDoorMode(){
   const guests=sortGuests([...visibleGuests()]);
   const s=dayStats();
+  const selectedListValue=state.currentMode==="GENERAL"?"GENERAL":(selectedGroup()?.id||"GENERAL");
+
   return `
     ${renderDateBar()}
     <div class="tablet-door-shell">
@@ -337,10 +355,12 @@ function renderTabletDoorMode(){
       <div class="card tight">
         <div class="tablet-door-controls">
           <div>
-            <label>List View</label>
-            <select onchange="setMode(this.value)">
-              <option value="GENERAL" ${state.currentMode==="GENERAL"?"selected":""}>General Guest List</option>
-              <option value="GROUP" ${state.currentMode==="GROUP"?"selected":""}>Selected Group Only</option>
+            <label>Guest List / Party</label>
+            <select onchange="selectTabletList(this.value)">
+              <option value="GENERAL" ${selectedListValue==="GENERAL"?"selected":""}>General Guest List</option>
+              ${specificGroups().map(group=>`
+                <option value="${group.id}" ${selectedListValue===group.id?"selected":""}>${esc(group.name)}${group.host_name?` — ${esc(group.host_name)}`:""}</option>
+              `).join("")}
             </select>
           </div>
           <div>
@@ -350,7 +370,12 @@ function renderTabletDoorMode(){
           <div>
             <label>Sort</label>
             <select onchange="setSortMode(this.value)">
-              ${sortOptions.map(option=>`<option value="${option.value}" ${option.value===state.sortMode?"selected":""}>${esc(option.label)}</option>`).join("")}
+              <option value="LAST_ASC" ${state.sortMode==="LAST_ASC"?"selected":""}>Last Name A-Z</option>
+              <option value="LAST_DESC" ${state.sortMode==="LAST_DESC"?"selected":""}>Last Name Z-A</option>
+              <option value="FIRST_ASC" ${state.sortMode==="FIRST_ASC"?"selected":""}>First Name A-Z</option>
+              <option value="FIRST_DESC" ${state.sortMode==="FIRST_DESC"?"selected":""}>First Name Z-A</option>
+              <option value="UNCHECKED" ${state.sortMode==="UNCHECKED"?"selected":""}>Unchecked First</option>
+              <option value="CHECKED" ${state.sortMode==="CHECKED"?"selected":""}>Checked First</option>
             </select>
           </div>
         </div>
@@ -610,7 +635,7 @@ function renderGuestModal(){const g=state.editingGuestId?state.guests.find(x=>x.
 function renderBulkModal(){const group=selectedGroup();return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p><div class="notice warn"><strong>Examples:</strong><br>John Smith<br>Sarah Johnson +2<br>David Miller - VIP - Owner approved</div><form onsubmit="bulkAddNames(event)" class="form"><div class="form two"><div><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group${group?` — ${esc(group.name)}`:""}</option></select></div><div><label>Default Guest Type</label><select name="defaultType">${guestTypes.map(t=>`<option ${t==="Guest"?"selected":""}>${esc(t)}</option>`).join("")}</select></div></div><div><label>Paste Names</label><textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea></div><div class="row-actions"><button class="btn" type="submit">Add Names</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderModal(){if(state.modal==="group")return renderGroupModal();if(state.modal==="guest")return renderGuestModal();if(state.modal==="bulk")return renderBulkModal();return""}
 function renderApp(){let content="";if(state.view==="door")content=renderMainWorkspace(false);if(state.view==="tabletDoor")content=renderTabletDoorMode();if(state.view==="manage")content=renderManagement();if(state.view==="users")content=renderStaffManagement();if(state.view==="reports")content=renderReports();return `${renderTopbar()}<div class="page">${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are now stored in Supabase and should sync across devices.</div>${renderTabs()}${content}</div>${renderModal()}`}
-Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,setSortMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,updateStaffProfile,refreshStaffProfiles,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
+Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,selectTabletList,setSortMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,updateStaffProfile,refreshStaffProfiles,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
 render();initAuth();
 </script>
 </body>
