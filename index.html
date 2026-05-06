@@ -24,7 +24,7 @@ const partyTypes=["Bottle Service","VIP Party","Private Party","Staff Party","Ve
 const guestTypes=["Guest","VIP","Comp","Host","Birthday","Bottle Service","Staff","Vendor","Do Not Admit"];
 const sortOptions=[["LAST_ASC","Last Name A-Z"],["LAST_DESC","Last Name Z-A"],["FIRST_ASC","First Name A-Z"],["FIRST_DESC","First Name Z-A"],["UNCHECKED","Unchecked First"],["CHECKED","Checked First"]];
 let auth={session:null,currentUser:null,profile:null};
-let state={loading:false,error:"",venue:null,serviceDay:null,groups:[],guests:[],logs:[],view:"door",activeDate:todayISO(),activeDay:dayNameFromDate(todayISO()),selectedGroupId:null,currentMode:"GENERAL",searchText:"",partySearchText:"",sortMode:"LAST_ASC",doorLocation:"Front Door",modal:null,editingGroupId:null,editingGuestId:null,importMessage:""};
+let state={loading:false,error:"",venue:null,serviceDay:null,groups:[],guests:[],logs:[],staffProfiles:[],view:"door",activeDate:todayISO(),activeDay:dayNameFromDate(todayISO()),selectedGroupId:null,currentMode:"GENERAL",searchText:"",partySearchText:"",sortMode:"LAST_ASC",doorLocation:"Front Door",modal:null,editingGroupId:null,editingGuestId:null,importMessage:""};
 let realtimeChannel=null;
 function todayISO(){return new Date().toISOString().slice(0,10)}
 function dayNameFromDate(d){const x=new Date(d+"T12:00:00"),j=x.getDay();return days[j===0?6:j-1]}
@@ -111,6 +111,44 @@ async function ensureServiceDay(date){const venue=await ensureVenue(),dayName=da
 async function ensureGeneralGroup(service_day_id){let r=await db.from("groups").select("*").eq("service_day_id",service_day_id).eq("name","General Guest List").maybeSingle();if(r.error)throw r.error;if(r.data)return r.data;r=await db.from("groups").insert({service_day_id,name:"General Guest List",group_type:"General Guest List",host_name:"Door List",table_location:"Front Door",approved_by:"Management",notes:"Master guest list for this date.",status:"Active"}).select("*").single();return must(r.data,r.error)}
 async function loadDataForDate(date){return runDb("Loading live data",async()=>{state.loading=true;render();state.activeDate=date;state.activeDay=dayNameFromDate(date);const sd=await ensureServiceDay(date);await ensureGeneralGroup(sd.id);let r=await db.from("groups").select("*").eq("service_day_id",sd.id).order("created_at",{ascending:false});state.groups=must(r.data,r.error)||[];const ids=state.groups.map(g=>g.id);if(ids.length){r=await db.from("guests").select("*").in("group_id",ids).order("last_name",{ascending:true});state.guests=must(r.data,r.error)||[];r=await db.from("check_in_logs").select("*").in("group_id",ids).order("created_at",{ascending:false}).limit(200);state.logs=must(r.data,r.error)||[]}else{state.guests=[];state.logs=[]}if(!selectedGroup()&&specificGroups()[0])state.selectedGroupId=specificGroups()[0].id;state.loading=false;render()})}
 function subscribeRealtime(){if(realtimeChannel)db.removeChannel(realtimeChannel);realtimeChannel=db.channel("doorflow-live").on("postgres_changes",{event:"*",schema:"public",table:"guests"},()=>loadDataForDate(state.activeDate)).on("postgres_changes",{event:"*",schema:"public",table:"groups"},()=>loadDataForDate(state.activeDate)).on("postgres_changes",{event:"*",schema:"public",table:"check_in_logs"},()=>loadDataForDate(state.activeDate)).subscribe()}
+
+async function loadStaffProfilesForAdmin(){
+  if(!auth.currentUser||auth.currentUser.role!=="admin")return;
+  const result=await db.from("staff_profiles").select("*").order("full_name",{ascending:true});
+  if(result.error){state.error=result.error.message;render();return}
+  state.staffProfiles=result.data||[];
+}
+
+async function updateStaffProfile(event){
+  event.preventDefault();
+  if(!requirePerm("users"))return;
+  const form=new FormData(event.target);
+  const id=String(form.get("id")||"");
+  const payload={
+    full_name:String(form.get("full_name")||"").trim(),
+    role:String(form.get("role")||"door"),
+    active:String(form.get("active"))==="true"
+  };
+  if(!id||!payload.full_name){alert("Staff member and name are required.");return}
+  const result=await db.from("staff_profiles").update(payload).eq("id",id);
+  if(result.error){state.error=result.error.message;render();return}
+  await loadStaffProfilesForAdmin();
+  render();
+}
+
+async function refreshStaffProfiles(){
+  if(!requirePerm("users"))return;
+  await loadStaffProfilesForAdmin();
+  render();
+}
+
+function guestNameFromLog(log){
+  const guest=state.guests.find(item=>item.id===log.guest_id);
+  if(!guest)return log.guest_id||"";
+  const group=state.groups.find(item=>item.id===guest.group_id);
+  return `${guest.first_name} ${guest.last_name}${group?` · ${group.name}`:""}`;
+}
+
 function generalGroup(){return state.groups.find(g=>g.name==="General Guest List"||g.group_type==="General Guest List")||null}
 function specificGroups(){return state.groups.filter(g=>!(g.name==="General Guest List"||g.group_type==="General Guest List"))}
 function selectedGroup(){const s=state.groups.find(g=>g.id===state.selectedGroupId);if(s&&!(s.name==="General Guest List"||s.group_type==="General Guest List"))return s;return specificGroups()[0]||null}
@@ -155,8 +193,8 @@ function openBulkPasteModal(){if(!requirePerm("manage"))return;state.modal="bulk
 function closeModal(){state.modal=null;state.editingGroupId=null;state.editingGuestId=null;render()}
 function renderLogin(){return `<div class="auth"><div class="card"><div class="brand" style="margin-bottom:18px;"><div class="logo">DF</div><div><h1>DoorFlow Login</h1><p>Supabase email/password account</p></div></div><div class="notice greenbox"><strong>Real account mode:</strong> sign in with the email/password account created in Supabase Authentication.</div>${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<form onsubmit="login(event)" class="form"><div><label>Email</label><input name="email" type="email" autocomplete="email" placeholder="you@example.com" /></div><div><label>Password</label><input name="password" type="password" autocomplete="current-password" /></div><button class="btn" type="submit">Log In</button></form><div class="divider"></div><p class="subtle" style="margin:0;">Staff access is controlled by the <strong>staff_profiles</strong> table in Supabase.</p></div></div>`}
 function renderTopbar(){const u=currentUser();return `<header class="topbar"><div class="topbar-inner"><div class="brand"><div class="logo">DF</div><div><h1>DoorFlow</h1><p>${esc(state.activeDay)} · ${esc(state.activeDate)} · Live Database</p></div></div><div class="top-actions"><span class="pill">${state.loading?"Syncing...":"Live DB Connected"}</span><span class="pill">${esc(u.name)} · ${roleLabel(u.role)}</span><button type="button" class="btn secondary small" onclick="logout()">Log Out</button></div></div></header>`}
-function renderTabs(){const p=perms();return `<div class="tabs">${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}</div>`}
-function switchView(view){const p=perms();if(view==="door"&&!p.door)return alert("No door access.");if(view==="manage"&&!p.manage)return alert("No management access.");if(view==="reports"&&!p.reports)return alert("No report access.");state.view=view;render()}
+function renderTabs(){const p=perms();return `<div class="tabs">${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}${p.users?`<button class="tab ${state.view==="users"?"active":""}" onclick="switchView('users')">Staff</button>`:""}${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}</div>`}
+function switchView(view){const p=perms();if(view==="door"&&!p.door)return alert("No door access.");if(view==="manage"&&!p.manage)return alert("No management access.");if(view==="reports"&&!p.reports)return alert("No report access.");if(view==="users"&&!p.users)return alert("No staff management access.");state.view=view;if(view==="users")loadStaffProfilesForAdmin();render()}
 function renderDateBar(){const group=selectedGroup();return `<div class="card tight"><div class="datebar"><div><label>Day</label><select onchange="setActiveDay(this.value)">${days.map(day=>`<option ${day===state.activeDay?"selected":""}>${day}</option>`).join("")}</select></div><div><label>Calendar Date</label><input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" /></div><div><label>Selected Party / Group</label><select onchange="selectGroup(this.value)">${specificGroups().length?specificGroups().map(item=>`<option value="${item.id}" ${item.id===group?.id?"selected":""}>${esc(item.name)} — ${esc(item.host_name||item.group_type)}</option>`).join(""):`<option>No specific groups for this date</option>`}</select></div><div><label>Door Location</label><select onchange="state.doorLocation=this.value;render()">${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(o=>`<option ${o===state.doorLocation?"selected":""}>${o}</option>`).join("")}</select></div></div></div>`}
 function renderStats(){const s=dayStats();return `<div class="stats"><div class="stat"><span>Groups</span><strong>${s.groups}</strong></div><div class="stat"><span>Complete Groups</span><strong>${s.completeGroups}</strong></div><div class="stat"><span>Total Allowed</span><strong>${s.total}</strong></div><div class="stat"><span>Checked In</span><strong>${s.checked}</strong></div><div class="stat"><span>Still Remaining</span><strong>${s.remaining}</strong></div></div>`}
 function renderGroupList(show=false){const s=dayStats(),general=`<div class="party-card ${state.currentMode==="GENERAL"?"selected":""}" onclick="setMode('GENERAL')"><h3 class="party-title">General Guest List</h3><div class="party-meta"><span class="badge general">Master List</span><span class="badge in">${s.checked} in</span><span class="badge remaining">${s.remaining} left</span></div><p class="subtle" style="margin:0;">Shows every name for this date, including bottle service and party attendees.</p></div>`,groups=visibleGroups();return `<div class="party-list">${general}${!groups.length?`<div class="notice warn">No bottle service or special party groups are scheduled for this date.</div>`:""}${groups.map(group=>{const gs=groupStats(group.id),complete=gs.total>0&&gs.remaining===0,started=gs.checked>0&&gs.remaining>0;return `<div class="party-card ${state.currentMode==="GROUP"&&group.id===selectedGroup()?.id?"selected":""} ${complete?"complete":started?"started":""}" onclick="selectGroup('${group.id}')"><h3 class="party-title">${esc(group.name)}</h3><div class="party-meta"><span class="badge ${typeClass(group.group_type)}">${esc(group.group_type)}</span><span class="badge general">Host: ${esc(group.host_name||"N/A")}</span>${group.table_location?`<span class="badge general">${esc(group.table_location)}</span>`:""}<span class="badge in">${gs.checked} in</span><span class="badge remaining">${gs.remaining} left</span></div><p class="subtle" style="margin:0;">${esc(group.notes||"No notes listed.")}</p>${show?`<div class="row-actions" style="margin-top:10px;"><button class="btn secondary small" onclick="event.stopPropagation(); openGroupModal('${group.id}')">Edit</button><button class="btn danger small" onclick="event.stopPropagation(); deleteGroup('${group.id}')">Delete</button></div>`:""}</div>`}).join("")}</div>`}
@@ -164,13 +202,91 @@ function renderGuestList(show=false){const guests=visibleGuests();if(!guests.len
 function renderSelectedGroupPanel(){const group=selectedGroup();if(!group)return`<div class="card"><h2>Selected Group</h2><p class="subtle">No party or bottle service group selected.</p></div>`;const s=groupStats(group.id);return `<div class="card"><h2>${esc(group.name)}</h2><p class="subtle">${esc(group.group_type)} · Host: ${esc(group.host_name||"N/A")}</p><div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;"><div class="stat"><span>Total</span><strong>${s.total}</strong></div><div class="stat"><span>In</span><strong>${s.checked}</strong></div><div class="stat"><span>Left</span><strong>${s.remaining}</strong></div></div><div class="divider"></div><p class="subtle"><strong>Table/Location:</strong> ${esc(group.table_location||"Not listed")}</p><p class="subtle"><strong>Approved By:</strong> ${esc(group.approved_by||"Not listed")}</p><p class="subtle"><strong>Notes:</strong> ${esc(group.notes||"No notes listed.")}</p>${perms().manage?`<div class="row-actions"><button class="btn secondary small" onclick="openGroupModal('${group.id}')">Edit Group</button><button class="btn danger small" onclick="deleteGroup('${group.id}')">Delete Group</button></div>`:""}</div>`}
 function renderMainWorkspace(show=false){const title=state.currentMode==="GENERAL"?"General Guest List":`${selectedGroup()?esc(selectedGroup().name):"Selected Group"} Names`,subtitle=state.currentMode==="GENERAL"?"This master list shows everyone for the selected date, including bottle service attendees.":"This shows only the names under the selected group.";return `${renderDateBar()}${renderStats()}<div class="grid"><main class="stack"><div class="card tight"><div class="toolbar"><input id="mainSearchInput" placeholder="${state.currentMode==="GENERAL"?"Search general guest list...":"Search selected group..."}" value="${esc(state.searchText)}" oninput="state.searchText=this.value;render()" /><select onchange="setMode(this.value)"><option value="GENERAL" ${state.currentMode==="GENERAL"?"selected":""}>General Guest List</option><option value="GROUP" ${state.currentMode==="GROUP"?"selected":""}>Selected Group Only</option></select><select onchange="state.sortMode=this.value;render()">${sortOptions.map(o=>`<option value="${o[0]}" ${o[0]===state.sortMode?"selected":""}>${esc(o[1])}</option>`).join("")}</select>${show?`<button class="btn" onclick="openGuestModal()">Add Individual Guest</button>`:`<button class="btn secondary" onclick="state.searchText='';render()">Clear Search</button>`}</div></div><div class="card"><h2>${title}</h2><p class="subtle">${subtitle}</p><div id="attendeeScrollPanel" class="scroll-panel">${renderGuestList(show)}</div></div>${show?`<div class="card"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line and add them to the General Guest List or selected group.</p><button class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button></div><div class="card"><h2>Upload Names from Excel / CSV</h2><p class="subtle">Recommended columns: First Name, Last Name, Guest Type, Party Size or Plus Count, Notes.</p>${state.importMessage?`<div class="notice ${state.importMessage.startsWith("Imported")||state.importMessage.startsWith("Bulk")||state.importMessage.startsWith("Cleared")?"greenbox":"redbox"}">${esc(state.importMessage)}</div>`:""}<div class="form two"><div><label>Upload Target</label><select id="uploadTarget"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group</option></select></div><div><label>Excel / CSV File</label><input type="file" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)" /></div></div></div>`:""}</main><aside class="stack"><div class="card"><h2>Party / Bottle Service Groups</h2><p class="subtle">Click General Guest List to see everyone, or click a group to see only that group.</p><input id="partySearchInput" placeholder="Search groups..." value="${esc(state.partySearchText)}" oninput="state.partySearchText=this.value;render()" style="margin-bottom:12px;" /><div id="partyScrollPanel" class="scroll-panel short">${renderGroupList(show)}</div></div>${renderSelectedGroupPanel()}</aside></div>`}
 function renderManagement(){return `<div class="stack"><div class="card"><h2>Management Controls</h2><p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p><div class="row-actions"><button class="btn" onclick="openGroupModal()">Create Party</button><button class="btn secondary" onclick="openGuestModal()">Add Individual Guest</button><button class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button><button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button><button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button><button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button></div></div>${renderMainWorkspace(true)}</div>`}
+
+function renderStaffManagement(){
+  if(!perms().users){
+    return `<div class="card"><h2>No Access</h2><p class="subtle">This account cannot manage staff.</p></div>`;
+  }
+  return `
+    <div class="grid">
+      <main class="stack">
+        <div class="card">
+          <h2>Staff Management</h2>
+          <p class="subtle">Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
+          <button class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+        </div>
+
+        <div class="card">
+          <h2>Current Staff</h2>
+          <p class="subtle">Change a staff member's role or deactivate access. New email/password users still need to be created in Supabase Authentication first.</p>
+          <div class="scroll-panel">
+            ${state.staffProfiles.length?`
+              <table>
+                <thead>
+                  <tr><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Save</th></tr>
+                </thead>
+                <tbody>
+                  ${state.staffProfiles.map(profile=>`
+                    <tr>
+                      <td>
+                        <form id="staff-${profile.id}" onsubmit="updateStaffProfile(event)">
+                          <input type="hidden" name="id" value="${profile.id}" />
+                          <input name="full_name" value="${esc(profile.full_name)}" />
+                        </form>
+                      </td>
+                      <td>
+                        <select form="staff-${profile.id}" name="role">
+                          ${["admin","manager","door","viewer"].map(role=>`<option value="${role}" ${role===profile.role?"selected":""}>${roleLabel(role)}</option>`).join("")}
+                        </select>
+                      </td>
+                      <td>
+                        <select form="staff-${profile.id}" name="active">
+                          <option value="true" ${profile.active?"selected":""}>Active</option>
+                          <option value="false" ${!profile.active?"selected":""}>Inactive</option>
+                        </select>
+                      </td>
+                      <td>${profile.created_at?new Date(profile.created_at).toLocaleDateString():""}</td>
+                      <td><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            `:`<p class="subtle">No staff profiles loaded. Click Refresh Staff List.</p>`}
+          </div>
+        </div>
+      </main>
+
+      <aside class="stack">
+        <div class="card">
+          <h2>How to Add Staff</h2>
+          <p class="subtle">For now, create the email/password user in Supabase first, then add a row in <strong>staff_profiles</strong>.</p>
+          <ol class="subtle" style="padding-left:20px;margin-top:0;">
+            <li>Supabase → Authentication → Users → Add user</li>
+            <li>Copy the User UID</li>
+            <li>Insert that UID into staff_profiles</li>
+            <li>Click Refresh Staff List here</li>
+          </ol>
+        </div>
+
+        <div class="card">
+          <h2>Role Guide</h2>
+          <p class="subtle"><strong>Admin:</strong> full app access and staff management.</p>
+          <p class="subtle"><strong>Manager:</strong> manage guest lists, groups, reports, and check-ins.</p>
+          <p class="subtle"><strong>Door Staff:</strong> door check-in only.</p>
+          <p class="subtle" style="margin-bottom:0;"><strong>Viewer:</strong> reports only.</p>
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
 function renderReports(){return `${renderDateBar()}${renderStats()}<div class="grid"><main class="stack"><div class="card"><h2>Reports</h2><p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p><button class="btn" onclick="exportCsv()">Export Current Day CSV</button></div><div class="card"><h2>Check-In Activity Log</h2><div id="reportScrollPanel" class="scroll-panel">${state.logs.length?`<table><thead><tr><th>Time</th><th>Action</th><th>Staff</th><th>Door</th></tr></thead><tbody>${state.logs.map(log=>`<tr><td>${new Date(log.created_at).toLocaleString()}</td><td>${esc(log.action)}</td><td>${esc(log.staff_name||"")}</td><td>${esc(log.door_location||"")}</td></tr>`).join("")}</tbody></table>`:`<p class="subtle">No check-in activity yet for this date.</p>`}</div></div></main><aside class="stack">${renderSelectedGroupPanel()}</aside></div>`}
 function renderGroupModal(){const group=state.editingGroupId?state.groups.find(x=>x.id===state.editingGroupId):null,is=!!group;return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>${is?"Edit Party / Group":"Create Party / Group"}</h2><form onsubmit="${is?"updateGroup(event)":"createGroup(event)"}" class="form two"><div><label>Party / Group Name</label><input name="name" value="${esc(group?.name||"")}" placeholder="Smith Bottle Service" /></div><div><label>Type</label><select name="group_type">${partyTypes.map(t=>`<option ${t===(group?.group_type||"Bottle Service")?"selected":""}>${esc(t)}</option>`).join("")}</select></div><div><label>Date</label><input name="date" type="date" value="${esc(state.activeDate)}" /></div><div><label>Host Name</label><input name="host_name" value="${esc(group?.host_name||"")}" /></div><div><label>Table / Location</label><input name="table_location" value="${esc(group?.table_location||"")}" /></div><div><label>Approved By</label><input name="approved_by" value="${esc(group?.approved_by||"Management")}" /></div><div><label>Status</label><select name="status">${["Active","Draft","Closed"].map(s=>`<option ${s===(group?.status||"Active")?"selected":""}>${s}</option>`).join("")}</select></div><div style="grid-column:1/-1;"><label>Notes</label><textarea name="notes" rows="3">${esc(group?.notes||"")}</textarea></div><div style="grid-column:1/-1;" class="row-actions"><button class="btn" type="submit">${is?"Save Group":"Create Group"}</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderGuestModal(){const g=state.editingGuestId?state.guests.find(x=>x.id===state.editingGuestId):null,is=!!g;return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>${is?"Edit Name":"Add Name"}</h2><form onsubmit="${is?"updateGuest(event)":"createGuest(event)"}" class="form two">${!is?`<div style="grid-column:1/-1;"><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group</option></select></div>`:""}<div><label>First Name</label><input name="first_name" value="${esc(g?.first_name||"")}" /></div><div><label>Last Name</label><input name="last_name" value="${esc(g?.last_name||"")}" /></div><div><label>Guest Type</label><select name="guest_type">${guestTypes.map(t=>`<option ${t===(g?.guest_type||"Guest")?"selected":""}>${esc(t)}</option>`).join("")}</select></div><div><label>Total Allowed / Party Size</label><input name="total_allowed" type="number" min="1" value="${guestTotal(g||{total_allowed:1})}" /></div>${!is?`<div><label style="display:flex;align-items:center;gap:8px;margin-top:30px;"><input style="width:auto;" type="checkbox" name="checked_in" /> Already checked in</label></div>`:`<div></div>`}<div style="grid-column:1/-1;"><label>Notes</label><textarea name="notes" rows="3">${esc(g?.notes||"")}</textarea></div><div style="grid-column:1/-1;" class="row-actions"><button class="btn" type="submit">${is?"Save Name":"Add Name"}</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderBulkModal(){const group=selectedGroup();return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p><div class="notice warn"><strong>Examples:</strong><br>John Smith<br>Sarah Johnson +2<br>David Miller - VIP - Owner approved</div><form onsubmit="bulkAddNames(event)" class="form"><div class="form two"><div><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group${group?` — ${esc(group.name)}`:""}</option></select></div><div><label>Default Guest Type</label><select name="defaultType">${guestTypes.map(t=>`<option ${t==="Guest"?"selected":""}>${esc(t)}</option>`).join("")}</select></div></div><div><label>Paste Names</label><textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea></div><div class="row-actions"><button class="btn" type="submit">Add Names</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderModal(){if(state.modal==="group")return renderGroupModal();if(state.modal==="guest")return renderGuestModal();if(state.modal==="bulk")return renderBulkModal();return""}
-function renderApp(){let content="";if(state.view==="door")content=renderMainWorkspace(false);if(state.view==="manage")content=renderManagement();if(state.view==="reports")content=renderReports();return `${renderTopbar()}<div class="page">${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are now stored in Supabase and should sync across devices.</div>${renderTabs()}${content}</div>${renderModal()}`}
-Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
+function renderApp(){let content="";if(state.view==="door")content=renderMainWorkspace(false);if(state.view==="manage")content=renderManagement();if(state.view==="users")content=renderStaffManagement();if(state.view==="reports")content=renderReports();return `${renderTopbar()}<div class="page">${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are now stored in Supabase and should sync across devices.</div>${renderTabs()}${content}</div>${renderModal()}`}
+Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,updateStaffProfile,refreshStaffProfiles,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
 render();initAuth();
 </script>
 </body>
