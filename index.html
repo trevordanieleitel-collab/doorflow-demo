@@ -18,21 +18,18 @@
 const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
-const LOCAL_AUTH_KEY = "doorflow_live_local_login_v1";
 const roles={admin:{label:"Admin",door:true,manage:true,reports:true},manager:{label:"Management",door:true,manage:true,reports:true},door:{label:"Door Staff",door:true,manage:false,reports:false},viewer:{label:"Viewer",door:false,manage:false,reports:true}};
 const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const partyTypes=["Bottle Service","VIP Party","Private Party","Staff Party","Vendor Group"];
 const guestTypes=["Guest","VIP","Comp","Host","Birthday","Bottle Service","Staff","Vendor","Do Not Admit"];
 const sortOptions=[["LAST_ASC","Last Name A-Z"],["LAST_DESC","Last Name Z-A"],["FIRST_ASC","First Name A-Z"],["FIRST_DESC","First Name Z-A"],["UNCHECKED","Unchecked First"],["CHECKED","Checked First"]];
-let auth=loadAuth();
+let auth={session:null,currentUser:null,profile:null};
 let state={loading:false,error:"",venue:null,serviceDay:null,groups:[],guests:[],logs:[],view:"door",activeDate:todayISO(),activeDay:dayNameFromDate(todayISO()),selectedGroupId:null,currentMode:"GENERAL",searchText:"",partySearchText:"",sortMode:"LAST_ASC",doorLocation:"Front Door",modal:null,editingGroupId:null,editingGuestId:null,importMessage:""};
 let realtimeChannel=null;
 function todayISO(){return new Date().toISOString().slice(0,10)}
 function dayNameFromDate(d){const x=new Date(d+"T12:00:00"),j=x.getDay();return days[j===0?6:j-1]}
 function nextDateForDay(day){const t=days.indexOf(day),now=new Date(),c=now.getDay()===0?6:now.getDay()-1,o=(t-c+7)%7,r=new Date(now);r.setDate(now.getDate()+o);return r.toISOString().slice(0,10)}
 function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}
-function loadAuth(){try{return {setup:false,siteKey:"",currentUser:null,users:[],...JSON.parse(localStorage.getItem(LOCAL_AUTH_KEY)||"{}")}}catch{return {setup:false,siteKey:"",currentUser:null,users:[]}}}
-function saveAuth(){localStorage.setItem(LOCAL_AUTH_KEY,JSON.stringify(auth))}
 function currentUser(){return auth.currentUser}
 function perms(){return currentUser()?roles[currentUser().role]:null}
 function requirePerm(p){if(!perms()||!perms()[p]){alert("This account does not have access to that function.");return false}return true}
@@ -41,13 +38,45 @@ function capFocus(){const a=document.activeElement;if(!a||!a.id||!(a.tagName==="
 function resFocus(f){if(!f)return;requestAnimationFrame(()=>{const e=document.getElementById(f.id);if(e){e.focus();try{e.setSelectionRange(f.start,f.end)}catch{}}})}
 function capScroll(){const o={};["attendeeScrollPanel","partyScrollPanel","reportScrollPanel"].forEach(id=>{const e=document.getElementById(id);if(e)o[id]=e.scrollTop});return o}
 function resScroll(o){requestAnimationFrame(()=>Object.keys(o||{}).forEach(id=>{const e=document.getElementById(id);if(e)e.scrollTop=o[id]}))}
-function render(){const f=capFocus(),s=capScroll(),root=document.getElementById("app");if(!auth.setup){root.innerHTML=renderSetup();resFocus(f);return}if(!auth.currentUser){root.innerHTML=renderLogin();resFocus(f);return}root.innerHTML=renderApp();resFocus(f);resScroll(s)}
+function render(){const f=capFocus(),s=capScroll(),root=document.getElementById("app");if(!auth.currentUser){root.innerHTML=renderLogin();resFocus(f);return}root.innerHTML=renderApp();resFocus(f);resScroll(s)}
 async function runDb(label,fn){try{state.error="";return await fn()}catch(e){console.error(e);state.error=label+" failed: "+(e.message||e);render();throw e}}
 function must(data,error){if(error)throw error;return data}
-function setupSystem(e){e.preventDefault();const f=new FormData(e.target),name=String(f.get("name")||"").trim(),username=String(f.get("username")||"").trim(),pin=String(f.get("pin")||"").trim(),siteKey=String(f.get("siteKey")||"").trim();if(!name||!username||!pin||!siteKey){alert("All setup fields are required.");return}auth.setup=true;auth.siteKey=siteKey;auth.users=[{id:"local-admin",name,username,pin,role:"admin",active:true},{id:"local-door",name:"Sample Door Staff",username:"door",pin:"1234",role:"door",active:true}];auth.currentUser=auth.users[0];saveAuth();render();bootDatabase()}
-function login(e){e.preventDefault();const f=new FormData(e.target),siteKey=String(f.get("siteKey")||"").trim(),username=String(f.get("username")||"").trim(),pin=String(f.get("pin")||"").trim();if(siteKey!==auth.siteKey){alert("Private access key is incorrect.");return}const u=auth.users.find(x=>x.username===username&&x.pin===pin&&x.active);if(!u){alert("Username or PIN is incorrect, or the account is inactive.");return}auth.currentUser=u;state.view=roles[u.role].door?"door":"reports";saveAuth();render();bootDatabase()}
-function logout(){auth.currentUser=null;saveAuth();render()}
-function resetLocalLogin(){if(!confirm("Reset local login on this device? This does not clear the live database."))return;localStorage.removeItem(LOCAL_AUTH_KEY);auth=loadAuth();render()}
+async function initAuth(){
+  const {data,error}=await db.auth.getSession();
+  if(error){state.error=error.message;render();return}
+  auth.session=data.session||null;
+  if(auth.session?.user){await loadStaffProfile(auth.session.user)}
+  db.auth.onAuthStateChange(async (_event,session)=>{
+    auth.session=session||null;
+    if(session?.user){await loadStaffProfile(session.user);await bootDatabase()}
+    else{auth.currentUser=null;auth.profile=null;render()}
+  });
+  render();
+  if(auth.currentUser) await bootDatabase();
+}
+async function loadStaffProfile(user){
+  const {data,error}=await db.from("staff_profiles").select("*").eq("id",user.id).maybeSingle();
+  if(error){state.error=error.message;auth.currentUser=null;auth.profile=null;render();return}
+  if(!data){state.error="This Supabase Auth user has not been added to DoorFlow staff_profiles yet.";auth.currentUser=null;auth.profile=null;render();return}
+  if(!data.active){state.error="This DoorFlow account is inactive.";auth.currentUser=null;auth.profile=null;render();return}
+  auth.profile=data;
+  auth.currentUser={id:user.id,email:user.email,name:data.full_name,role:data.role,active:data.active};
+  state.error="";
+  state.view=roles[data.role].door?"door":"reports";
+  render();
+}
+async function login(e){
+  e.preventDefault();
+  const f=new FormData(e.target),email=String(f.get("email")||"").trim(),password=String(f.get("password")||"");
+  if(!email||!password){alert("Email and password are required.");return}
+  const {data,error}=await db.auth.signInWithPassword({email,password});
+  if(error){state.error=error.message;render();return}
+  auth.session=data.session;
+  await loadStaffProfile(data.user);
+  await bootDatabase();
+}
+async function logout(){await db.auth.signOut();auth.session=null;auth.currentUser=null;auth.profile=null;render()}
+
 async function bootDatabase(){if(!auth.currentUser)return;await loadDataForDate(state.activeDate);subscribeRealtime()}
 async function ensureVenue(){let r=await db.from("venues").select("*").eq("name","EVE").maybeSingle();if(r.error)throw r.error;if(r.data)return r.data;r=await db.from("venues").insert({name:"EVE"}).select("*").single();return must(r.data,r.error)}
 async function ensureServiceDay(date){const venue=await ensureVenue(),dayName=dayNameFromDate(date);let r=await db.from("service_days").select("*").eq("venue_id",venue.id).eq("service_date",date).maybeSingle();if(r.error)throw r.error;if(!r.data){r=await db.from("service_days").insert({venue_id:venue.id,service_date:date,day_name:dayName}).select("*").single();r.data=must(r.data,r.error)}state.venue=venue;state.serviceDay=r.data;return r.data}
@@ -96,8 +125,7 @@ function openGroupModal(id=null){if(!requirePerm("manage"))return;state.editingG
 function openGuestModal(id=null){if(!requirePerm("manage"))return;state.editingGuestId=id;state.modal="guest";render()}
 function openBulkPasteModal(){if(!requirePerm("manage"))return;state.modal="bulk";render()}
 function closeModal(){state.modal=null;state.editingGroupId=null;state.editingGuestId=null;render()}
-function renderSetup(){return `<div class="auth"><div class="card"><div class="brand" style="margin-bottom:18px;"><div class="logo">DF</div><div><h1>DoorFlow Setup</h1><p>Local login + live Supabase database</p></div></div><div class="notice warn"><strong>Live database version:</strong> guest lists and check-ins are shared through Supabase. Login is still local for this prototype.</div><form onsubmit="setupSystem(event)" class="form"><div><label>Your Name</label><input name="name" placeholder="Trevor Eitel" /></div><div class="form two"><div><label>Management Username</label><input name="username" placeholder="trevor" /></div><div><label>PIN</label><input name="pin" type="password" placeholder="4+ digits" /></div></div><div><label>Private Website Access Key</label><input name="siteKey" type="password" placeholder="Example: EVE-PRIVATE-2026" /></div><button class="btn" type="submit">Create Local Login</button></form></div></div>`}
-function renderLogin(){return `<div class="auth"><div class="card"><div class="brand" style="margin-bottom:18px;"><div class="logo">DF</div><div><h1>DoorFlow Login</h1><p>Private key + local account</p></div></div><form onsubmit="login(event)" class="form"><div><label>Private Access Key</label><input name="siteKey" type="password" /></div><div class="form two"><div><label>Username</label><input name="username" /></div><div><label>PIN</label><input name="pin" type="password" /></div></div><button class="btn" type="submit">Log In</button></form><div class="divider"></div><p class="subtle"><strong>Sample Door Staff:</strong> username <strong>door</strong>, PIN <strong>1234</strong>. They still need your private key.</p><button class="btn secondary small" onclick="resetLocalLogin()">Reset Local Login</button></div></div>`}
+function renderLogin(){return `<div class="auth"><div class="card"><div class="brand" style="margin-bottom:18px;"><div class="logo">DF</div><div><h1>DoorFlow Login</h1><p>Supabase email/password account</p></div></div><div class="notice greenbox"><strong>Real account mode:</strong> sign in with the email/password account created in Supabase Authentication.</div>${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<form onsubmit="login(event)" class="form"><div><label>Email</label><input name="email" type="email" autocomplete="email" placeholder="you@example.com" /></div><div><label>Password</label><input name="password" type="password" autocomplete="current-password" /></div><button class="btn" type="submit">Log In</button></form><div class="divider"></div><p class="subtle" style="margin:0;">Staff access is controlled by the <strong>staff_profiles</strong> table in Supabase.</p></div></div>`}
 function renderTopbar(){const u=currentUser();return `<header class="topbar"><div class="topbar-inner"><div class="brand"><div class="logo">DF</div><div><h1>DoorFlow</h1><p>${esc(state.activeDay)} · ${esc(state.activeDate)} · Live Database</p></div></div><div class="top-actions"><span class="pill">${state.loading?"Syncing...":"Live DB Connected"}</span><span class="pill">${esc(u.name)} · ${roleLabel(u.role)}</span><button class="btn secondary small" onclick="logout()">Log Out</button></div></div></header>`}
 function renderTabs(){const p=perms();return `<div class="tabs">${p.door?`<button class="tab ${state.view==="door"?"active":""}" onclick="switchView('door')">Door Check-In</button>`:""}${p.manage?`<button class="tab ${state.view==="manage"?"active":""}" onclick="switchView('manage')">Management</button>`:""}${p.reports?`<button class="tab ${state.view==="reports"?"active":""}" onclick="switchView('reports')">Reports</button>`:""}</div>`}
 function switchView(view){const p=perms();if(view==="door"&&!p.door)return alert("No door access.");if(view==="manage"&&!p.manage)return alert("No management access.");if(view==="reports"&&!p.reports)return alert("No report access.");state.view=view;render()}
@@ -114,8 +142,8 @@ function renderGuestModal(){const g=state.editingGuestId?state.guests.find(x=>x.
 function renderBulkModal(){const group=selectedGroup();return `<div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()"><div class="modal"><h2>Bulk Paste Names</h2><p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p><div class="notice warn"><strong>Examples:</strong><br>John Smith<br>Sarah Johnson +2<br>David Miller - VIP - Owner approved</div><form onsubmit="bulkAddNames(event)" class="form"><div class="form two"><div><label>Add To</label><select name="target"><option value="general">General Guest List / Individual Guest</option><option value="selected">Selected Group${group?` — ${esc(group.name)}`:""}</option></select></div><div><label>Default Guest Type</label><select name="defaultType">${guestTypes.map(t=>`<option ${t==="Guest"?"selected":""}>${esc(t)}</option>`).join("")}</select></div></div><div><label>Paste Names</label><textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea></div><div class="row-actions"><button class="btn" type="submit">Add Names</button><button class="btn secondary" type="button" onclick="closeModal()">Cancel</button></div></form></div></div>`}
 function renderModal(){if(state.modal==="group")return renderGroupModal();if(state.modal==="guest")return renderGuestModal();if(state.modal==="bulk")return renderBulkModal();return""}
 function renderApp(){let content="";if(state.view==="door")content=renderMainWorkspace(false);if(state.view==="manage")content=renderManagement();if(state.view==="reports")content=renderReports();return `${renderTopbar()}<div class="page">${state.error?`<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>`:""}<div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are now stored in Supabase and should sync across devices.</div>${renderTabs()}${content}</div>${renderModal()}`}
-Object.assign(window,{setupSystem,login,logout,resetLocalLogin,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
-render();if(auth.currentUser)bootDatabase();
+Object.assign(window,{login,logout,switchView,setActiveDay,setActiveDate,selectGroup,setMode,checkInOneGuest,undoOneGuest,toggleGuest,createGroup,updateGroup,deleteGroup,createGuest,updateGuest,deleteGuest,clearGeneralGuestList,bulkAddNames,handleFileUpload,exportCsv,openGroupModal,openGuestModal,openBulkPasteModal,closeModal,render});
+render();initAuth();
 </script>
 </body>
 </html>
