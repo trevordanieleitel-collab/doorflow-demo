@@ -1738,6 +1738,40 @@ async function clearGeneralGuestList() {
   });
 }
 
+async function clearGroupNames(id) {
+  if (!requirePerm("manage")) return;
+
+  const group = state.groups.find(item => item.id === id);
+
+  if (!group) {
+    alert("Group not found.");
+    return;
+  }
+
+  if (group.name === "General Guest List" || group.group_type === "General Guest List") {
+    await clearGeneralGuestList();
+    return;
+  }
+
+  const count = guestsForGroup(group.id).length;
+
+  if (!count) {
+    alert(`"${group.name}" already has no names.`);
+    return;
+  }
+
+  if (!confirm(`Clear ${count} name${count === 1 ? "" : "s"} from "${group.name}"?\n\nThis will keep the party/group itself, but remove every name under it. This cannot be undone.`)) return;
+
+  await runDb("Clear group names", async () => {
+    const result = await db.from("guests").delete().eq("group_id", group.id);
+    must(result.data, result.error);
+
+    state.importMessage = `Cleared ${count} name${count === 1 ? "" : "s"} from ${group.name}.`;
+
+    await loadDataForDate(state.activeDate);
+  });
+}
+
 /* BULK AND EXCEL */
 
 function parseBulkNames(text) {
@@ -2279,6 +2313,7 @@ function renderGroupList(showActions = false) {
             ${showActions ? `
               <div class="row-actions" style="margin-top:10px;">
                 <button class="btn secondary small" onclick="event.stopPropagation(); openGroupModal('${group.id}')">Edit</button>
+                <button class="btn danger small" onclick="event.stopPropagation(); clearGroupNames('${group.id}')">Clear Names</button>
                 <button class="btn danger small" onclick="event.stopPropagation(); deleteGroup('${group.id}')">Delete</button>
               </div>
             ` : ""}
