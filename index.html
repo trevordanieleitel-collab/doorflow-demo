@@ -2301,6 +2301,47 @@ function renderShiftNotesPanel(showComposer = true) {
 }
 
 
+
+function renderShiftNotesForDoorStaff() {
+  const notes = state.shiftNotes || [];
+
+  if (!notes.length) {
+    return `
+      <div class="card">
+        <h2>Manager / Shift Notes</h2>
+        <p class="subtle" style="margin:0;">No manager or shift notes have been added for this date yet.</p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <h2>Manager / Shift Notes</h2>
+      <p class="subtle">Read these before working the door. These are live instructions from management for the active service day.</p>
+
+      <div class="row-actions" style="margin-bottom:12px;">
+        <button class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Notes</button>
+      </div>
+
+      <div class="shift-note-list">
+        ${notes.map(note => `
+          <div class="shift-note-card">
+            <div class="party-meta">
+              <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
+              <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
+              <span class="badge general">${esc(noteTime(note))}</span>
+              <span class="badge general">By ${esc(note.created_by_name || "Unknown")}</span>
+            </div>
+
+            <p class="shift-note-text">${esc(note.note_text || "")}</p>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+
 /* CLOSE OUT NIGHT */
 
 function buildCloseOutReportData() {
@@ -2972,6 +3013,8 @@ function renderTabletDoorMode() {
         </div>
       </div>
 
+      ${renderShiftNotesForDoorStaff()}
+
       <div class="tablet-card-grid">
         ${guests.length ? guests.map(guest => {
           const group = state.groups.find(item => item.id === guest.group_id);
@@ -3406,7 +3449,7 @@ function renderModal() {
 function renderApp() {
   let content = "";
 
-  if (state.view === "door") content = renderMainWorkspace(false);
+  if (state.view === "door") content = `<div class="stack">${renderShiftNotesForDoorStaff()}${renderMainWorkspace(false)}</div>`;
   if (state.view === "tabletDoor") content = renderTabletDoorMode();
   if (state.view === "manage") content = renderManagement();
   if (state.view === "users") content = renderStaffManagement();
