@@ -583,6 +583,15 @@
       white-space:pre-wrap;
     }
 
+    
+    .late-add-detail {
+      color:var(--amber);
+      font-size:13px;
+      line-height:1.4;
+      margin:4px 0 0;
+      font-weight:700;
+    }
+
     @media(max-width:1080px) {
       .grid { grid-template-columns:1fr; }
       .stats { grid-template-columns:repeat(2,1fr); }
@@ -1324,6 +1333,43 @@ function confirmDuplicateRows(rows, sourceLabel) {
   return confirm(`${sourceLabel} found ${warnings.length} possible duplicate issue(s):\n\n${preview}${extra}\n\nAdd anyway?`);
 }
 
+
+/* LATE-ADD APPROVAL TRACKING */
+
+function isLateAdd(guest) {
+  return Boolean(guest?.is_late_add || guest?.late_add_approved_by || guest?.late_add_reason);
+}
+
+function lateAddStatusText(guest) {
+  if (!isLateAdd(guest)) return "";
+  const approvedBy = guest.late_add_approved_by || "Approval not listed";
+  const addedBy = guest.added_by_name || "Unknown";
+  return `Late Add · Approved by ${approvedBy} · Added by ${addedBy}`;
+}
+
+function lateAddMetaText(guest) {
+  if (!isLateAdd(guest)) return "";
+  const parts = [];
+
+  if (guest.late_add_approved_by) parts.push(`Approved by ${guest.late_add_approved_by}`);
+  if (guest.added_by_name) parts.push(`Added by ${guest.added_by_name}`);
+  if (guest.added_at) {
+    try {
+      parts.push(`Added ${new Date(guest.added_at).toLocaleString([], { month:"short", day:"numeric", minute:"2-digit" })}`);
+    } catch {
+      parts.push(`Added ${guest.added_at}`);
+    }
+  }
+  if (guest.late_add_reason) parts.push(`Reason: ${guest.late_add_reason}`);
+
+  return parts.join(" · ");
+}
+
+function lateAddBadge(guest) {
+  return isLateAdd(guest) ? `<span class="badge remaining">Late Add</span>` : "";
+}
+
+
 /* STAFF MANAGEMENT */
 
 async function loadStaffProfilesForAdmin() {
@@ -1662,6 +1708,8 @@ async function createGuest(event) {
     return;
   }
 
+  const isLateAddEntry = form.get("is_late_add") === "on";
+
   const payload = {
     group_id:group.id,
     first_name:String(form.get("first_name") || "").trim(),
@@ -1672,11 +1720,22 @@ async function createGuest(event) {
     notes:String(form.get("notes") || "").trim(),
     last_checked_in_at:form.get("checked_in") ? new Date().toISOString() : null,
     last_checked_in_by_name:form.get("checked_in") ? currentUser().name : null,
-    last_door_location:form.get("checked_in") ? state.doorLocation : null
+    last_door_location:form.get("checked_in") ? state.doorLocation : null,
+    added_by_name:currentUser()?.name || "Unknown",
+    added_by_user_id:auth.session?.user?.id || null,
+    added_at:new Date().toISOString(),
+    is_late_add:isLateAddEntry,
+    late_add_approved_by:isLateAddEntry ? String(form.get("late_add_approved_by") || "").trim() : null,
+    late_add_reason:isLateAddEntry ? String(form.get("late_add_reason") || "").trim() : null
   };
 
   if (!payload.first_name || !payload.last_name) {
     alert("First and last name are required.");
+    return;
+  }
+
+  if (payload.is_late_add && !payload.late_add_approved_by) {
+    alert("Late-add entries require an Approved By name.");
     return;
   }
 
@@ -1703,17 +1762,27 @@ async function updateGuest(event) {
   const form = new FormData(event.target);
   const totalAllowed = Math.max(1, Number(form.get("total_allowed") || 1));
 
+  const isLateAddEntry = form.get("is_late_add") === "on";
+
   const payload = {
     first_name:String(form.get("first_name") || "").trim(),
     last_name:String(form.get("last_name") || "").trim(),
     guest_type:String(form.get("guest_type") || "Guest"),
     total_allowed:totalAllowed,
     checked_in_count:Math.min(guestChecked(guest), totalAllowed),
-    notes:String(form.get("notes") || "").trim()
+    notes:String(form.get("notes") || "").trim(),
+    is_late_add:isLateAddEntry,
+    late_add_approved_by:isLateAddEntry ? String(form.get("late_add_approved_by") || "").trim() : null,
+    late_add_reason:isLateAddEntry ? String(form.get("late_add_reason") || "").trim() : null
   };
 
   if (!payload.first_name || !payload.last_name) {
     alert("First and last name are required.");
+    return;
+  }
+
+  if (payload.is_late_add && !payload.late_add_approved_by) {
+    alert("Late-add entries require an Approved By name.");
     return;
   }
 
@@ -1885,7 +1954,13 @@ async function bulkAddNames(event) {
       guest_type:item.guest_type && item.guest_type !== "Guest" ? item.guest_type : defaultType,
       total_allowed:Math.max(1, Number(item.total_allowed || 1)),
       checked_in_count:0,
-      notes:item.notes || ""
+      notes:item.notes || "",
+      added_by_name:currentUser()?.name || "Unknown",
+      added_by_user_id:auth.session?.user?.id || null,
+      added_at:new Date().toISOString(),
+      is_late_add:false,
+      late_add_approved_by:null,
+      late_add_reason:null
     }));
 
   if (!rows.length) {
@@ -1958,7 +2033,13 @@ function rowToGuest(row, groupId) {
     guest_type:readField(row, ["Guest Type", "Attendee Type", "Type", "Category"]) || "Guest",
     total_allowed,
     checked_in_count:0,
-    notes:readField(row, ["Notes", "Note", "Comments", "Details"])
+    notes:readField(row, ["Notes", "Note", "Comments", "Details"]),
+    added_by_name:currentUser()?.name || "Unknown",
+    added_by_user_id:auth.session?.user?.id || null,
+    added_at:new Date().toISOString(),
+    is_late_add:false,
+    late_add_approved_by:null,
+    late_add_reason:null
   };
 }
 
@@ -2105,7 +2186,7 @@ function exportCsv() {
   if (!requirePerm("reports")) return;
 
   const rows = [
-    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Guest Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Checked In At","Checked In By","Door","Notes"],
+    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Guest Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Late Add","Approved By","Late Add Reason","Added By","Added At","Checked In At","Checked In By","Door","Notes"],
     ...state.guests.map(guest => {
       const group = state.groups.find(item => item.id === guest.group_id);
 
@@ -2123,6 +2204,11 @@ function exportCsv() {
         guestChecked(guest),
         guestRemaining(guest),
         isGuestFullyIn(guest) ? "Yes" : "No",
+        isLateAdd(guest) ? "Yes" : "No",
+        guest.late_add_approved_by || "",
+        guest.late_add_reason || "",
+        guest.added_by_name || "",
+        guest.added_at || "",
         guest.last_checked_in_at || "",
         guest.last_checked_in_by_name || "",
         guest.last_door_location || "",
@@ -2415,6 +2501,11 @@ function buildCloseOutReportData() {
         last_checked_in_at:guest.last_checked_in_at || "",
         last_checked_in_by_name:guest.last_checked_in_by_name || "",
         last_door_location:guest.last_door_location || "",
+        is_late_add:isLateAdd(guest),
+        late_add_approved_by:guest.late_add_approved_by || "",
+        late_add_reason:guest.late_add_reason || "",
+        added_by_name:guest.added_by_name || "",
+        added_at:guest.added_at || "",
         notes:guest.notes || ""
       }))
     };
@@ -2458,6 +2549,16 @@ function buildCloseOutReportData() {
       no_show_records:noShows.length
     },
     groups:groupSummaries,
+    late_adds:state.guests.filter(guest => isLateAdd(guest)).map(guest => ({
+      first_name:guest.first_name,
+      last_name:guest.last_name,
+      group_name:groupNameForGuest(guest),
+      guest_type:guest.guest_type,
+      approved_by:guest.late_add_approved_by || "",
+      reason:guest.late_add_reason || "",
+      added_by:guest.added_by_name || "",
+      added_at:guest.added_at || ""
+    })),
     no_shows:noShows,
     shift_notes:(state.shiftNotes || []).map(note => ({
       category:note.category,
@@ -2860,12 +2961,14 @@ function renderGuestList(showActions = false) {
                 <p class="guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
                 <span class="count-pill">${checked}/${total}</span>
                 ${fullyIn ? `<span class="badge in">Fully In</span>` : remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
+                ${lateAddBadge(guest)}
               </div>
               <p class="guest-detail">
                 ${esc(guest.guest_type)}
                 ${group ? ` · ${esc(group.name)}` : ""}
                 ${guest.notes ? ` · ${esc(guest.notes)}` : ""}
               </p>
+              ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
               ${showLast ? `<p class="guest-detail">Last check-in by ${esc(guest.last_checked_in_by_name || "")} at ${esc(guest.last_door_location || "")}</p>` : ""}
             </div>
 
@@ -3074,6 +3177,7 @@ function renderTabletDoorMode() {
                 <div>
                   <p class="tablet-guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
                   <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(group.name)}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
+                  ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
                 </div>
                 <div class="tablet-count">${checked}/${total}</div>
               </div>
@@ -3208,7 +3312,7 @@ function renderReports() {
     <div class="grid">
       <main class="stack">
         <div class="card">
-          <h2>Reports</h2>
+          <h2>Reports</h2>\n        <p class="subtle">Late Adds This Date: <strong>${state.guests.filter(guest => isLateAdd(guest)).length}</strong></p>
           <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
           <div class="row-actions">
             <button class="btn" onclick="exportCsv()">Export Current Day CSV</button>
@@ -3425,6 +3529,26 @@ function renderGuestModal() {
             <textarea name="notes" rows="3">${esc(guest?.notes || "")}</textarea>
           </div>
 
+          <div style="grid-column:1/-1;" class="card tight">
+            <div class="name-line" style="margin-bottom:10px;">
+              <input type="checkbox" name="is_late_add" ${guest && isLateAdd(guest) ? "checked" : ""} style="width:auto;" />
+              <label style="margin:0;">Late Add / Manager Approved Entry</label>
+            </div>
+
+            <div class="two">
+              <div>
+                <label>Approved By</label>
+                <input name="late_add_approved_by" placeholder="Manager name" value="${esc(guest?.late_add_approved_by || "")}" />
+              </div>
+              <div>
+                <label>Reason / Approval Note</label>
+                <input name="late_add_reason" placeholder="Example: Late VIP approval" value="${esc(guest?.late_add_reason || "")}" />
+              </div>
+            </div>
+
+            <p class="subtle" style="margin:10px 0 0;">Use this when a name is added after the list is already live or after management approval is required.</p>
+          </div>
+
           <div style="grid-column:1/-1;" class="row-actions">
             <button class="btn" type="submit">${isEdit ? "Save Name" : "Add Name"}</button>
             <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
@@ -3588,7 +3712,8 @@ Object.assign(window, {
   openGuestModal,
   openBulkPasteModal,
   closeModal,
-  render
+  render,
+  isLateAdd
 });
 
 render();
