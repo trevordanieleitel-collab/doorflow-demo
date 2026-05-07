@@ -592,6 +592,77 @@
       font-weight:700;
     }
 
+    
+    .mobile-summary-bar {
+      display:none;
+    }
+
+    .closeout-summary-grid {
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:12px;
+      margin:16px 0;
+    }
+
+    .closeout-report-section {
+      margin-top:18px;
+    }
+
+    .closeout-print-header {
+      display:flex;
+      justify-content:space-between;
+      gap:16px;
+      align-items:flex-start;
+      margin-bottom:18px;
+    }
+
+    .closeout-report-table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+
+    .closeout-report-table th,
+    .closeout-report-table td {
+      border:1px solid #e5e7eb;
+      padding:8px;
+      vertical-align:top;
+    }
+
+    .closeout-report-table th {
+      background:#f9fafb;
+      color:#374151;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    .tablet-action-bar {
+      position:sticky;
+      top:84px;
+      z-index:20;
+      background:rgba(255,255,255,.96);
+      border:1px solid var(--line);
+      border-radius:22px;
+      box-shadow:0 10px 24px rgba(15,23,42,.10);
+      padding:12px;
+      backdrop-filter:blur(10px);
+    }
+
+    .tablet-action-grid {
+      display:grid;
+      grid-template-columns:1fr 160px 160px;
+      gap:10px;
+      align-items:end;
+    }
+
+    .tablet-filter-row {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+
     @media(max-width:1080px) {
       .grid { grid-template-columns:1fr; }
       .stats { grid-template-columns:repeat(2,1fr); }
@@ -621,6 +692,164 @@
       .tablet-actions { grid-template-columns:1fr; }
       .tablet-check-btn, .tablet-undo-btn { min-height:56px; }
     }
+  
+    @media(max-width:760px) {
+      .page {
+        padding:14px 10px 32px;
+      }
+
+      .brand h1 {
+        font-size:20px;
+      }
+
+      .brand p {
+        font-size:12px;
+      }
+
+      .card {
+        border-radius:18px;
+        padding:14px;
+      }
+
+      .stats {
+        grid-template-columns:repeat(2,1fr);
+        gap:8px;
+      }
+
+      .stat {
+        padding:11px;
+        border-radius:15px;
+      }
+
+      .stat strong {
+        font-size:22px;
+      }
+
+      .mobile-summary-bar {
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:8px;
+        position:sticky;
+        top:0;
+        z-index:25;
+        background:rgba(245,246,248,.96);
+        padding:8px 0;
+        backdrop-filter:blur(10px);
+      }
+
+      .mobile-summary-item {
+        background:#fff;
+        border:1px solid var(--line);
+        border-radius:14px;
+        padding:8px;
+        text-align:center;
+      }
+
+      .mobile-summary-item span {
+        display:block;
+        color:var(--muted);
+        font-size:11px;
+        margin-bottom:2px;
+      }
+
+      .mobile-summary-item strong {
+        font-size:20px;
+      }
+
+      .toolbar {
+        top:0;
+      }
+
+      .tablet-action-grid,
+      .tablet-filter-row {
+        grid-template-columns:1fr;
+      }
+
+      .tablet-action-bar {
+        top:0;
+      }
+
+      .tablet-search {
+        font-size:18px;
+        padding:15px 16px;
+      }
+
+      .tablet-guest-card {
+        border-radius:20px;
+        padding:15px;
+      }
+
+      .tablet-guest-top {
+        flex-direction:column;
+      }
+
+      .tablet-count {
+        align-self:flex-start;
+        font-size:18px;
+      }
+
+      .tablet-actions {
+        grid-template-columns:1fr 1fr;
+      }
+
+      .tablet-check-btn,
+      .tablet-undo-btn {
+        min-height:54px;
+        font-size:16px;
+      }
+
+      .closeout-summary-grid {
+        grid-template-columns:repeat(2,1fr);
+      }
+
+      .closeout-print-header {
+        flex-direction:column;
+      }
+
+      .closeout-report-table {
+        font-size:12px;
+      }
+
+      .closeout-report-table th,
+      .closeout-report-table td {
+        padding:6px;
+      }
+    }
+
+    @media print {
+      body {
+        background:#fff;
+      }
+
+      .topbar,
+      .tabs,
+      .row-actions,
+      .btn,
+      .notice.greenbox,
+      .notice.warn,
+      .toolbar,
+      .tablet-action-bar {
+        display:none!important;
+      }
+
+      .page {
+        max-width:none;
+        padding:0;
+      }
+
+      .card {
+        box-shadow:none;
+        border:none;
+        padding:0;
+      }
+
+      .closeout-report-table th,
+      .closeout-report-table td {
+        border:1px solid #d1d5db;
+      }
+    }
+
+
   </style>
 </head>
 
@@ -2725,63 +2954,243 @@ function downloadCloseOutJson(report) {
   URL.revokeObjectURL(url);
 }
 
-async function closeOutNight() {
-  if (!requirePerm("reports")) return;
-
-  const stats = dayStats();
-
-  if (!confirm(`Close out ${state.activeDate} and email the manager report?\n\nTotal Allowed: ${stats.total}\nChecked In: ${stats.checked}\nRemaining / No-Shows: ${stats.remaining}`)) return;
-
-  const report = buildCloseOutReportData();
-  const html = buildCloseOutReportHtml(report);
-
-  await runDb("Close out night email", async () => {
-    const { data:sessionData } = await db.auth.getSession();
-    const token = sessionData?.session?.access_token;
-
-    if (!token) {
-      throw new Error("No active Supabase session found.");
-    }
-
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/send-closeout-report`, {
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json",
-        "Authorization":`Bearer ${token}`
-      },
-      body:JSON.stringify({
-        report,
-        html
-      })
-    });
-
-    const result = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(result.error || result.message || "Close out email failed.");
-    }
-
-    state.importMessage = "Close out report sent to manager emails.";
-    alert("Close out report sent to manager emails.");
-    render();
-  });
+function closeOutNight() {
+  previewCloseOutReport();
 }
 
 function previewCloseOutReport() {
   if (!requirePerm("reports")) return;
 
+  state.modal = "closeoutReport";
+  render();
+}
+
+function printCloseOutReport() {
+  window.print();
+}
+
+function downloadCloseOutReportCsv() {
+  if (!requirePerm("reports")) return;
+
   const report = buildCloseOutReportData();
-  const html = buildCloseOutReportHtml(report);
-  const previewWindow = window.open("", "_blank");
 
-  if (!previewWindow) {
-    downloadCloseOutJson(report);
-    return;
-  }
+  const rows = [
+    ["Section","Group","Guest","Guest Type","Total Allowed","Checked In","Remaining","Late Add","Approved By","Reason/Notes","Added By","Added At"],
+    ...report.groups.flatMap(group => group.guests.map(guest => [
+      "Guest",
+      group.group_name,
+      `${guest.first_name} ${guest.last_name}`,
+      guest.guest_type,
+      guest.total_allowed,
+      guest.checked_in_count,
+      guest.remaining,
+      guest.is_late_add ? "Yes" : "No",
+      guest.late_add_approved_by || "",
+      guest.late_add_reason || guest.notes || "",
+      guest.added_by_name || "",
+      guest.added_at || ""
+    ])),
+    ...report.shift_notes.map(note => [
+      "Shift Note",
+      "",
+      "",
+      note.category,
+      "",
+      "",
+      "",
+      "",
+      "",
+      note.note_text,
+      note.created_by_name,
+      note.created_at
+    ])
+  ];
 
-  previewWindow.document.open();
-  previewWindow.document.write(html);
-  previewWindow.document.close();
+  const csv = rows.map(row => row.map(value => `"${String(value ?? "").replaceAll('"','""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `doorflow_closeout_report_${state.activeDate}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderCloseOutReportModal() {
+  const report = buildCloseOutReportData();
+  const lateAdds = report.late_adds || [];
+  const noShows = report.no_shows || [];
+  const shiftNotes = report.shift_notes || [];
+  const activityLogs = report.activity_logs || [];
+
+  return `
+    <div class="modal-backdrop">
+      <div class="modal" style="max-width:1100px;">
+        <div class="closeout-print-header">
+          <div>
+            <h2>DoorFlow Close Out Report</h2>
+            <p class="subtle" style="margin:0;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
+            <p class="subtle" style="margin:4px 0 0;">Generated by ${esc(report.generated_by)} · ${new Date(report.generated_at).toLocaleString()}</p>
+          </div>
+
+          <div class="row-actions">
+            <button class="btn secondary" onclick="downloadCloseOutReportCsv()">Export Report CSV</button>
+            <button class="btn secondary" onclick="printCloseOutReport()">Print</button>
+            <button class="btn" onclick="closeModal()">Close</button>
+          </div>
+        </div>
+
+        <div class="closeout-summary-grid">
+          <div class="stat"><span>Total Allowed</span><strong>${report.summary.total_allowed}</strong></div>
+          <div class="stat"><span>Checked In</span><strong>${report.summary.checked_in}</strong></div>
+          <div class="stat"><span>Remaining / No-Shows</span><strong>${report.summary.remaining}</strong></div>
+          <div class="stat"><span>Late Adds</span><strong>${lateAdds.length}</strong></div>
+        </div>
+
+        <div class="closeout-report-section">
+          <h3>Group Breakdown</h3>
+          <table class="closeout-report-table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Type</th>
+                <th>Host</th>
+                <th>Table</th>
+                <th>Allowed</th>
+                <th>Checked In</th>
+                <th>Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${report.groups.map(group => `
+                <tr>
+                  <td>${esc(group.group_name)}</td>
+                  <td>${esc(group.group_type)}</td>
+                  <td>${esc(group.host_name || "")}</td>
+                  <td>${esc(group.table_location || "")}</td>
+                  <td>${group.total_allowed}</td>
+                  <td>${group.checked_in}</td>
+                  <td>${group.remaining}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="closeout-report-section">
+          <h3>Late Adds</h3>
+          <table class="closeout-report-table">
+            <thead>
+              <tr>
+                <th>Guest</th>
+                <th>Group</th>
+                <th>Type</th>
+                <th>Approved By</th>
+                <th>Reason</th>
+                <th>Added By</th>
+                <th>Added At</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lateAdds.length ? lateAdds.map(guest => `
+                <tr>
+                  <td>${esc(guest.first_name)} ${esc(guest.last_name)}</td>
+                  <td>${esc(guest.group_name)}</td>
+                  <td>${esc(guest.guest_type)}</td>
+                  <td>${esc(guest.approved_by || "")}</td>
+                  <td>${esc(guest.reason || "")}</td>
+                  <td>${esc(guest.added_by || "")}</td>
+                  <td>${guest.added_at ? esc(new Date(guest.added_at).toLocaleString()) : ""}</td>
+                </tr>
+              `).join("") : `<tr><td colspan="7">No late adds recorded.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="closeout-report-section">
+          <h3>No-Shows / Remaining Guests</h3>
+          <table class="closeout-report-table">
+            <thead>
+              <tr>
+                <th>Guest</th>
+                <th>Group</th>
+                <th>Type</th>
+                <th>Checked In</th>
+                <th>Remaining</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${noShows.length ? noShows.map(guest => `
+                <tr>
+                  <td>${esc(guest.first_name)} ${esc(guest.last_name)}</td>
+                  <td>${esc(guest.group_name)}</td>
+                  <td>${esc(guest.guest_type)}</td>
+                  <td>${guest.checked_in_count}/${guest.total_allowed}</td>
+                  <td>${guest.remaining}</td>
+                  <td>${esc(guest.notes || "")}</td>
+                </tr>
+              `).join("") : `<tr><td colspan="6">No no-shows / remaining guests.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="closeout-report-section">
+          <h3>Manager / Shift Notes</h3>
+          <table class="closeout-report-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Priority</th>
+                <th>Note</th>
+                <th>By</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${shiftNotes.length ? shiftNotes.map(note => `
+                <tr>
+                  <td>${esc(note.category || "")}</td>
+                  <td>${esc(note.priority || "")}</td>
+                  <td>${esc(note.note_text || "")}</td>
+                  <td>${esc(note.created_by_name || "")}</td>
+                  <td>${note.created_at ? esc(new Date(note.created_at).toLocaleString()) : ""}</td>
+                </tr>
+              `).join("") : `<tr><td colspan="5">No shift notes recorded.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="closeout-report-section">
+          <h3>Recent Door Activity</h3>
+          <table class="closeout-report-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Guest</th>
+                <th>Group</th>
+                <th>Staff</th>
+                <th>Door</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${activityLogs.length ? activityLogs.slice(0,60).map(log => `
+                <tr>
+                  <td>${log.time ? esc(new Date(log.time).toLocaleString()) : ""}</td>
+                  <td>${esc(log.action || "")}</td>
+                  <td>${esc(log.guest_name || "")}</td>
+                  <td>${esc(log.group_name || "")}</td>
+                  <td>${esc(log.staff_name || "")}</td>
+                  <td>${esc(log.door_location || "")}</td>
+                </tr>
+              `).join("") : `<tr><td colspan="6">No recent activity logs recorded.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 
@@ -3195,6 +3604,12 @@ function renderTabletDoorMode() {
   return `
     ${renderDateBar()}
 
+    <div class="mobile-summary-bar">
+      <div class="mobile-summary-item"><span>In</span><strong>${stats.checked}</strong></div>
+      <div class="mobile-summary-item"><span>Left</span><strong>${stats.remaining}</strong></div>
+      <div class="mobile-summary-item"><span>Total</span><strong>${stats.total}</strong></div>
+    </div>
+
     <div class="tablet-door-shell">
       <div class="card">
         <h2>Tablet Door Mode</h2>
@@ -3207,8 +3622,13 @@ function renderTabletDoorMode() {
         </div>
       </div>
 
-      <div class="card tight">
-        <div class="tablet-door-controls">
+      <div class="tablet-action-bar">
+        <div class="tablet-action-grid">
+          <div>
+            <label>Search Guest</label>
+            <input id="tabletSearchInput" class="tablet-search" placeholder="Type guest name..." value="${esc(state.searchText)}" oninput="state.searchText=this.value;render()" />
+          </div>
+
           <div>
             <label>Guest List / Party</label>
             <select onchange="selectTabletList(this.value)">
@@ -3220,10 +3640,12 @@ function renderTabletDoorMode() {
           </div>
 
           <div>
-            <label>Search Guest</label>
-            <input id="tabletSearchInput" class="tablet-search" placeholder="Type guest name..." value="${esc(state.searchText)}" oninput="state.searchText=this.value;render()" />
+            <label>Quick Clear</label>
+            <button class="btn secondary" onclick="state.searchText='';state.guestFilter='ALL';render()">Clear Search/Filter</button>
           </div>
+        </div>
 
+        <div class="tablet-filter-row">
           <div>
             <label>Filter</label>
             <select onchange="setGuestFilter(this.value)">
@@ -3745,6 +4167,7 @@ function renderModal() {
   if (state.modal === "guest") return renderGuestModal();
   if (state.modal === "bulk") return renderBulkModal();
   if (state.modal === "shiftNote") return renderShiftNoteModal();
+  if (state.modal === "closeoutReport") return renderCloseOutReportModal();
   return "";
 }
 
