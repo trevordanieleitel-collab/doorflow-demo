@@ -1613,7 +1613,17 @@ async function createGuest(event) {
 
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
-  const group = target === "general" ? generalGroup() : selectedGroup();
+
+  let group = null;
+
+  if (target === "general") {
+    group = generalGroup();
+  } else if (target === "selected") {
+    group = selectedGroup();
+  } else if (target.startsWith("group:")) {
+    const groupId = target.replace("group:", "");
+    group = state.groups.find(item => item.id === groupId) || null;
+  }
 
   if (!group) {
     alert("Select or create a group first.");
@@ -1775,7 +1785,18 @@ async function bulkAddNames(event) {
 
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
-  const group = target === "general" ? generalGroup() : selectedGroup();
+
+  let group = null;
+
+  if (target === "general") {
+    group = generalGroup();
+  } else if (target === "selected") {
+    group = selectedGroup();
+  } else if (target.startsWith("group:")) {
+    const groupId = target.replace("group:", "");
+    group = state.groups.find(item => item.id === groupId) || null;
+  }
+
   const defaultType = String(form.get("defaultType") || "Guest");
   const bulkText = String(form.get("bulkNames") || "").trim();
 
@@ -1923,7 +1944,16 @@ function parseCsv(text) {
 async function importRows(rows, targetMode) {
   if (!requirePerm("manage")) return;
 
-  const group = targetMode === "general" ? generalGroup() : selectedGroup();
+  let group = null;
+
+  if (targetMode === "general") {
+    group = generalGroup();
+  } else if (targetMode === "selected") {
+    group = selectedGroup();
+  } else if (targetMode.startsWith("group:")) {
+    const groupId = targetMode.replace("group:", "");
+    group = state.groups.find(item => item.id === groupId) || null;
+  }
 
   if (!group) {
     state.importMessage = "Select or create a group first.";
@@ -2408,7 +2438,7 @@ function renderMainWorkspace(showManagement = false) {
                 <label>Upload Target</label>
                 <select id="uploadTarget">
                   <option value="general">General Guest List / Individual Guest</option>
-                  <option value="selected">Selected Group</option>
+                  ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === selectedGroup()?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
                 </select>
               </div>
 
@@ -2803,7 +2833,7 @@ function renderGuestModal() {
               <label>Add To</label>
               <select name="target">
                 <option value="general">General Guest List / Individual Guest</option>
-                <option value="selected">Selected Group</option>
+                ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === selectedGroup()?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
           ` : ""}
@@ -2876,7 +2906,7 @@ function renderBulkModal() {
               <label>Add To</label>
               <select name="target">
                 <option value="general">General Guest List / Individual Guest</option>
-                <option value="selected">Selected Group${group ? ` — ${esc(group.name)}` : ""}</option>
+                ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === group?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
 
