@@ -305,7 +305,7 @@
 
     .toolbar {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 170px 170px 170px;
+      grid-template-columns:minmax(0,1fr) 180px 170px 170px 170px;
       gap:10px;
       margin-bottom:18px;
     }
@@ -471,7 +471,7 @@
 
     .tablet-door-controls {
       display:grid;
-      grid-template-columns:240px minmax(0,1fr) 220px;
+      grid-template-columns:240px minmax(0,1fr) 220px 220px;
       gap:12px;
       align-items:end;
     }
@@ -651,6 +651,20 @@ const sortOptions = [
   { value:"CHECKED", label:"Checked First" }
 ];
 
+const guestFilterOptions = [
+  { value:"ALL", label:"All Guests" },
+  { value:"NOT_CHECKED_IN", label:"Not Checked In" },
+  { value:"CHECKED_IN", label:"Checked In" },
+  { value:"PARTIAL", label:"Partially Checked In" },
+  { value:"FULLY_IN", label:"Fully Checked In" },
+  { value:"LATE_ADD", label:"Late Adds" },
+  { value:"GENERAL_ONLY", label:"General Guest List Only" },
+  { value:"GROUP_ONLY", label:"Party / Group Guests Only" },
+  { value:"BOTTLE_SERVICE", label:"Bottle Service" },
+  { value:"VIP", label:"VIP / VIP Parties" },
+  { value:"DO_NOT_ADMIT", label:"Do Not Admit" }
+];
+
 let auth = {
   session:null,
   currentUser:null,
@@ -675,6 +689,7 @@ let state = {
   searchText:"",
   groupSearchText:"",
   sortMode:"LAST_ASC",
+  guestFilter:"ALL",
   doorLocation:"Front Door",
   modal:null,
   editingGroupId:null,
@@ -1215,7 +1230,8 @@ function visibleGuests() {
   const filtered = source.filter(guest => {
     const group = state.groups.find(item => item.id === guest.group_id);
     const groupText = group ? `${group.name} ${group.group_type} ${group.host_name || ""}` : "";
-    return !query || `${guest.first_name} ${guest.last_name} ${guest.guest_type} ${guest.notes || ""} ${groupText}`.toLowerCase().includes(query);
+    const searchMatch = !query || `${guest.first_name} ${guest.last_name} ${guest.guest_type} ${guest.notes || ""} ${guest.late_add_approved_by || ""} ${guest.late_add_reason || ""} ${guest.added_by_name || ""} ${groupText}`.toLowerCase().includes(query);
+    return searchMatch && guestMatchesStatusFilter(guest);
   });
 
   return sortGuests([...filtered]);
@@ -1242,6 +1258,54 @@ function groupNameForGuest(guest) {
   const group = state.groups.find(item => item.id === guest.group_id);
   return group ? group.name : "Unknown Group";
 }
+
+
+function isGeneralGroup(group) {
+  return Boolean(group && (group.name === "General Guest List" || group.group_type === "General Guest List"));
+}
+
+function groupForGuest(guest) {
+  return state.groups.find(item => item.id === guest.group_id) || null;
+}
+
+function guestMatchesStatusFilter(guest) {
+  const filter = state.guestFilter || "ALL";
+  const checked = guestChecked(guest);
+  const total = guestTotal(guest);
+  const remaining = guestRemaining(guest);
+  const group = groupForGuest(guest);
+  const groupType = String(group?.group_type || "").toLowerCase();
+  const guestType = String(guest?.guest_type || "").toLowerCase();
+
+  if (filter === "ALL") return true;
+  if (filter === "NOT_CHECKED_IN") return checked === 0;
+  if (filter === "CHECKED_IN") return checked > 0;
+  if (filter === "PARTIAL") return checked > 0 && remaining > 0;
+  if (filter === "FULLY_IN") return checked >= total;
+  if (filter === "LATE_ADD") return isLateAdd(guest);
+  if (filter === "GENERAL_ONLY") return isGeneralGroup(group);
+  if (filter === "GROUP_ONLY") return !isGeneralGroup(group);
+  if (filter === "BOTTLE_SERVICE") return groupType.includes("bottle") || guestType.includes("bottle");
+  if (filter === "VIP") return groupType.includes("vip") || guestType.includes("vip");
+  if (filter === "DO_NOT_ADMIT") return guestType.includes("do not");
+
+  return true;
+}
+
+function setGuestFilter(value) {
+  state.guestFilter = value || "ALL";
+  state.searchText = state.searchText || "";
+  render();
+}
+
+function activeFilterLabel() {
+  return guestFilterOptions.find(option => option.value === (state.guestFilter || "ALL"))?.label || "All Guests";
+}
+
+function filteredGuestCount() {
+  return visibleGuests().length;
+}
+
 
 function guestFromLog(log) {
   return state.guests.find(item => item.id === log.guest_id) || null;
@@ -3049,6 +3113,10 @@ function renderMainWorkspace(showManagement = false) {
               <option value="GROUP" ${state.currentMode === "GROUP" ? "selected" : ""}>Selected Group Only</option>
             </select>
 
+            <select onchange="setGuestFilter(this.value)">
+              ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+            </select>
+
             <select onchange="setSortMode(this.value)">
               ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
@@ -3063,6 +3131,10 @@ function renderMainWorkspace(showManagement = false) {
         <div class="card">
           <h2>${title}</h2>
           <p class="subtle">${subtitle}</p>
+          <div class="party-meta" style="margin-bottom:12px;">
+            <span class="badge general">Filter: ${esc(activeFilterLabel())}</span>
+            <span class="badge general">${visibleGuests().length} shown</span>
+          </div>
           <div id="guestScrollPanel" class="scroll-panel">
             ${renderGuestList(showManagement)}
           </div>
@@ -3153,11 +3225,25 @@ function renderTabletDoorMode() {
           </div>
 
           <div>
+            <label>Filter</label>
+            <select onchange="setGuestFilter(this.value)">
+              ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+            </select>
+          </div>
+
+          <div>
             <label>Sort</label>
             <select onchange="setSortMode(this.value)">
               ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
           </div>
+        </div>
+      </div>
+
+      <div class="card tight">
+        <div class="party-meta">
+          <span class="badge general">Filter: ${esc(activeFilterLabel())}</span>
+          <span class="badge general">${guests.length} shown</span>
         </div>
       </div>
 
