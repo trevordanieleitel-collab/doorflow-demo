@@ -563,6 +563,26 @@
       color:var(--muted);
     }
 
+    
+    .shift-note-list {
+      display:grid;
+      gap:10px;
+    }
+
+    .shift-note-card {
+      border:1px solid #eef0f3;
+      background:#fff;
+      border-radius:18px;
+      padding:14px;
+    }
+
+    .shift-note-text {
+      margin:10px 0 0;
+      color:var(--text);
+      line-height:1.45;
+      white-space:pre-wrap;
+    }
+
     @media(max-width:1080px) {
       .grid { grid-template-columns:1fr; }
       .stats { grid-template-columns:repeat(2,1fr); }
@@ -636,6 +656,7 @@ let state = {
   groups:[],
   guests:[],
   logs:[],
+  shiftNotes:[],
   staffProfiles:[],
   view:"door",
   activeDate:todayISO(),
@@ -915,6 +936,7 @@ async function logout() {
   state.groups = [];
   state.guests = [];
   state.logs = [];
+  state.shiftNotes = [];
   state.staffProfiles = [];
   state.selectedGroupId = null;
   state.currentMode = "GENERAL";
@@ -1061,6 +1083,14 @@ async function loadDataForDate(dateString) {
       state.logs = [];
     }
 
+    const notesResult = await db
+      .from("shift_notes")
+      .select("*")
+      .eq("service_day_id", serviceDay.id)
+      .order("created_at", { ascending:false });
+
+    state.shiftNotes = must(notesResult.data, notesResult.error) || [];
+
     if (!selectedGroup() && specificGroups()[0]) {
       state.selectedGroupId = specificGroups()[0].id;
     }
@@ -1083,6 +1113,7 @@ function subscribeRealtime() {
     .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, () => loadDataForDate(state.activeDate))
     .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, () => loadDataForDate(state.activeDate))
     .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, () => loadDataForDate(state.activeDate))
+    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, () => loadDataForDate(state.activeDate))
     .on("postgres_changes", { event:"*", schema:"public", table:"staff_profiles" }, () => {
       if (auth.currentUser?.role === "admin") loadStaffProfilesForAdmin();
     })
@@ -2112,6 +2143,164 @@ function exportCsv() {
 }
 
 
+
+/* MANAGER / SHIFT NOTES */
+
+const noteCategories = [
+  "General Note",
+  "Cover / Pricing",
+  "VIP / Bottle Service",
+  "Staffing",
+  "Security Concern",
+  "Do Not Admit / Watch",
+  "Maintenance / Facility",
+  "End of Night"
+];
+
+const notePriorities = [
+  "Normal",
+  "Important",
+  "Urgent"
+];
+
+function notePriorityClass(priority) {
+  const value = String(priority || "").toLowerCase();
+  if (value.includes("urgent")) return "blocked";
+  if (value.includes("important")) return "remaining";
+  return "general";
+}
+
+function noteCategoryClass(category) {
+  const value = String(category || "").toLowerCase();
+  if (value.includes("vip") || value.includes("bottle")) return "vip";
+  if (value.includes("security") || value.includes("watch") || value.includes("do not")) return "blocked";
+  if (value.includes("cover") || value.includes("pricing")) return "remaining";
+  if (value.includes("end")) return "in";
+  return "general";
+}
+
+function noteTime(note) {
+  try {
+    return new Date(note.created_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+  } catch {
+    return note.created_at || "";
+  }
+}
+
+async function createShiftNote(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  if (!state.serviceDay?.id) {
+    alert("Service day is not loaded yet.");
+    return;
+  }
+
+  const form = new FormData(event.target);
+
+  const payload = {
+    service_day_id:state.serviceDay.id,
+    category:String(form.get("category") || "General Note"),
+    priority:String(form.get("priority") || "Normal"),
+    note_text:String(form.get("note_text") || "").trim(),
+    created_by_name:currentUser()?.name || "Unknown",
+    created_by_user_id:auth.session?.user?.id || null
+  };
+
+  if (!payload.note_text) {
+    alert("Type a note before saving.");
+    return;
+  }
+
+  await runDb("Create shift note", async () => {
+    const result = await db.from("shift_notes").insert(payload);
+    must(result.data, result.error);
+
+    event.target.reset();
+    state.importMessage = "Shift note added.";
+    await loadDataForDate(state.activeDate);
+  });
+}
+
+async function deleteShiftNote(id) {
+  if (!requirePerm("manage")) return;
+
+  if (!confirm("Delete this shift note?")) return;
+
+  await runDb("Delete shift note", async () => {
+    const result = await db.from("shift_notes").delete().eq("id", id);
+    must(result.data, result.error);
+
+    state.importMessage = "Shift note deleted.";
+    await loadDataForDate(state.activeDate);
+  });
+}
+
+function renderShiftNotesPanel(showComposer = true) {
+  const notes = state.shiftNotes || [];
+
+  return `
+    <div class="card">
+      <h2>Manager / Shift Notes</h2>
+      <p class="subtle">Use this for live notes that door staff and managers need for the night. Examples: cover charge, VIP instructions, problem guests, staffing notes, and end-of-night notes.</p>
+
+      ${showComposer && perms()?.manage ? `
+        <form onsubmit="createShiftNote(event)" class="form" style="margin-bottom:16px;">
+          <div class="two">
+            <div>
+              <label>Category</label>
+              <select name="category">
+                ${noteCategories.map(item => `<option>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label>Priority</label>
+              <select name="priority">
+                ${notePriorities.map(item => `<option>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label>Note</label>
+            <textarea name="note_text" rows="4" placeholder="Example: VIP table arriving around 10:30 PM. Approved by manager."></textarea>
+          </div>
+
+          <div class="row-actions">
+            <button class="btn" type="submit">Add Shift Note</button>
+          </div>
+        </form>
+      ` : ""}
+
+      ${notes.length ? `
+        <div class="shift-note-list">
+          ${notes.map(note => `
+            <div class="shift-note-card">
+              <div class="party-meta">
+                <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
+                <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
+                <span class="badge general">${esc(noteTime(note))}</span>
+                <span class="badge general">By ${esc(note.created_by_name || "Unknown")}</span>
+              </div>
+
+              <p class="shift-note-text">${esc(note.note_text || "")}</p>
+
+              ${perms()?.manage ? `
+                <div class="row-actions">
+                  <button class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
+                </div>
+              ` : ""}
+            </div>
+          `).join("")}
+        </div>
+      ` : `
+        <div class="notice warn">No manager or shift notes have been added for this date yet.</div>
+      `}
+    </div>
+  `;
+}
+
+
 /* CLOSE OUT NIGHT */
 
 function buildCloseOutReportData() {
@@ -2185,6 +2374,13 @@ function buildCloseOutReportData() {
     },
     groups:groupSummaries,
     no_shows:noShows,
+    shift_notes:(state.shiftNotes || []).map(note => ({
+      category:note.category,
+      priority:note.priority,
+      note_text:note.note_text,
+      created_by_name:note.created_by_name,
+      created_at:note.created_at
+    })),
     activity_logs:activityLogs
   };
 }
@@ -2822,14 +3018,14 @@ function renderManagement() {
           <button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
           <button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
           <div class="row-actions">
-          <button class="btn" onclick="closeOutNight()">Close Out Night & Email Managers</button>
+          
           <button class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
           <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
         </div>
       </div>
 
-      ${renderMainWorkspace(true)}
+      ${renderShiftNotesPanel(true)}${renderMainWorkspace(true)}
     </div>
   `;
 }
