@@ -1355,7 +1355,7 @@ function lateAddMetaText(guest) {
   if (guest.added_by_name) parts.push(`Added by ${guest.added_by_name}`);
   if (guest.added_at) {
     try {
-      parts.push(`Added ${new Date(guest.added_at).toLocaleString([], { month:"short", day:"numeric", minute:"2-digit" })}`);
+      parts.push(`Added ${new Date(guest.added_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}`);
     } catch {
       parts.push(`Added ${guest.added_at}`);
     }
