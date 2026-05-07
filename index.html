@@ -670,6 +670,7 @@ let state = {
   modal:null,
   editingGroupId:null,
   editingGuestId:null,
+  editingShiftNoteId:null,
   importMessage:""
 };
 
@@ -2222,6 +2223,48 @@ async function createShiftNote(event) {
   });
 }
 
+function openEditShiftNote(id) {
+  if (!requirePerm("manage")) return;
+  state.editingShiftNoteId = id;
+  state.modal = "shiftNote";
+  render();
+}
+
+async function updateShiftNote(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const note = (state.shiftNotes || []).find(item => item.id === state.editingShiftNoteId);
+
+  if (!note) {
+    alert("Shift note not found.");
+    return;
+  }
+
+  const form = new FormData(event.target);
+
+  const payload = {
+    category:String(form.get("category") || "General Note"),
+    priority:String(form.get("priority") || "Normal"),
+    note_text:String(form.get("note_text") || "").trim()
+  };
+
+  if (!payload.note_text) {
+    alert("Type a note before saving.");
+    return;
+  }
+
+  await runDb("Update shift note", async () => {
+    const result = await db.from("shift_notes").update(payload).eq("id", note.id);
+    must(result.data, result.error);
+
+    state.editingShiftNoteId = null;
+    state.modal = null;
+    state.importMessage = "Shift note updated.";
+    await loadDataForDate(state.activeDate);
+  });
+}
+
 async function deleteShiftNote(id) {
   if (!requirePerm("manage")) return;
 
@@ -2287,6 +2330,7 @@ function renderShiftNotesPanel(showComposer = true) {
 
               ${perms()?.manage ? `
                 <div class="row-actions">
+                  <button class="btn secondary small" onclick="openEditShiftNote('${note.id}')">Edit Note</button>
                   <button class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
                 </div>
               ` : ""}
@@ -2602,6 +2646,7 @@ function closeModal() {
   state.modal = null;
   state.editingGroupId = null;
   state.editingGuestId = null;
+  state.editingShiftNoteId = null;
   render();
 }
 
@@ -3439,10 +3484,57 @@ function renderBulkModal() {
   `;
 }
 
+function renderShiftNoteModal() {
+  const note = (state.shiftNotes || []).find(item => item.id === state.editingShiftNoteId);
+
+  if (!note) {
+    return "";
+  }
+
+  return `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h2>Edit Shift Note</h2>
+        <p class="subtle">Update the category, priority, or note text for this service day.</p>
+
+        <form onsubmit="updateShiftNote(event)" class="form">
+          <div class="two">
+            <div>
+              <label>Category</label>
+              <select name="category">
+                ${noteCategories.map(item => `<option ${item === note.category ? "selected" : ""}>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div>
+              <label>Priority</label>
+              <select name="priority">
+                ${notePriorities.map(item => `<option ${item === note.priority ? "selected" : ""}>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label>Note</label>
+            <textarea name="note_text" rows="6">${esc(note.note_text || "")}</textarea>
+          </div>
+
+          <div class="row-actions">
+            <button class="btn" type="submit">Save Note Changes</button>
+            <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+
 function renderModal() {
   if (state.modal === "group") return renderGroupModal();
   if (state.modal === "guest") return renderGuestModal();
   if (state.modal === "bulk") return renderBulkModal();
+  if (state.modal === "shiftNote") return renderShiftNoteModal();
   return "";
 }
 
