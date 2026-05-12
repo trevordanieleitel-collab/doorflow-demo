@@ -937,6 +937,9 @@ let state = {
 };
 
 let realtimeChannel = null;
+let autoRefreshTimer = null;
+let lastAutoRefreshAt = null;
+let isAutoRefreshing = false;
 
 function todayISO() {
   return new Date().toISOString().slice(0,10);
@@ -1063,6 +1066,72 @@ function must(data, error) {
   return data;
 }
 
+
+/* AUTO REFRESH / SYNC BACKUP */
+
+function isUserActivelyEditing() {
+  const active = document.activeElement;
+  if (!active) return false;
+
+  const tag = String(active.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select";
+}
+
+function shouldSkipAutoRefresh() {
+  if (!auth.currentUser) return true;
+  if (!state.activeDate) return true;
+  if (state.modal) return true;
+  if (document.hidden) return true;
+  if (isUserActivelyEditing()) return true;
+  if (isAutoRefreshing) return true;
+
+  return false;
+}
+
+async function refreshLiveDataSilently(reason = "auto") {
+  if (shouldSkipAutoRefresh()) return;
+
+  try {
+    isAutoRefreshing = true;
+    lastAutoRefreshAt = new Date();
+    await loadDataForDate(state.activeDate);
+  } catch (error) {
+    console.warn("DoorFlow auto-refresh skipped/failed:", reason, error);
+  } finally {
+    isAutoRefreshing = false;
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+
+  // Backup sync refresh. Realtime should still handle most updates, but this catches
+  // tablet sleep/wake, PWA background pauses, and dropped realtime connections.
+  autoRefreshTimer = setInterval(() => {
+    refreshLiveDataSilently("interval");
+  }, 30000);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && auth.currentUser) {
+    setTimeout(() => refreshLiveDataSilently("visibilitychange"), 750);
+  }
+});
+
+window.addEventListener("focus", () => {
+  if (auth.currentUser) {
+    setTimeout(() => refreshLiveDataSilently("focus"), 750);
+  }
+});
+
+
 /* AUTH */
 
 async function initAuth() {
@@ -1087,6 +1156,8 @@ async function initAuth() {
       await loadStaffProfile(session.user);
       await bootDatabase();
     } else {
+      stopAutoRefresh();
+
       auth.session = null;
       auth.currentUser = null;
       auth.profile = null;
@@ -1192,6 +1263,8 @@ async function logout() {
     console.warn("Logout warning:", error);
   }
 
+  stopAutoRefresh();
+
   auth.session = null;
   auth.currentUser = null;
   auth.profile = null;
@@ -1223,6 +1296,7 @@ async function bootDatabase() {
   if (!auth.currentUser) return;
   await loadDataForDate(state.activeDate);
   subscribeRealtime();
+  startAutoRefresh();
 }
 
 function canManageData() {
@@ -1305,8 +1379,10 @@ async function ensureGeneralGroup(serviceDayId) {
 
 async function loadDataForDate(dateString) {
   return runDb("Loading live data", async () => {
-    state.loading = true;
-    render();
+    if (!isAutoRefreshing) {
+      state.loading = true;
+      render();
+    }
 
     state.activeDate = dateString;
     state.activeDay = dayNameFromDate(dateString);
@@ -3288,6 +3364,7 @@ function renderTopbar() {
 
         <div class="top-actions">
           <span class="pill">${state.loading ? "Syncing..." : "Live DB Connected"}</span>
+          <button type="button" class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
           <span class="pill">${esc(user.name)} · ${roleLabel(user.role)}</span>
           <button type="button" class="btn secondary small" onclick="logout()">Log Out</button>
         </div>
