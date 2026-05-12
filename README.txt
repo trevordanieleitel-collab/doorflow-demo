@@ -1,37 +1,36 @@
-# DoorFlow PWA Installable Build
+# DoorFlow PWA Android / Toast Tablet Install Fix
 
-This is the current stable DoorFlow build converted into a PWA-ready package.
+This version keeps the same DoorFlow app but updates the PWA install files for better Android/Chrome tablet compatibility.
 
-## What this adds
-- App manifest
-- App icons
-- Service worker
-- iPhone/iPad Add to Home Screen support
-- Android/Chrome Install App support
-- Netlify/Vercel hosting support files
+## What changed
+- Manifest paths changed to absolute root paths
+- Start URL changed to /
+- Scope changed to /
+- Service worker registration changed to /sw.js
+- Service worker cache bumped to v2
+- Removed orientation lock from manifest
 
-## Important
-DoorFlow still requires internet access for live Supabase sync. The PWA opens like an app, but live check-ins, notes, and database updates require online access.
+## Upload to GitHub
+Replace/update these files in your GitHub repo:
 
-## Netlify quick deploy
-1. Go to Netlify.
-2. Choose Add new site / Deploy manually.
-3. Drag the full unzipped `doorflow_pwa_installable` folder into Netlify.
-4. Netlify gives you a link.
-5. Open that link on the device.
-6. iPhone/iPad: Safari → Share → Add to Home Screen.
-7. Android/Chrome: menu → Install App or Add to Home Screen.
+- index.html
+- manifest.webmanifest
+- sw.js
+- icons/icon-192.png
+- icons/icon-512.png
+- icons/maskable-512.png
+- _headers
 
-## Vercel quick deploy
-1. Upload these files to a GitHub repository or import the folder into Vercel.
-2. Deploy as a static site.
-3. Open the deployed link.
-4. Install it to the device/home screen.
+Then commit changes. Netlify should redeploy automatically.
 
-## Pilot recommendation
-Before live use at The BOB:
-- Host this build at one link.
-- Install it on at least two test devices.
-- Log in as manager on one device and door staff on another.
-- Run a fake event with 100 names.
-- Confirm sync, check-ins, notes, late adds, filters, and closeout report.
+## After Netlify redeploys
+On the Toast/Android tablet:
+1. Open Chrome.
+2. Go to https://doorflow-thebob.netlify.app
+3. Refresh the page.
+4. Try Install again.
+
+If it still says it cannot install:
+- Use Add to Home Screen instead of Install App, if Chrome offers it.
+- Or keep using Go Back To Site / browser shortcut.
+- Some Toast-managed tablets may block installing third-party PWAs.
