@@ -1,36 +1,26 @@
-# DoorFlow PWA Android / Toast Tablet Install Fix
+# DoorFlow - Tablet Search Keyboard Fix
 
-This version keeps the same DoorFlow app but updates the PWA install files for better Android/Chrome tablet compatibility.
+This version fixes the Tablet Door Mode search issue where the keyboard refreshed/flickered after every letter.
 
 ## What changed
-- Manifest paths changed to absolute root paths
-- Start URL changed to /
-- Scope changed to /
-- Service worker registration changed to /sw.js
-- Service worker cache bumped to v2
-- Removed orientation lock from manifest
+- Tablet search no longer re-renders the full page on every keystroke.
+- Search now updates only the tablet guest cards.
+- Search input has autocomplete/autocorrect/spellcheck disabled.
+- Service worker cache version bumped so tablets pull the update.
 
 ## Upload to GitHub
 Replace/update these files in your GitHub repo:
-
 - index.html
-- manifest.webmanifest
 - sw.js
-- icons/icon-192.png
-- icons/icon-512.png
-- icons/maskable-512.png
-- _headers
+- manifest.webmanifest
+- icons folder if needed
+- _headers if needed
 
-Then commit changes. Netlify should redeploy automatically.
+Then commit changes and let Netlify redeploy.
 
-## After Netlify redeploys
-On the Toast/Android tablet:
-1. Open Chrome.
-2. Go to https://doorflow-thebob.netlify.app
-3. Refresh the page.
-4. Try Install again.
-
-If it still says it cannot install:
-- Use Add to Home Screen instead of Install App, if Chrome offers it.
-- Or keep using Go Back To Site / browser shortcut.
-- Some Toast-managed tablets may block installing third-party PWAs.
+## After Netlify deploys
+On the tablet:
+1. Open DoorFlow.
+2. Refresh the page.
+3. If it still acts strange, close Chrome completely and reopen it.
+4. If needed, clear site data for doorflow-thebob.netlify.app.

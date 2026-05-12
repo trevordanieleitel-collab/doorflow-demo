@@ -3605,6 +3605,54 @@ function renderMainWorkspace(showManagement = false) {
   `;
 }
 
+
+function updateTabletSearch(value) {
+  state.searchText = value;
+
+  const guests = visibleGuests();
+  const grid = document.getElementById("tabletCardGrid");
+  const count = document.getElementById("tabletShownCount");
+
+  if (count) {
+    count.textContent = `${guests.length} shown`;
+  }
+
+  if (grid) {
+    grid.innerHTML = renderTabletGuestCards(guests);
+  }
+}
+
+function renderTabletGuestCards(guests) {
+  return guests.length ? guests.map(guest => {
+    const group = state.groups.find(item => item.id === guest.group_id);
+    const total = guestTotal(guest);
+    const checked = guestChecked(guest);
+    const remaining = guestRemaining(guest);
+    const fullyIn = isGuestFullyIn(guest);
+
+    return `
+      <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
+        <div class="tablet-guest-top">
+          <div>
+            <p class="tablet-guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
+            <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(group.name)}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
+            ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
+          </div>
+          <div class="tablet-count">${checked}/${total}</div>
+        </div>
+
+        <p class="tablet-note">${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</p>
+
+        <div class="tablet-actions">
+          ${remaining > 0 ? `<button class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')">Check In 1</button>` : `<button class="btn green tablet-check-btn" disabled>Fully In</button>`}
+          ${checked > 0 ? `<button class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')">Undo 1</button>` : `<button class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
+        </div>
+      </div>
+    `;
+  }).join("") : `<div class="tablet-empty">No guests found. Try clearing search or switching list view.</div>`;
+}
+
+
 function renderTabletDoorMode() {
   const guests = visibleGuests();
   const stats = dayStats();
@@ -3635,7 +3683,7 @@ function renderTabletDoorMode() {
         <div class="tablet-action-grid">
           <div>
             <label>Search Guest</label>
-            <input id="tabletSearchInput" class="tablet-search" placeholder="Type guest name..." value="${esc(state.searchText)}" oninput="state.searchText=this.value;render()" />
+            <input id="tabletSearchInput" class="tablet-search" placeholder="Type guest name..." value="${esc(state.searchText)}" oninput="updateTabletSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           </div>
 
           <div>
@@ -3674,40 +3722,14 @@ function renderTabletDoorMode() {
       <div class="card tight">
         <div class="party-meta">
           <span class="badge general">Filter: ${esc(activeFilterLabel())}</span>
-          <span class="badge general">${guests.length} shown</span>
+          <span id="tabletShownCount" class="badge general">${guests.length} shown</span>
         </div>
       </div>
 
       ${renderShiftNotesForDoorStaff()}
 
-      <div class="tablet-card-grid">
-        ${guests.length ? guests.map(guest => {
-          const group = state.groups.find(item => item.id === guest.group_id);
-          const total = guestTotal(guest);
-          const checked = guestChecked(guest);
-          const remaining = guestRemaining(guest);
-          const fullyIn = isGuestFullyIn(guest);
-
-          return `
-            <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
-              <div class="tablet-guest-top">
-                <div>
-                  <p class="tablet-guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
-                  <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(group.name)}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
-                  ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
-                </div>
-                <div class="tablet-count">${checked}/${total}</div>
-              </div>
-
-              <p class="tablet-note">${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</p>
-
-              <div class="tablet-actions">
-                ${remaining > 0 ? `<button class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')">Check In 1</button>` : `<button class="btn green tablet-check-btn" disabled>Fully In</button>`}
-                ${checked > 0 ? `<button class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')">Undo 1</button>` : `<button class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
-              </div>
-            </div>
-          `;
-        }).join("") : `<div class="tablet-empty">No guests found. Try clearing search or switching list view.</div>`}
+      <div id="tabletCardGrid" class="tablet-card-grid">
+        ${renderTabletGuestCards(guests)}
       </div>
     </div>
   `;
