@@ -963,6 +963,36 @@
         line-height:1.35;
       }
 
+      .mobile-manager-message {
+        display:none;
+        border-radius:14px;
+        padding:12px;
+        font-size:14px;
+        font-weight:800;
+        line-height:1.35;
+      }
+
+      .mobile-manager-message.success {
+        display:block;
+        background:#ecfdf5;
+        color:#047857;
+        border:1px solid #a7f3d0;
+      }
+
+      .mobile-manager-message.error {
+        display:block;
+        background:#fef2f2;
+        color:#b91c1c;
+        border:1px solid #fecaca;
+      }
+
+      .mobile-manager-message.info {
+        display:block;
+        background:#eff6ff;
+        color:#1d4ed8;
+        border:1px solid #bfdbfe;
+      }
+
       .mobile-manager-primary-btn,
       .mobile-manager-two-buttons .btn,
       .mobile-manager-advanced-grid .btn {
@@ -1253,7 +1283,8 @@ let state = {
   editingGroupId:null,
   editingGuestId:null,
   editingShiftNoteId:null,
-  importMessage:""
+  importMessage:"",
+  mobileManagerNotice:null
 };
 
 let realtimeChannel = null;
@@ -2468,6 +2499,183 @@ async function createGuest(event) {
 }
 
 
+function setMobileManagerNotice(message, type = "info") {
+  state.mobileManagerNotice = { message:String(message || ""), type:String(type || "info") };
+}
+
+function clearMobileManagerNotice() {
+  state.mobileManagerNotice = null;
+}
+
+function showMobileManagerNotice(message, type = "info") {
+  setMobileManagerNotice(message, type);
+  const box = document.getElementById("mobileManagerMessage");
+  if (box) {
+    box.textContent = state.mobileManagerNotice.message;
+    box.className = `mobile-manager-message ${state.mobileManagerNotice.type}`;
+  }
+}
+
+function scrollToMobileCreateGroup() {
+  const details = document.getElementById("mobileCreateGroupDetails");
+  if (details) details.open = true;
+
+  const input = document.getElementById("mobileGroupName");
+  if (input) {
+    input.scrollIntoView({ behavior:"smooth", block:"center" });
+    setTimeout(() => input.focus(), 250);
+  }
+}
+
+function readMobileField(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}
+
+async function mobileQuickAddGuest() {
+  if (!requirePerm("manage")) return;
+  if (window.__doorFlowMobileSubmitting) return;
+
+  clearMobileManagerNotice();
+
+  let fullName = readMobileField("mobileQuickGuestName");
+  const target = readMobileField("mobileQuickTarget") || "general";
+  const approvedBy = readMobileField("mobileQuickApprovedBy");
+  const reason = readMobileField("mobileQuickReason") || "Added by manager during shift";
+  let plusCount = Math.max(0, Number(readMobileField("mobileQuickPlusCount") || 0));
+
+  const inlinePlusMatch = fullName.match(/\s\+(\d+)\s*$/);
+  if (inlinePlusMatch) {
+    plusCount = Math.max(plusCount, Number(inlinePlusMatch[1] || 0));
+    fullName = fullName.replace(/\s\+\d+\s*$/, "").trim();
+  }
+
+  plusCount = Math.max(0, Math.min(99, plusCount));
+  const split = splitFullName(fullName);
+
+  if (!split.first_name || !split.last_name) {
+    showMobileManagerNotice("Enter the guest's first and last name.", "error");
+    return;
+  }
+
+  if (!approvedBy) {
+    showMobileManagerNotice("Approved By is required for manager quick adds.", "error");
+    return;
+  }
+
+  let group = null;
+
+  try {
+    window.__doorFlowMobileSubmitting = true;
+    showMobileManagerNotice("Adding guest...", "info");
+
+    if (target === "general") {
+      group = await getGeneralGroupForActiveDate();
+    } else if (target.startsWith("group:")) {
+      const groupId = target.replace("group:", "");
+      group = state.groups.find(item => item.id === groupId) || null;
+    }
+
+    if (!group) {
+      showMobileManagerNotice("Select the General Guest List or create/select a party first.", "error");
+      return;
+    }
+
+    const payload = {
+      group_id:group.id,
+      first_name:split.first_name,
+      last_name:split.last_name,
+      guest_type:"Guest",
+      total_allowed:1 + plusCount,
+      checked_in_count:0,
+      notes:reason,
+      last_checked_in_at:null,
+      last_checked_in_by_name:null,
+      last_door_location:null,
+      added_by_name:currentUser()?.name || "Unknown",
+      added_by_user_id:auth.session?.user?.id || null,
+      added_at:new Date().toISOString(),
+      is_late_add:true,
+      late_add_approved_by:approvedBy,
+      late_add_reason:reason
+    };
+
+    if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) {
+      showMobileManagerNotice("Guest add canceled.", "info");
+      return;
+    }
+
+    await runDb("Mobile quick add guest", async () => {
+      const result = await db.from("guests").insert(payload).select("*").single();
+      must(result.data, result.error);
+
+      state.selectedGroupId = group.id;
+      state.currentMode = group.name === "General Guest List" || group.group_type === "General Guest List" ? "GENERAL" : "GROUP";
+      setMobileManagerNotice(`${payload.first_name} ${payload.last_name}${plusCount ? ` +${plusCount}` : ""} added to ${group.name}.`, "success");
+
+      await loadDataForDate(state.activeDate);
+    });
+  } catch (error) {
+    console.error(error);
+    showMobileManagerNotice(error?.message || "Guest could not be added. Try Refresh Data and try again.", "error");
+  } finally {
+    window.__doorFlowMobileSubmitting = false;
+  }
+}
+
+async function mobileQuickCreateGroup() {
+  if (!requirePerm("manage")) return;
+  if (window.__doorFlowMobileSubmitting) return;
+
+  clearMobileManagerNotice();
+
+  const name = readMobileField("mobileGroupName");
+  const groupType = readMobileField("mobileGroupType") || "VIP Party";
+  const hostName = readMobileField("mobileGroupHost");
+  const location = readMobileField("mobileGroupLocation");
+  const approvedBy = readMobileField("mobileGroupApprovedBy") || currentUser()?.name || "Management";
+  const notes = readMobileField("mobileGroupNotes");
+
+  if (!name) {
+    showMobileManagerNotice("Party / Group Name is required.", "error");
+    return;
+  }
+
+  try {
+    window.__doorFlowMobileSubmitting = true;
+    showMobileManagerNotice("Creating party/group...", "info");
+
+    const serviceDay = state.serviceDay?.id ? state.serviceDay : await ensureServiceDay(state.activeDate);
+
+    const payload = {
+      service_day_id:serviceDay.id,
+      name,
+      group_type:groupType,
+      host_name:hostName,
+      table_location:location,
+      approved_by:approvedBy,
+      notes,
+      status:"Active"
+    };
+
+    await runDb("Mobile create party/group", async () => {
+      const result = await db.from("groups").insert(payload).select("*").single();
+      const group = must(result.data, result.error);
+
+      state.selectedGroupId = group.id;
+      state.currentMode = "GROUP";
+      setMobileManagerNotice(`${group.name} created. You can now add guests to that list.`, "success");
+
+      await loadDataForDate(state.activeDate);
+    });
+  } catch (error) {
+    console.error(error);
+    showMobileManagerNotice(error?.message || "Party/group could not be created. Try Refresh Data and try again.", "error");
+  } finally {
+    window.__doorFlowMobileSubmitting = false;
+  }
+}
+
+
 async function createQuickManagerGuest(event) {
   event.preventDefault();
   if (!requirePerm("manage")) return;
@@ -2591,21 +2799,23 @@ function renderMobileManagerView() {
           <strong style="font-size:24px;">+</strong>
         </div>
 
-        <form class="mobile-manager-form" onsubmit="createQuickManagerGuest(event)">
+        <div id="mobileManagerMessage" class="mobile-manager-message ${state.mobileManagerNotice ? esc(state.mobileManagerNotice.type || "info") : ""}">${state.mobileManagerNotice ? esc(state.mobileManagerNotice.message || "") : ""}</div>
+
+        <div class="mobile-manager-form">
           <div>
             <label>Guest Name</label>
-            <input name="guest_name" placeholder="First and last name" autocomplete="off" autocorrect="off" autocapitalize="words" />
+            <input id="mobileQuickGuestName" placeholder="First and last name" autocomplete="off" autocorrect="off" autocapitalize="words" />
           </div>
 
           <div>
             <label>Plus Ones</label>
-            <input name="plus_count" type="number" min="0" max="99" value="0" inputmode="numeric" />
+            <input id="mobileQuickPlusCount" type="number" min="0" max="99" value="0" inputmode="numeric" />
             <p class="mobile-manager-help">0 = named guest only. 1 = guest +1. 2 = guest +2.</p>
           </div>
 
           <div>
             <label>Add To</label>
-            <select name="target">
+            <select id="mobileQuickTarget">
               <option value="general">General Guest List</option>
               ${specificGroups().map(group => `<option value="group:${group.id}" ${group.id === selectedGroup()?.id ? "selected" : ""}>${esc(group.name)}${group.host_name ? ` — ${esc(group.host_name)}` : ""}</option>`).join("")}
             </select>
@@ -2613,23 +2823,71 @@ function renderMobileManagerView() {
 
           <div>
             <label>Approved By</label>
-            <input name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" autocomplete="off" autocapitalize="words" />
+            <input id="mobileQuickApprovedBy" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" autocomplete="off" autocapitalize="words" />
           </div>
 
           <div>
             <label>Notes</label>
-            <textarea name="late_add_reason" placeholder="Example: Added by manager during shift">Added by manager during shift</textarea>
+            <textarea id="mobileQuickReason" placeholder="Example: Added by manager during shift">Added by manager during shift</textarea>
           </div>
 
-          <button class="btn mobile-manager-primary-btn" type="submit">Add Guest</button>
-        </form>
+          <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickAddGuest()">Add Guest</button>
+        </div>
       </section>
 
       <div class="mobile-manager-two-buttons">
-        <button class="btn secondary mobile-manager-wide-btn" type="button" onclick="openGroupModal()">Create Party / Group</button>
+        <button class="btn secondary mobile-manager-wide-btn" type="button" onclick="scrollToMobileCreateGroup()">Create Party / Group</button>
         <button class="btn secondary" type="button" onclick="switchView('door')">Search List</button>
         <button class="btn secondary" type="button" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
       </div>
+
+      <section class="mobile-manager-card">
+        <details id="mobileCreateGroupDetails" class="mobile-manager-details">
+          <summary>
+            <div>
+              <h2>Create Party / Group</h2>
+              <p>Create a new list from your phone.</p>
+            </div>
+            <strong>⌄</strong>
+          </summary>
+
+          <div class="mobile-manager-form" style="margin-top:14px;">
+            <div>
+              <label>Party / Group Name</label>
+              <input id="mobileGroupName" placeholder="Example: Smith Party" autocomplete="off" autocapitalize="words" />
+            </div>
+
+            <div>
+              <label>Type</label>
+              <select id="mobileGroupType">
+                ${groupTypes.map(type => `<option>${esc(type)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div>
+              <label>Host Name</label>
+              <input id="mobileGroupHost" placeholder="Optional" autocomplete="off" autocapitalize="words" />
+            </div>
+
+            <div>
+              <label>Table / Location</label>
+              <input id="mobileGroupLocation" placeholder="Optional" autocomplete="off" autocapitalize="words" />
+            </div>
+
+            <div>
+              <label>Approved By</label>
+              <input id="mobileGroupApprovedBy" value="${esc(currentUser()?.name || "Management")}" autocomplete="off" autocapitalize="words" />
+            </div>
+
+            <div>
+              <label>Notes</label>
+              <textarea id="mobileGroupNotes" placeholder="Optional notes"></textarea>
+            </div>
+
+            <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickCreateGroup()">Create Party / Group</button>
+          </div>
+        </details>
+      </section>
 
       <section class="mobile-manager-card">
         <details class="mobile-manager-details">
@@ -2704,7 +2962,7 @@ function renderMobileManagerView() {
           </summary>
 
           <div class="mobile-manager-advanced-grid">
-            <button class="btn secondary" type="button" onclick="openGroupModal()">Create Party / Group</button>
+            <button class="btn secondary" type="button" onclick="scrollToMobileCreateGroup()">Create Party / Group</button>
             <button class="btn secondary" type="button" onclick="openGuestModal()">Full Add Guest Form</button>
             <button class="btn secondary" type="button" onclick="openBulkPasteModal()">Bulk Paste Names</button>
             <button class="btn secondary" type="button" onclick="previewCloseOutReport()">Close Out Report</button>
@@ -4904,6 +5162,9 @@ Object.assign(window, {
   deleteGroup,
   createGuest,
   createQuickManagerGuest,
+  mobileQuickAddGuest,
+  mobileQuickCreateGroup,
+  scrollToMobileCreateGroup,
   updateGuest,
   deleteGuest,
   clearGeneralGuestList,
