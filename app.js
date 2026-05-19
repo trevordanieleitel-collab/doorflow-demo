@@ -1,4 +1,3 @@
-
 const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
@@ -67,13 +66,22 @@ let state = {
   editingGuestId:null,
   editingShiftNoteId:null,
   importMessage:"",
-  mobileManagerNotice:null
+  mobileManagerNotice:null,
+  syncStatus:"Connecting",
+  syncMessage:"Starting live sync",
+  realtimeStatus:"Not connected",
+  realtimeSubscribedAt:null,
+  lastSyncAt:null,
+  lastRealtimeAt:null,
+  pendingSync:false
 };
 
 let realtimeChannel = null;
+let realtimeDebounceTimer = null;
 let autoRefreshTimer = null;
 let lastAutoRefreshAt = null;
 let isAutoRefreshing = false;
+let lastUserInputAt = 0;
 
 function todayISO() {
   return new Date().toISOString().slice(0,10);
@@ -211,49 +219,96 @@ function newestMatchingRow(rows, predicate) {
 }
 
 
-/* AUTO REFRESH / SYNC BACKUP */
+/* AUTO REFRESH / LIVE SYNC */
+
+function markUserInputActivity() {
+  lastUserInputAt = Date.now();
+}
+
+document.addEventListener("input", markUserInputActivity, true);
+document.addEventListener("keydown", markUserInputActivity, true);
+document.addEventListener("change", markUserInputActivity, true);
+
+function userRecentlyTyped(windowMs = 2500) {
+  return Date.now() - lastUserInputAt < windowMs;
+}
 
 function isUserActivelyEditing() {
   const active = document.activeElement;
   if (!active) return false;
 
   const tag = String(active.tagName || "").toLowerCase();
-  return tag === "input" || tag === "textarea" || tag === "select";
+  const isEditable = tag === "input" || tag === "textarea" || tag === "select" || active.isContentEditable;
+  return isEditable && userRecentlyTyped();
 }
 
-function shouldSkipAutoRefresh() {
+function updateSyncStatus(status, message) {
+  state.syncStatus = status;
+  state.syncMessage = message || "";
+}
+
+function shouldSkipAutoRefresh(options = {}) {
+  const force = Boolean(options.force);
+
   if (!auth.currentUser) return true;
   if (!state.activeDate) return true;
-  if (state.modal) return true;
   if (document.hidden) return true;
-  if (isUserActivelyEditing()) return true;
   if (isAutoRefreshing) return true;
+
+  if (!force && state.modal) return true;
+  if (!force && isUserActivelyEditing()) return true;
 
   return false;
 }
 
-async function refreshLiveDataSilently(reason = "auto") {
-  if (shouldSkipAutoRefresh()) return;
+function schedulePendingSync(reason = "pending") {
+  state.pendingSync = true;
+  updateSyncStatus("Pending", `Update waiting while user is active (${reason}).`);
+}
+
+async function refreshLiveDataSilently(reason = "auto", options = {}) {
+  if (shouldSkipAutoRefresh(options)) {
+    schedulePendingSync(reason);
+    return;
+  }
 
   try {
     isAutoRefreshing = true;
     lastAutoRefreshAt = new Date();
+    updateSyncStatus("Syncing", `Refreshing from ${reason}.`);
     await loadDataForDate(state.activeDate);
+    state.pendingSync = false;
   } catch (error) {
-    console.warn("DoorFlow auto-refresh skipped/failed:", reason, error);
+    console.warn("DoorFlow live refresh failed:", reason, error);
+    updateSyncStatus("Reconnect", error?.message || "Live refresh failed. Use Refresh Data if needed.");
+    render();
   } finally {
     isAutoRefreshing = false;
   }
 }
 
+function requestRealtimeRefresh(source = "database") {
+  if (!auth.currentUser) return;
+
+  state.lastRealtimeAt = new Date();
+
+  if (realtimeDebounceTimer) {
+    clearTimeout(realtimeDebounceTimer);
+  }
+
+  realtimeDebounceTimer = setTimeout(() => {
+    refreshLiveDataSilently(`realtime:${source}`);
+  }, 650);
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
 
-  // Backup sync refresh. Realtime should still handle most updates, but this catches
+  // Backup sync. Realtime should handle most updates, but this catches
   // tablet sleep/wake, PWA background pauses, and dropped realtime connections.
   autoRefreshTimer = setInterval(() => {
     refreshLiveDataSilently("interval");
-  }, 30000);
+  }, 15000);
 }
 
 function stopAutoRefresh() {
@@ -261,20 +316,57 @@ function stopAutoRefresh() {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
+
+  if (realtimeDebounceTimer) {
+    clearTimeout(realtimeDebounceTimer);
+    realtimeDebounceTimer = null;
+  }
+}
+
+async function manualRefreshData() {
+  await refreshLiveDataSilently("manual", { force:true });
+}
+
+function flushPendingSync(reason = "resume") {
+  if (!auth.currentUser) return;
+  if (!state.pendingSync && !document.hidden) {
+    refreshLiveDataSilently(reason, { force:true });
+    return;
+  }
+  if (state.pendingSync) {
+    refreshLiveDataSilently(reason, { force:true });
+  }
 }
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && auth.currentUser) {
-    setTimeout(() => refreshLiveDataSilently("visibilitychange"), 750);
+    setTimeout(() => flushPendingSync("visibilitychange"), 500);
   }
 });
 
 window.addEventListener("focus", () => {
   if (auth.currentUser) {
-    setTimeout(() => refreshLiveDataSilently("focus"), 750);
+    setTimeout(() => flushPendingSync("focus"), 500);
   }
 });
 
+window.addEventListener("pageshow", () => {
+  if (auth.currentUser) {
+    setTimeout(() => flushPendingSync("pageshow"), 500);
+  }
+});
+
+window.addEventListener("online", () => {
+  if (auth.currentUser) {
+    updateSyncStatus("Syncing", "Connection restored. Refreshing live data.");
+    setTimeout(() => refreshLiveDataSilently("online", { force:true }), 500);
+  }
+});
+
+window.addEventListener("offline", () => {
+  updateSyncStatus("Offline", "Device appears offline. Live updates are paused.");
+  if (auth.currentUser) render();
+});
 
 /* AUTH */
 
@@ -301,6 +393,7 @@ async function initAuth() {
       await bootDatabase();
     } else {
       stopAutoRefresh();
+      unsubscribeRealtime();
 
       auth.session = null;
       auth.currentUser = null;
@@ -408,6 +501,7 @@ async function logout() {
   }
 
   stopAutoRefresh();
+  unsubscribeRealtime();
 
   auth.session = null;
   auth.currentUser = null;
@@ -637,24 +731,64 @@ async function loadDataForDate(dateString) {
     }
 
     state.loading = false;
+    state.lastSyncAt = new Date();
+    if (state.realtimeStatus === "SUBSCRIBED") {
+      updateSyncStatus("Live", "Realtime connected. Backup refresh is active.");
+    } else if (navigator.onLine === false) {
+      updateSyncStatus("Offline", "Device appears offline. Live updates are paused.");
+    } else {
+      updateSyncStatus("Polling", "Using backup refresh. Realtime may still be connecting.");
+    }
     render();
   });
 }
 
-function subscribeRealtime() {
+function unsubscribeRealtime() {
   if (realtimeChannel) {
-    db.removeChannel(realtimeChannel);
+    try {
+      db.removeChannel(realtimeChannel);
+    } catch (error) {
+      console.warn("DoorFlow realtime unsubscribe warning:", error);
+    }
+    realtimeChannel = null;
   }
+}
 
-  realtimeChannel = db.channel("doorflow-live")
-    .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, () => loadDataForDate(state.activeDate))
-    .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, () => loadDataForDate(state.activeDate))
-    .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, () => loadDataForDate(state.activeDate))
-    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, () => loadDataForDate(state.activeDate))
+function subscribeRealtime() {
+  unsubscribeRealtime();
+
+  updateSyncStatus("Connecting", "Connecting realtime updates.");
+  state.realtimeStatus = "CONNECTING";
+
+  const channelName = `doorflow-live-${state.serviceDay?.id || state.activeDate || "all"}-${Date.now()}`;
+
+  realtimeChannel = db.channel(channelName)
+    .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, () => requestRealtimeRefresh("guests"))
+    .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, () => requestRealtimeRefresh("groups"))
+    .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, () => requestRealtimeRefresh("check-ins"))
+    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, () => requestRealtimeRefresh("shift-notes"))
+    .on("postgres_changes", { event:"*", schema:"public", table:"service_days" }, () => requestRealtimeRefresh("service-days"))
     .on("postgres_changes", { event:"*", schema:"public", table:"staff_profiles" }, () => {
-      if (auth.currentUser?.role === "admin") loadStaffProfilesForAdmin();
+      if (auth.currentUser?.role === "admin") {
+        loadStaffProfilesForAdmin();
+      }
     })
-    .subscribe();
+    .subscribe(status => {
+      state.realtimeStatus = status;
+
+      if (status === "SUBSCRIBED") {
+        state.realtimeSubscribedAt = new Date();
+        updateSyncStatus("Live", "Realtime connected. Backup refresh is active.");
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        updateSyncStatus("Polling", "Realtime is reconnecting. Backup refresh is still active.");
+      } else {
+        updateSyncStatus("Connecting", `Realtime status: ${status}`);
+      }
+
+      if (auth.currentUser && !isUserActivelyEditing()) {
+        render();
+      }
+    });
 }
 
 /* DATA HELPERS */
@@ -1708,7 +1842,7 @@ function renderMobileManagerView() {
       <div class="mobile-manager-two-buttons">
         <button class="btn secondary mobile-manager-wide-btn" type="button" onclick="scrollToMobileCreateGroup()">Create Party / Group</button>
         <button class="btn secondary" type="button" onclick="switchView('door')">Search List</button>
-        <button class="btn secondary" type="button" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
+        <button class="btn secondary" type="button" onclick="manualRefreshData()">Refresh Data</button>
       </div>
 
       <section class="mobile-manager-card">
@@ -1841,7 +1975,7 @@ function renderMobileManagerView() {
         </details>
       </section>
 
-      <div class="mobile-manager-sync-footer">✓ Auto-sync backup active every 30 seconds</div>
+      ${renderMobileSyncFooter()}
     </div>
   `;
 }
@@ -3070,6 +3204,33 @@ function renderLogin() {
   `;
 }
 
+function formatClock(value) {
+  if (!value) return "not yet";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "not yet";
+  return date.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+}
+
+function syncClassName() {
+  const status = String(state.syncStatus || "").toLowerCase();
+  if (status.includes("offline") || status.includes("error")) return "bad";
+  if (status.includes("polling") || status.includes("pending") || status.includes("reconnect") || status.includes("connecting")) return "warn";
+  return "good";
+}
+
+function renderSyncPill() {
+  const status = state.loading ? "Syncing" : (state.syncStatus || "Live");
+  const last = formatClock(state.lastSyncAt);
+  const title = state.syncMessage || "DoorFlow live sync";
+  return `<span class="pill sync-pill ${syncClassName()}" title="${esc(title)}"><span class="sync-dot"></span>${esc(status)} · Updated ${esc(last)}</span>`;
+}
+
+function renderMobileSyncFooter() {
+  const status = state.loading ? "Syncing" : (state.syncStatus || "Live");
+  const last = formatClock(state.lastSyncAt);
+  return `<div class="mobile-manager-sync-footer ${syncClassName()}"><span class="sync-dot"></span><span>${esc(status)} · Updated ${esc(last)}</span></div>`;
+}
+
 function renderTopbar() {
   const user = currentUser();
 
@@ -3085,8 +3246,8 @@ function renderTopbar() {
         </div>
 
         <div class="top-actions">
-          <span class="pill">${state.loading ? "Syncing..." : "Live DB Connected"}</span>
-          <button type="button" class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
+          ${renderSyncPill()}
+          <button type="button" class="btn secondary small" onclick="manualRefreshData()">Refresh Data</button>
           <span class="pill">${esc(user.name)} · ${roleLabel(user.role)}</span>
           <button type="button" class="btn secondary small" onclick="logout()">Log Out</button>
         </div>
@@ -4041,6 +4202,7 @@ Object.assign(window, {
   mobileQuickAddGuest,
   mobileQuickCreateGroup,
   scrollToMobileCreateGroup,
+  manualRefreshData,
   updateGuest,
   deleteGuest,
   clearGeneralGuestList,
@@ -4060,11 +4222,3 @@ Object.assign(window, {
 render();
 initAuth();
 
-
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(error => {
-        console.warn("DoorFlow service worker registration failed:", error);
-      });
-    });
-  }
