@@ -815,6 +815,290 @@
       }
     }
 
+
+    /* Mobile Manager Quick Add Layout */
+    .mobile-manager-view { display:none; }
+
+    @media(max-width:760px) {
+      .manage-desktop-view { display:none!important; }
+      .mobile-manager-view {
+        display:grid;
+        gap:12px;
+      }
+
+      .mobile-manager-header {
+        background:#020617;
+        color:#fff;
+        border-radius:22px;
+        padding:16px;
+        box-shadow:0 8px 24px rgba(15,23,42,.14);
+      }
+
+      .mobile-manager-header-top {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:12px;
+      }
+
+      .mobile-manager-kicker {
+        margin:0;
+        font-size:11px;
+        font-weight:900;
+        letter-spacing:.2em;
+        text-transform:uppercase;
+        color:#94a3b8;
+      }
+
+      .mobile-manager-header h2 {
+        margin:4px 0 0;
+        font-size:26px;
+        line-height:1.1;
+        letter-spacing:-.04em;
+      }
+
+      .mobile-manager-subtitle {
+        margin:4px 0 0;
+        color:#cbd5e1;
+        font-size:14px;
+      }
+
+      .mobile-manager-live-badge {
+        border-radius:999px;
+        background:rgba(16,185,129,.16);
+        color:#6ee7b7;
+        font-size:12px;
+        font-weight:900;
+        padding:6px 11px;
+      }
+
+      .mobile-manager-stats-grid {
+        display:grid;
+        grid-template-columns:repeat(3,1fr);
+        gap:8px;
+        margin-top:16px;
+      }
+
+      .mobile-manager-stat-card {
+        background:rgba(255,255,255,.1);
+        border-radius:14px;
+        padding:10px 8px;
+        text-align:center;
+      }
+
+      .mobile-manager-stat-card strong {
+        display:block;
+        font-size:20px;
+        line-height:1;
+      }
+
+      .mobile-manager-stat-card span {
+        display:block;
+        margin-top:4px;
+        color:#cbd5e1;
+        font-size:11px;
+        font-weight:800;
+      }
+
+      .mobile-manager-card {
+        background:#fff;
+        border:1px solid #eef0f3;
+        border-radius:22px;
+        padding:16px;
+        box-shadow:0 6px 18px rgba(15,23,42,.08);
+      }
+
+      .mobile-manager-title-row,
+      .mobile-manager-inline-title {
+        display:flex;
+        align-items:center;
+        gap:9px;
+      }
+
+      .mobile-manager-title-row {
+        justify-content:space-between;
+      }
+
+      .mobile-manager-card h2,
+      .mobile-manager-card h3 {
+        margin:0;
+        font-size:18px;
+        line-height:1.15;
+      }
+
+      .mobile-manager-card p {
+        margin:3px 0 0;
+        color:#64748b;
+        font-size:14px;
+      }
+
+      .mobile-manager-form {
+        display:grid;
+        gap:12px;
+        margin-top:14px;
+      }
+
+      .mobile-manager-form label {
+        color:#0f172a;
+        font-size:14px;
+      }
+
+      .mobile-manager-form input,
+      .mobile-manager-form select,
+      .mobile-manager-form textarea {
+        font-size:16px;
+        padding:13px 14px;
+        border-radius:14px;
+      }
+
+      .mobile-manager-form textarea {
+        min-height:84px;
+        resize:vertical;
+      }
+
+      .mobile-manager-primary-btn,
+      .mobile-manager-two-buttons .btn,
+      .mobile-manager-advanced-grid .btn {
+        min-height:52px;
+        border-radius:14px;
+        font-size:15px;
+        font-weight:900;
+      }
+
+      .mobile-manager-primary-btn {
+        width:100%;
+        background:#020617;
+        color:#fff;
+      }
+
+      .mobile-manager-two-buttons {
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:10px;
+      }
+
+      .mobile-manager-two-buttons .btn {
+        width:100%;
+      }
+
+      .mobile-manager-details summary {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        cursor:pointer;
+        list-style:none;
+      }
+
+      .mobile-manager-details summary::-webkit-details-marker { display:none; }
+
+      .mobile-manager-note-box {
+        margin-top:13px;
+        border-radius:16px;
+        background:#fffbeb;
+        color:#451a03;
+        padding:13px;
+      }
+
+      .mobile-manager-note-box p {
+        color:#78350f;
+        white-space:pre-wrap;
+      }
+
+      .mobile-manager-list-stack,
+      .mobile-manager-recent-stack,
+      .mobile-manager-advanced-grid {
+        display:grid;
+        gap:8px;
+        margin-top:13px;
+      }
+
+      .mobile-manager-list-row {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        border:0;
+        border-radius:14px;
+        background:#f1f5f9;
+        padding:13px;
+        color:#0f172a;
+        text-align:left;
+        width:100%;
+      }
+
+      .mobile-manager-list-row span {
+        font-size:15px;
+        font-weight:900;
+      }
+
+      .mobile-manager-list-row strong {
+        min-width:30px;
+        border-radius:999px;
+        background:#fff;
+        padding:5px 8px;
+        text-align:center;
+        font-size:12px;
+      }
+
+      .mobile-manager-recent-row {
+        border:1px solid #e2e8f0;
+        border-radius:14px;
+        padding:12px;
+      }
+
+      .mobile-manager-recent-top {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:8px;
+      }
+
+      .mobile-manager-recent-top strong {
+        font-size:15px;
+      }
+
+      .mobile-manager-recent-top span {
+        border-radius:999px;
+        background:#fef3c7;
+        color:#92400e;
+        padding:4px 8px;
+        font-size:11px;
+        font-weight:900;
+        white-space:nowrap;
+      }
+
+      .mobile-manager-empty-state {
+        border-radius:14px;
+        background:#f8fafc;
+        color:#64748b;
+        padding:14px;
+        text-align:center;
+        font-size:14px;
+        font-weight:800;
+      }
+
+      .mobile-manager-advanced-grid .btn {
+        width:100%;
+        text-align:left;
+        justify-content:flex-start;
+      }
+
+      .mobile-manager-sync-footer {
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        gap:6px;
+        width:fit-content;
+        margin:0 auto 8px;
+        border-radius:999px;
+        background:#fff;
+        color:#64748b;
+        padding:9px 12px;
+        box-shadow:0 6px 18px rgba(15,23,42,.08);
+        font-size:12px;
+        font-weight:900;
+      }
+    }
+
     @media print {
       body {
         background:#fff;
@@ -2128,6 +2412,240 @@ async function createGuest(event) {
 
     await loadDataForDate(state.activeDate);
   });
+}
+
+
+async function createQuickManagerGuest(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const form = new FormData(event.target);
+  const target = String(form.get("target") || "general");
+  const fullName = String(form.get("guest_name") || "").trim();
+  const approvedBy = String(form.get("approved_by") || "").trim();
+  const reason = String(form.get("late_add_reason") || "Added by manager during shift").trim();
+
+  const split = splitFullName(fullName);
+
+  if (!split.first_name || !split.last_name) {
+    alert("Enter the guest's first and last name.");
+    return;
+  }
+
+  if (!approvedBy) {
+    alert("Approved By is required for manager quick adds.");
+    return;
+  }
+
+  let group = null;
+
+  if (target === "general") {
+    group = generalGroup();
+  } else if (target.startsWith("group:")) {
+    const groupId = target.replace("group:", "");
+    group = state.groups.find(item => item.id === groupId) || null;
+  }
+
+  if (!group) {
+    alert("Select or create a list/group first.");
+    return;
+  }
+
+  const payload = {
+    group_id:group.id,
+    first_name:split.first_name,
+    last_name:split.last_name,
+    guest_type:"Guest",
+    total_allowed:1,
+    checked_in_count:0,
+    notes:reason,
+    last_checked_in_at:null,
+    last_checked_in_by_name:null,
+    last_door_location:null,
+    added_by_name:currentUser()?.name || "Unknown",
+    added_by_user_id:auth.session?.user?.id || null,
+    added_at:new Date().toISOString(),
+    is_late_add:true,
+    late_add_approved_by:approvedBy,
+    late_add_reason:reason
+  };
+
+  if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
+
+  await runDb("Quick add guest", async () => {
+    const result = await db.from("guests").insert(payload);
+    must(result.data, result.error);
+
+    state.selectedGroupId = group.id;
+    state.currentMode = group.name === "General Guest List" || group.group_type === "General Guest List" ? "GENERAL" : "GROUP";
+
+    await loadDataForDate(state.activeDate);
+  });
+}
+
+function recentManagerAdds(limit = 5) {
+  return [...state.guests]
+    .filter(guest => isLateAdd(guest) || guest.added_by_name)
+    .sort((a,b) => String(b.added_at || b.created_at || "").localeCompare(String(a.added_at || a.created_at || "")))
+    .slice(0, limit);
+}
+
+function renderMobileManagerView() {
+  const stats = dayStats();
+  const latestNote = state.shiftNotes[0];
+  const recentAdds = recentManagerAdds(5);
+  const general = generalGroup();
+  const listRows = [
+    general ? { id:"general", name:"General Guest List", count:guestsForGroup(general.id).length } : { id:"general", name:"General Guest List", count:0 },
+    ...specificGroups().map(group => ({ id:group.id, name:group.name, count:guestsForGroup(group.id).length }))
+  ];
+
+  return `
+    <div class="mobile-manager-view">
+      <section class="mobile-manager-header">
+        <div class="mobile-manager-header-top">
+          <div>
+            <p class="mobile-manager-kicker">DoorFlow</p>
+            <h2>Manager Mode</h2>
+            <p class="mobile-manager-subtitle">The B.O.B. • ${esc(state.activeDate)}</p>
+          </div>
+          <div class="mobile-manager-live-badge">Live</div>
+        </div>
+
+        <div class="mobile-manager-stats-grid">
+          <div class="mobile-manager-stat-card"><strong>${stats.total}</strong><span>Total</span></div>
+          <div class="mobile-manager-stat-card"><strong>${stats.checked}</strong><span>Checked In</span></div>
+          <div class="mobile-manager-stat-card"><strong>${stats.remaining}</strong><span>Remaining</span></div>
+        </div>
+      </section>
+
+      <section class="mobile-manager-card">
+        <div class="mobile-manager-title-row">
+          <div>
+            <h2>Quick Add</h2>
+            <p>Fast manager additions during service.</p>
+          </div>
+          <strong style="font-size:24px;">+</strong>
+        </div>
+
+        <form class="mobile-manager-form" onsubmit="createQuickManagerGuest(event)">
+          <div>
+            <label>Guest Name</label>
+            <input name="guest_name" placeholder="First and last name" autocomplete="off" autocorrect="off" autocapitalize="words" />
+          </div>
+
+          <div>
+            <label>Add To</label>
+            <select name="target">
+              <option value="general">General Guest List</option>
+              ${specificGroups().map(group => `<option value="group:${group.id}" ${group.id === selectedGroup()?.id ? "selected" : ""}>${esc(group.name)}${group.host_name ? ` — ${esc(group.host_name)}` : ""}</option>`).join("")}
+            </select>
+          </div>
+
+          <div>
+            <label>Approved By</label>
+            <input name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" autocomplete="off" autocapitalize="words" />
+          </div>
+
+          <div>
+            <label>Notes</label>
+            <textarea name="late_add_reason" placeholder="Example: Added by manager during shift">Added by manager during shift</textarea>
+          </div>
+
+          <button class="btn mobile-manager-primary-btn" type="submit">Add Guest</button>
+        </form>
+      </section>
+
+      <div class="mobile-manager-two-buttons">
+        <button class="btn secondary" type="button" onclick="switchView('door')">Search List</button>
+        <button class="btn secondary" type="button" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
+      </div>
+
+      <section class="mobile-manager-card">
+        <details class="mobile-manager-details">
+          <summary>
+            <div class="mobile-manager-inline-title">
+              <span>📝</span>
+              <div>
+                <h2>Shift Notes</h2>
+                <p>Visible to door staff</p>
+              </div>
+            </div>
+            <strong>⌄</strong>
+          </summary>
+
+          <div class="mobile-manager-note-box">
+            <strong>${latestNote ? esc(latestNote.category || "Tonight") : "Tonight"}:</strong>
+            <p>${latestNote ? esc(latestNote.note_text || "") : "No shift notes have been added yet."}</p>
+            <button class="btn secondary" type="button" onclick="${latestNote ? `openEditShiftNote('${latestNote.id}')` : `alert('No shift notes have been added yet. Use the full manager screen on tablet/desktop to create the first note.')`}">Edit Shift Notes</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="mobile-manager-card">
+        <div class="mobile-manager-inline-title">
+          <span>👥</span>
+          <div>
+            <h2>Today's Lists</h2>
+            <p>Quick view of active lists and counts.</p>
+          </div>
+        </div>
+
+        <div class="mobile-manager-list-stack">
+          ${listRows.map(row => `
+            <button class="mobile-manager-list-row" type="button" onclick="${row.id === "general" ? "setMode('GENERAL')" : `selectGroup('${row.id}')`}">
+              <span>${esc(row.name)}</span>
+              <strong>${row.count}</strong>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+
+      <section class="mobile-manager-card">
+        <div class="mobile-manager-inline-title">
+          <span>⚠️</span>
+          <div>
+            <h2>Recent Manager Adds</h2>
+            <p>Quick audit trail for the door.</p>
+          </div>
+        </div>
+
+        <div class="mobile-manager-recent-stack">
+          ${recentAdds.length ? recentAdds.map(guest => `
+            <div class="mobile-manager-recent-row">
+              <div class="mobile-manager-recent-top">
+                <strong>${esc(guest.first_name)} ${esc(guest.last_name)}</strong>
+                <span>${isLateAdd(guest) ? "Late Add" : "Added"}</span>
+              </div>
+              <p>${esc(groupNameForGuest(guest))} • Approved by ${esc(guest.late_add_approved_by || guest.added_by_name || "Manager")}</p>
+            </div>
+          `).join("") : `<div class="mobile-manager-empty-state">No manager additions yet.</div>`}
+        </div>
+      </section>
+
+      <section class="mobile-manager-card">
+        <details class="mobile-manager-details">
+          <summary>
+            <div>
+              <h2>Advanced Management</h2>
+              <p>Bulk tools, reports, and cleanup.</p>
+            </div>
+            <strong>⌄</strong>
+          </summary>
+
+          <div class="mobile-manager-advanced-grid">
+            <button class="btn secondary" type="button" onclick="openGroupModal()">Create Party / Group</button>
+            <button class="btn secondary" type="button" onclick="openGuestModal()">Full Add Guest Form</button>
+            <button class="btn secondary" type="button" onclick="openBulkPasteModal()">Bulk Paste Names</button>
+            <button class="btn secondary" type="button" onclick="previewCloseOutReport()">Close Out Report</button>
+            <button class="btn danger" type="button" onclick="clearGeneralGuestList()">Clear General Guest List</button>
+          </div>
+        </details>
+      </section>
+
+      <div class="mobile-manager-sync-footer">✓ Auto-sync backup active every 30 seconds</div>
+    </div>
+  `;
 }
 
 async function updateGuest(event) {
@@ -3814,7 +4332,8 @@ function renderTabletDoorMode() {
 
 function renderManagement() {
   return `
-    <div class="stack">
+    ${renderMobileManagerView()}
+    <div class="stack manage-desktop-view">
       <div class="card">
         <h2>Management Controls</h2>
         <p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p>
@@ -3825,11 +4344,8 @@ function renderManagement() {
           <button class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
           <button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
           <button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
-          <div class="row-actions">
-          
           <button class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
           <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
-        </div>
         </div>
       </div>
 
@@ -4317,6 +4833,7 @@ Object.assign(window, {
   updateGroup,
   deleteGroup,
   createGuest,
+  createQuickManagerGuest,
   updateGuest,
   deleteGuest,
   clearGeneralGuestList,
