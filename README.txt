@@ -49,3 +49,11 @@ On each device:
 4. Add a guest through Quick Add.
 5. Confirm the guest appears on the selected list and shows as a Late Add with approval info.
 6. Confirm desktop/tablet Management still works as before.
+
+
+UPDATE: Mobile Manager Quick Add v2
+- Quick Add can now add directly to the General Guest List even if the General Guest List needs to be created for that service date.
+- Added Plus Ones field for manager phone additions.
+- Added a visible Create Party / Group button in the mobile manager quick actions area.
+- Improved phone modal layout for creating parties/groups.
+- Service worker cache bumped to v6.

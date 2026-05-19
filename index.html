@@ -956,6 +956,13 @@
         resize:vertical;
       }
 
+      .mobile-manager-help {
+        margin:6px 0 0!important;
+        color:#64748b!important;
+        font-size:12px!important;
+        line-height:1.35;
+      }
+
       .mobile-manager-primary-btn,
       .mobile-manager-two-buttons .btn,
       .mobile-manager-advanced-grid .btn {
@@ -978,6 +985,35 @@
       }
 
       .mobile-manager-two-buttons .btn {
+        width:100%;
+      }
+
+      .mobile-manager-wide-btn {
+        grid-column:1/-1;
+      }
+
+      .modal-backdrop {
+        align-items:flex-end;
+        padding:10px;
+      }
+
+      .modal {
+        max-height:94vh;
+        border-radius:22px;
+        padding:18px;
+      }
+
+      .two {
+        grid-template-columns:1fr;
+      }
+
+      .row-actions {
+        display:grid;
+        grid-template-columns:1fr;
+        gap:8px;
+      }
+
+      .row-actions .btn {
         width:100%;
       }
 
@@ -1749,6 +1785,23 @@ function generalGroup() {
   return state.groups.find(group => group.name === "General Guest List" || group.group_type === "General Guest List") || null;
 }
 
+async function getGeneralGroupForActiveDate() {
+  let group = generalGroup();
+  if (group) return group;
+
+  const serviceDay = state.serviceDay?.id
+    ? state.serviceDay
+    : await ensureServiceDay(state.activeDate);
+
+  group = await ensureGeneralGroup(serviceDay.id);
+
+  if (group && !state.groups.some(item => item.id === group.id)) {
+    state.groups = [group, ...state.groups];
+  }
+
+  return group;
+}
+
 function specificGroups() {
   return state.groups.filter(group => !(group.name === "General Guest List" || group.group_type === "General Guest List"));
 }
@@ -2357,7 +2410,7 @@ async function createGuest(event) {
   let group = null;
 
   if (target === "general") {
-    group = generalGroup();
+    group = await getGeneralGroupForActiveDate();
   } else if (target === "selected") {
     group = selectedGroup();
   } else if (target.startsWith("group:")) {
@@ -2421,9 +2474,19 @@ async function createQuickManagerGuest(event) {
 
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
-  const fullName = String(form.get("guest_name") || "").trim();
+  let fullName = String(form.get("guest_name") || "").trim();
   const approvedBy = String(form.get("approved_by") || "").trim();
   const reason = String(form.get("late_add_reason") || "Added by manager during shift").trim();
+  let plusCount = Math.max(0, Number(form.get("plus_count") || 0));
+
+  const inlinePlusMatch = fullName.match(/\s\+(\d+)\s*$/);
+  if (inlinePlusMatch) {
+    plusCount = Math.max(plusCount, Number(inlinePlusMatch[1] || 0));
+    fullName = fullName.replace(/\s\+\d+\s*$/, "").trim();
+  }
+
+  plusCount = Math.max(0, Math.min(99, plusCount));
+  const totalAllowed = 1 + plusCount;
 
   const split = splitFullName(fullName);
 
@@ -2440,7 +2503,7 @@ async function createQuickManagerGuest(event) {
   let group = null;
 
   if (target === "general") {
-    group = generalGroup();
+    group = await getGeneralGroupForActiveDate();
   } else if (target.startsWith("group:")) {
     const groupId = target.replace("group:", "");
     group = state.groups.find(item => item.id === groupId) || null;
@@ -2456,7 +2519,7 @@ async function createQuickManagerGuest(event) {
     first_name:split.first_name,
     last_name:split.last_name,
     guest_type:"Guest",
-    total_allowed:1,
+    total_allowed:totalAllowed,
     checked_in_count:0,
     notes:reason,
     last_checked_in_at:null,
@@ -2535,6 +2598,12 @@ function renderMobileManagerView() {
           </div>
 
           <div>
+            <label>Plus Ones</label>
+            <input name="plus_count" type="number" min="0" max="99" value="0" inputmode="numeric" />
+            <p class="mobile-manager-help">0 = named guest only. 1 = guest +1. 2 = guest +2.</p>
+          </div>
+
+          <div>
             <label>Add To</label>
             <select name="target">
               <option value="general">General Guest List</option>
@@ -2557,6 +2626,7 @@ function renderMobileManagerView() {
       </section>
 
       <div class="mobile-manager-two-buttons">
+        <button class="btn secondary mobile-manager-wide-btn" type="button" onclick="openGroupModal()">Create Party / Group</button>
         <button class="btn secondary" type="button" onclick="switchView('door')">Search List</button>
         <button class="btn secondary" type="button" onclick="loadDataForDate(state.activeDate)">Refresh Data</button>
       </div>
@@ -2614,7 +2684,7 @@ function renderMobileManagerView() {
           ${recentAdds.length ? recentAdds.map(guest => `
             <div class="mobile-manager-recent-row">
               <div class="mobile-manager-recent-top">
-                <strong>${esc(guest.first_name)} ${esc(guest.last_name)}</strong>
+                <strong>${esc(guest.first_name)} ${esc(guest.last_name)}${guestTotal(guest) > 1 ? ` +${guestTotal(guest) - 1}` : ""}</strong>
                 <span>${isLateAdd(guest) ? "Late Add" : "Added"}</span>
               </div>
               <p>${esc(groupNameForGuest(guest))} • Approved by ${esc(guest.late_add_approved_by || guest.added_by_name || "Manager")}</p>
@@ -2820,7 +2890,7 @@ async function bulkAddNames(event) {
   let group = null;
 
   if (target === "general") {
-    group = generalGroup();
+    group = await getGeneralGroupForActiveDate();
   } else if (target === "selected") {
     group = selectedGroup();
   } else if (target.startsWith("group:")) {

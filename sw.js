@@ -1,7 +1,7 @@
 // DoorFlow PWA service worker - Android/Chrome compatibility update
 // DoorFlow live data still requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-pwa-v5";
+const CACHE_NAME = "doorflow-pwa-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
