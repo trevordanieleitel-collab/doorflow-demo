@@ -57,3 +57,26 @@ UPDATE: Mobile Manager Quick Add v2
 - Added a visible Create Party / Group button in the mobile manager quick actions area.
 - Improved phone modal layout for creating parties/groups.
 - Service worker cache bumped to v6.
+
+
+UPDATE: Mobile Manager Quick Add v3
+- Reworked mobile Quick Add to use a direct phone button handler instead of relying on the full desktop form/modal flow.
+- Added an in-phone Create Party / Group panel so managers can create a list without leaving the mobile layout.
+- Added clearer mobile success/error messages inside Manager Mode.
+- General Guest List quick adds now explicitly create/find the General Guest List before inserting the guest.
+- Service worker cache bumped to v7.
+
+
+V4 fix notes:
+- Mobile Quick Add no longer uses .select().single() after inserts.
+- Mobile Create Party/Group no longer uses .select().single() after inserts.
+- General Guest List lookup is resilient if duplicate General Guest List rows exist.
+- Venue and service day lookup avoid single-row errors by selecting the first matching row.
+- Service worker cache bumped to v8.
+
+
+V5 fix notes:
+- Fixed desktop Add Name so General Guest List / Individual Guest can create/find the General Guest List before adding a name.
+- Fixed desktop Create Party by removing the Supabase .single() dependency after insert.
+- Fixed CSV/import General Guest List targeting to use the same General Guest List finder.
+- Service worker cache bumped to v9.
