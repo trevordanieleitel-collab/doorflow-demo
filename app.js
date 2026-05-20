@@ -73,6 +73,7 @@ let state = {
   realtimeSubscribedAt:null,
   lastSyncAt:null,
   lastRealtimeAt:null,
+  lastDataHash:"",
   pendingSync:false
 };
 
@@ -228,6 +229,11 @@ function markUserInputActivity() {
 document.addEventListener("input", markUserInputActivity, true);
 document.addEventListener("keydown", markUserInputActivity, true);
 document.addEventListener("change", markUserInputActivity, true);
+document.addEventListener("focusout", () => {
+  if (auth.currentUser && state.pendingSync) {
+    setTimeout(() => flushPendingSync("input-blur"), 350);
+  }
+}, true);
 
 function userRecentlyTyped(windowMs = 2500) {
   return Date.now() - lastUserInputAt < windowMs;
@@ -239,7 +245,14 @@ function isUserActivelyEditing() {
 
   const tag = String(active.tagName || "").toLowerCase();
   const isEditable = tag === "input" || tag === "textarea" || tag === "select" || active.isContentEditable;
-  return isEditable && userRecentlyTyped();
+  if (!isEditable) return false;
+
+  // Mobile manager forms should not be interrupted while a manager has a field open.
+  // For the tablet search box, allow refresh once typing pauses so door screens still update.
+  const id = String(active.id || "");
+  if (id.startsWith("mobileQuick") || id.startsWith("mobileGroup")) return true;
+
+  return userRecentlyTyped(3000);
 }
 
 function updateSyncStatus(status, message) {
@@ -266,6 +279,46 @@ function schedulePendingSync(reason = "pending") {
   updateSyncStatus("Pending", `Update waiting while user is active (${reason}).`);
 }
 
+function compactRowStamp(row, fields) {
+  return fields.map(field => String(row?.[field] ?? "")).join("|");
+}
+
+function buildLiveDataHash(groups, guests, logs, shiftNotes) {
+  return [
+    (groups || []).map(row => compactRowStamp(row, ["id", "name", "group_type", "host_name", "status", "updated_at", "created_at"])).join("~"),
+    (guests || []).map(row => compactRowStamp(row, ["id", "group_id", "first_name", "last_name", "guest_type", "total_allowed", "checked_in_count", "is_late_add", "late_add_approved_by", "late_add_reason", "notes", "updated_at", "created_at"])).join("~"),
+    (logs || []).map(row => compactRowStamp(row, ["id", "guest_id", "group_id", "action", "amount", "created_at"])).join("~"),
+    (shiftNotes || []).map(row => compactRowStamp(row, ["id", "note", "notes", "created_at", "updated_at"])).join("~")
+  ].join("||");
+}
+
+function realtimePayloadAppliesToActiveDate(table, payload = {}) {
+  if (!state.serviceDay?.id) return true;
+
+  const row = payload.new || payload.old || {};
+
+  if (table === "guests" || table === "check_in_logs") {
+    const activeGroupIds = new Set(state.groups.map(group => group.id));
+    const newGroupId = payload.new?.group_id;
+    const oldGroupId = payload.old?.group_id;
+    return activeGroupIds.has(newGroupId) || activeGroupIds.has(oldGroupId);
+  }
+
+  if (table === "groups" || table === "shift_notes") {
+    return row.service_day_id === state.serviceDay.id;
+  }
+
+  if (table === "service_days") {
+    return row.id === state.serviceDay.id || row.service_date === state.activeDate;
+  }
+
+  if (table === "staff_profiles") {
+    return auth.currentUser?.role === "admin";
+  }
+
+  return true;
+}
+
 async function refreshLiveDataSilently(reason = "auto", options = {}) {
   if (shouldSkipAutoRefresh(options)) {
     schedulePendingSync(reason);
@@ -287,8 +340,9 @@ async function refreshLiveDataSilently(reason = "auto", options = {}) {
   }
 }
 
-function requestRealtimeRefresh(source = "database") {
+function requestRealtimeRefresh(source = "database", payload = null) {
   if (!auth.currentUser) return;
+  if (payload && !realtimePayloadAppliesToActiveDate(source, payload)) return;
 
   state.lastRealtimeAt = new Date();
 
@@ -298,17 +352,22 @@ function requestRealtimeRefresh(source = "database") {
 
   realtimeDebounceTimer = setTimeout(() => {
     refreshLiveDataSilently(`realtime:${source}`);
-  }, 650);
+  }, 450);
 }
 
 function startAutoRefresh() {
   stopAutoRefresh();
 
-  // Backup sync. Realtime should handle most updates, but this catches
-  // tablet sleep/wake, PWA background pauses, and dropped realtime connections.
+  // Backup sync. Realtime should handle most updates. Keep this less aggressive
+  // so tablets/phones do not feel like they are constantly repainting.
   autoRefreshTimer = setInterval(() => {
+    if (state.realtimeStatus === "SUBSCRIBED" && state.lastRealtimeAt) {
+      const msSinceRealtime = Date.now() - new Date(state.lastRealtimeAt).getTime();
+      if (msSinceRealtime < 12000) return;
+    }
+
     refreshLiveDataSilently("interval");
-  }, 15000);
+  }, 30000);
 }
 
 function stopAutoRefresh() {
@@ -730,6 +789,10 @@ async function loadDataForDate(dateString) {
       await loadStaffProfilesForAdmin();
     }
 
+    const newDataHash = buildLiveDataHash(state.groups, state.guests, state.logs, state.shiftNotes);
+    const dataUnchanged = Boolean(state.lastDataHash && state.lastDataHash === newDataHash);
+    state.lastDataHash = newDataHash;
+
     state.loading = false;
     state.lastSyncAt = new Date();
     if (state.realtimeStatus === "SUBSCRIBED") {
@@ -739,7 +802,12 @@ async function loadDataForDate(dateString) {
     } else {
       updateSyncStatus("Polling", "Using backup refresh. Realtime may still be connecting.");
     }
-    render();
+
+    // Auto-refresh should not repaint the whole app when nothing actually changed.
+    // This is what makes phones/tablets feel smoother during live service.
+    if (!isAutoRefreshing || !dataUnchanged) {
+      render();
+    }
   });
 }
 
@@ -763,13 +831,13 @@ function subscribeRealtime() {
   const channelName = `doorflow-live-${state.serviceDay?.id || state.activeDate || "all"}-${Date.now()}`;
 
   realtimeChannel = db.channel(channelName)
-    .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, () => requestRealtimeRefresh("guests"))
-    .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, () => requestRealtimeRefresh("groups"))
-    .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, () => requestRealtimeRefresh("check-ins"))
-    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, () => requestRealtimeRefresh("shift-notes"))
-    .on("postgres_changes", { event:"*", schema:"public", table:"service_days" }, () => requestRealtimeRefresh("service-days"))
-    .on("postgres_changes", { event:"*", schema:"public", table:"staff_profiles" }, () => {
-      if (auth.currentUser?.role === "admin") {
+    .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, payload => requestRealtimeRefresh("guests", payload))
+    .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, payload => requestRealtimeRefresh("groups", payload))
+    .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, payload => requestRealtimeRefresh("check_in_logs", payload))
+    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, payload => requestRealtimeRefresh("shift_notes", payload))
+    .on("postgres_changes", { event:"*", schema:"public", table:"service_days" }, payload => requestRealtimeRefresh("service_days", payload))
+    .on("postgres_changes", { event:"*", schema:"public", table:"staff_profiles" }, payload => {
+      if (realtimePayloadAppliesToActiveDate("staff_profiles", payload)) {
         loadStaffProfilesForAdmin();
       }
     })

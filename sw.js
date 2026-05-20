@@ -1,7 +1,7 @@
-// DoorFlow PWA service worker - Android/Chrome compatibility update
-// DoorFlow live data still requires internet/Supabase access.
+// DoorFlow PWA service worker - smooth live sync/cache update
+// DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v9";
+const CACHE_NAME = "doorflow-cache-v11";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -30,6 +30,7 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);
 
+  // Never cache Supabase/auth/realtime/API requests.
   if (
     url.hostname.includes("supabase.co") ||
     url.pathname.includes("/rest/") ||
@@ -39,9 +40,17 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if (request.mode === "navigate" || url.pathname.endsWith(".html") || url.pathname === "/") {
+  // Always try the network first for the app document and app code so phones/tablets
+  // do not stay stuck on an old DoorFlow build.
+  if (
+    request.mode === "navigate" ||
+    url.pathname === "/" ||
+    url.pathname.endsWith(".html") ||
+    url.pathname.endsWith(".js") ||
+    url.pathname.endsWith(".css")
+  ) {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then(response => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(request, copy));

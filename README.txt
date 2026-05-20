@@ -1,82 +1,84 @@
-# DoorFlow - Mobile Manager Quick Add + Auto Refresh Sync Fix
+# DoorFlow - Smooth Live Sync v7
 
-This version keeps the auto-refresh backup and adds a phone-friendly Manager Mode layout for quick manager additions during live service.
+This package keeps the working v5 desktop/mobile manager fixes and adds a stronger live-sync system for phone, tablet, and PWA testing.
 
-## What changed
+## What changed in v6
 
-- Added a mobile Manager Mode layout for phones.
-- Added Manager Quick Add for fast live-shift additions.
-- Added Today's Lists with counts on mobile.
-- Added Recent Manager Adds audit trail on mobile.
-- Moved advanced management tools into a collapsed mobile section.
-- DoorFlow now auto-refreshes live data every 30 seconds.
-- DoorFlow refreshes when the app/browser comes back into focus.
-- DoorFlow refreshes when a tablet wakes up or the app becomes visible again.
-- Auto-refresh skips while someone is typing, using a dropdown, or editing in a modal.
-- Added a Refresh Data button in the top bar.
-- Service worker cache bumped to v5.
+- Added Supabase Realtime event listeners for:
+  - guests
+  - groups
+  - check_in_logs
+  - shift_notes
+  - service_days
+  - staff_profiles
+- Realtime updates are debounced so multiple database events do not cause choppy reloads.
+- Backup refresh was previously set to 15 seconds in v6. v7 changes it to 30 seconds because Supabase Realtime is now the primary sync layer.
+- Refresh on focus, visibility change, pageshow, and reconnect is stronger.
+- Auto-refresh no longer skips forever just because a search/input field is focused.
+- Added sync status display:
+  - Live
+  - Syncing
+  - Polling
+  - Pending
+  - Offline
+- Added last-updated time to the top bar and mobile manager footer.
+- Service worker cache bumped to v10.
+- Service worker now uses network-first loading for app code so phones/tablets are less likely to stay stuck on an old build.
 
-## Why this matters
+## Files to upload/replace
 
-Supabase realtime should handle live updates, but tablets, Toast devices, Android Chrome, iPhones, and PWAs can pause background connections. This backup refresh catches missed changes without requiring staff to manually refresh every time.
-
-## Upload to GitHub
-
-Replace/update these files in your GitHub repo:
+Upload/replace these files in your GitHub repo:
 
 - index.html
+- app.js
 - sw.js
 - manifest.webmanifest
 - _headers
+- vercel.json if using Vercel
 - icons folder if needed
+- supabase_realtime_enable.sql is included for reference; do not upload it to Netlify/Vercel as part of the app unless you want to keep it in the repo.
 
-Then commit changes and let Netlify redeploy.
+## Supabase Realtime SQL
 
-## After Netlify redeploys
+If live updates still feel delayed after deployment, run the included file in Supabase SQL Editor:
 
-On each device:
-1. Open DoorFlow.
-2. Refresh once.
-3. If it is installed as a PWA, close and reopen the app.
-4. Test adding a guest from one device and waiting up to 30 seconds on the other device.
+supabase_realtime_enable.sql
 
+This enables Realtime for the DoorFlow tables. If Realtime is already enabled, the script safely skips those tables.
 
-## Mobile Manager Test
+## After deployment
 
-1. Log in as a manager/admin on a phone.
-2. Open Management.
-3. Confirm the mobile Manager Mode layout appears.
-4. Add a guest through Quick Add.
-5. Confirm the guest appears on the selected list and shows as a Late Add with approval info.
-6. Confirm desktop/tablet Management still works as before.
+Because DoorFlow is installed as a PWA, each phone/tablet may keep an older cached build.
 
+After Netlify/Vercel redeploys:
 
-UPDATE: Mobile Manager Quick Add v2
-- Quick Add can now add directly to the General Guest List even if the General Guest List needs to be created for that service date.
-- Added Plus Ones field for manager phone additions.
-- Added a visible Create Party / Group button in the mobile manager quick actions area.
-- Improved phone modal layout for creating parties/groups.
-- Service worker cache bumped to v6.
+1. Fully close DoorFlow on each phone/tablet.
+2. Reopen it.
+3. If a device still acts like the old version, remove DoorFlow from the home screen and add it again.
 
+## Test plan
 
-UPDATE: Mobile Manager Quick Add v3
-- Reworked mobile Quick Add to use a direct phone button handler instead of relying on the full desktop form/modal flow.
-- Added an in-phone Create Party / Group panel so managers can create a list without leaving the mobile layout.
-- Added clearer mobile success/error messages inside Manager Mode.
-- General Guest List quick adds now explicitly create/find the General Guest List before inserting the guest.
-- Service worker cache bumped to v7.
+1. Open DoorFlow on two devices.
+2. Confirm the sync pill shows Live or Polling with an Updated time.
+3. Add a guest on Device 1.
+4. Watch Device 2 without touching Refresh Data.
+5. It should update from Realtime quickly, or from backup refresh within about 30 seconds.
+6. Lock/unlock Device 2 and confirm it refreshes after returning.
+7. Put one device on cellular and one on Wi-Fi to compare building Wi-Fi vs app sync.
 
+## Notes
 
-V4 fix notes:
-- Mobile Quick Add no longer uses .select().single() after inserts.
-- Mobile Create Party/Group no longer uses .select().single() after inserts.
-- General Guest List lookup is resilient if duplicate General Guest List rows exist.
-- Venue and service day lookup avoid single-row errors by selecting the first matching row.
-- Service worker cache bumped to v8.
+- Live data still requires internet.
+- If the sync pill shows Polling, the app is still usable because backup refresh is active.
+- If the sync pill shows Offline, the device connection is the issue.
+- If Refresh Data works but automatic updates lag, Realtime probably needs the Supabase SQL script.
 
 
-V5 fix notes:
-- Fixed desktop Add Name so General Guest List / Individual Guest can create/find the General Guest List before adding a name.
-- Fixed desktop Create Party by removing the Supabase .single() dependency after insert.
-- Fixed CSV/import General Guest List targeting to use the same General Guest List finder.
-- Service worker cache bumped to v9.
+DoorFlow Smooth Live Sync v7 notes:
+- Keeps Supabase Realtime enabled from v6.
+- Reduces unnecessary screen repaints when backup refresh finds no data changes.
+- Filters realtime events so this screen only reloads for the active service date/list data.
+- Changes backup polling from 15 seconds to 30 seconds because realtime is now the primary sync method.
+- Avoids interrupting mobile manager form fields while managers are typing.
+- Flushes pending sync after a manager leaves a field.
+- Service worker cache bumped to v11.
