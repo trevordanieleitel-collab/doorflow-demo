@@ -1,6 +1,28 @@
 const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
+const DOORFLOW_FETCH_TIMEOUT_MS = 18000;
+
+function doorFlowFetch(input, init = {}) {
+  const controller = new AbortController();
+  const externalSignal = init.signal;
+  const timer = setTimeout(() => controller.abort(), DOORFLOW_FETCH_TIMEOUT_MS);
+
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", () => controller.abort(), { once:true });
+  }
+
+  return fetch(input, {
+    ...init,
+    cache:init.cache || "no-store",
+    signal:controller.signal
+  }).finally(() => clearTimeout(timer));
+}
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+  global:{ fetch:doorFlowFetch },
+  auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+});
 
 const roles = {
   admin:   { label:"Admin",      door:true,  manage:true,  users:true,  reports:true },
@@ -80,10 +102,13 @@ let state = {
 
 let realtimeChannel = null;
 let realtimeDebounceTimer = null;
+let realtimeHealthTimer = null;
 let autoRefreshTimer = null;
 let lastAutoRefreshAt = null;
 let isAutoRefreshing = false;
 let lastUserInputAt = 0;
+let activeDoorFlowAction = false;
+let lastDoorFlowActionAt = 0;
 
 function todayISO() {
   return new Date().toISOString().slice(0,10);
@@ -177,20 +202,86 @@ function restoreScrollPositions(positions) {
   });
 }
 
+function captureFormFieldValues() {
+  const fields = {};
+  document.querySelectorAll("input[id], select[id], textarea[id]").forEach(element => {
+    fields[element.id] = {
+      tag:element.tagName,
+      type:String(element.type || "").toLowerCase(),
+      value:element.value,
+      checked:Boolean(element.checked)
+    };
+  });
+  return fields;
+}
+
+function restoreFormFieldValues(fields) {
+  requestAnimationFrame(() => {
+    Object.entries(fields || {}).forEach(([id, saved]) => {
+      const element = document.getElementById(id);
+      if (!element || !saved) return;
+
+      if (saved.type === "checkbox" || saved.type === "radio") {
+        element.checked = Boolean(saved.checked);
+        return;
+      }
+
+      // If a select option no longer exists after a data update, keep the newly-rendered default.
+      if (element.tagName === "SELECT") {
+        const hasOption = Array.from(element.options || []).some(option => option.value === saved.value);
+        if (!hasOption) return;
+      }
+
+      element.value = saved.value;
+    });
+  });
+}
+
+function captureDetailsState() {
+  const details = {};
+  document.querySelectorAll("details[id]").forEach(element => {
+    details[element.id] = element.open;
+  });
+  return details;
+}
+
+function restoreDetailsState(details) {
+  requestAnimationFrame(() => {
+    Object.entries(details || {}).forEach(([id, wasOpen]) => {
+      const element = document.getElementById(id);
+      if (element) element.open = Boolean(wasOpen);
+    });
+  });
+}
+
+function captureTransientUiState() {
+  return {
+    focus:captureFocusedInput(),
+    scroll:captureScrollPositions(),
+    fields:captureFormFieldValues(),
+    details:captureDetailsState()
+  };
+}
+
+function restoreTransientUiState(ui) {
+  restoreFormFieldValues(ui?.fields);
+  restoreDetailsState(ui?.details);
+  restoreFocusedInput(ui?.focus);
+  restoreScrollPositions(ui?.scroll);
+}
+
 function render() {
-  const focus = captureFocusedInput();
-  const scroll = captureScrollPositions();
+  const ui = captureTransientUiState();
   const root = document.getElementById("app");
 
   if (!auth.currentUser) {
     root.innerHTML = renderLogin();
-    restoreFocusedInput(focus);
+    restoreTransientUiState(ui);
     return;
   }
 
   root.innerHTML = renderApp();
-  restoreFocusedInput(focus);
-  restoreScrollPositions(scroll);
+  restoreTransientUiState(ui);
 }
 
 async function runDb(label, fn) {
@@ -227,9 +318,9 @@ function markUserInputActivity() {
   lastUserInputAt = Date.now();
 }
 
-document.addEventListener("input", markUserInputActivity, true);
-document.addEventListener("keydown", markUserInputActivity, true);
-document.addEventListener("change", markUserInputActivity, true);
+["input", "keydown", "change", "pointerdown", "click", "touchstart"].forEach(eventName => {
+  document.addEventListener(eventName, markUserInputActivity, true);
+});
 document.addEventListener("focusout", () => {
   if (auth.currentUser && state.pendingSync) {
     setTimeout(() => flushPendingSync("input-blur"), 350);
@@ -241,6 +332,8 @@ function userRecentlyTyped(windowMs = 2500) {
 }
 
 function isUserActivelyEditing() {
+  if (activeDoorFlowAction || window.__doorFlowMobileSubmitting) return true;
+
   const active = document.activeElement;
   if (!active) return false;
 
@@ -270,6 +363,9 @@ function shouldSkipAutoRefresh(options = {}) {
   if (isAutoRefreshing) return true;
 
   if (!force && state.modal) return true;
+  if (!force && activeDoorFlowAction) return true;
+  if (!force && hasUnsavedMobileManagerDraft()) return true;
+  if (!force && userRecentlyTyped(1200)) return true;
   if (!force && isUserActivelyEditing()) return true;
 
   return false;
@@ -371,6 +467,33 @@ function startAutoRefresh() {
   }, 30000);
 }
 
+function startRealtimeHealthCheck() {
+  stopRealtimeHealthCheck();
+
+  realtimeHealthTimer = setInterval(() => {
+    if (!auth.currentUser || document.hidden || navigator.onLine === false) return;
+
+    if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(state.realtimeStatus)) {
+      subscribeRealtime();
+      return;
+    }
+
+    const lastSyncMs = state.lastSyncAt ? new Date(state.lastSyncAt).getTime() : 0;
+    const msSinceSync = lastSyncMs ? Date.now() - lastSyncMs : Infinity;
+
+    if (msSinceSync > 90000 && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
+      refreshLiveDataSilently("health-check");
+    }
+  }, 45000);
+}
+
+function stopRealtimeHealthCheck() {
+  if (realtimeHealthTimer) {
+    clearInterval(realtimeHealthTimer);
+    realtimeHealthTimer = null;
+  }
+}
+
 function stopAutoRefresh() {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer);
@@ -381,6 +504,8 @@ function stopAutoRefresh() {
     clearTimeout(realtimeDebounceTimer);
     realtimeDebounceTimer = null;
   }
+
+  stopRealtimeHealthCheck();
 }
 
 async function manualRefreshData() {
@@ -388,13 +513,25 @@ async function manualRefreshData() {
 }
 
 function flushPendingSync(reason = "resume") {
-  if (!auth.currentUser) return;
-  if (!state.pendingSync && !document.hidden) {
+  if (!auth.currentUser || document.hidden) return;
+
+  if (state.pendingSync) {
+    if (isUserActivelyEditing() || hasUnsavedMobileManagerDraft() || activeDoorFlowAction) {
+      updateSyncStatus("Pending", `Update waiting while user finishes (${reason}).`);
+      return;
+    }
+
     refreshLiveDataSilently(reason, { force:true });
     return;
   }
-  if (state.pendingSync) {
-    refreshLiveDataSilently(reason, { force:true });
+
+  const lastSyncMs = state.lastSyncAt ? new Date(state.lastSyncAt).getTime() : 0;
+  const msSinceSync = lastSyncMs ? Date.now() - lastSyncMs : Infinity;
+
+  // Do not force-refresh on every focus/tap. On iOS PWAs, focus events can fire
+  // while a manager is about to press a button, which can make the app feel frozen.
+  if (msSinceSync > 20000 && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
+    refreshLiveDataSilently(reason);
   }
 }
 
@@ -595,6 +732,7 @@ async function bootDatabase() {
   await loadDataForDate(state.activeDate);
   subscribeRealtime();
   startAutoRefresh();
+  startRealtimeHealthCheck();
 }
 
 function canManageData() {
@@ -731,7 +869,7 @@ async function ensureGeneralGroup(serviceDayId) {
 
 async function loadDataForDate(dateString) {
   return runDb("Loading live data", async () => {
-    if (!isAutoRefreshing) {
+    if (!isAutoRefreshing && !state.modal && !activeDoorFlowAction && !hasUnsavedMobileManagerDraft()) {
       state.loading = true;
       render();
     }
@@ -806,7 +944,7 @@ async function loadDataForDate(dateString) {
 
     // Auto-refresh should not repaint the whole app when nothing actually changed.
     // This is what makes phones/tablets feel smoother during live service.
-    if (!isAutoRefreshing || !dataUnchanged) {
+    if (!activeDoorFlowAction && (!isAutoRefreshing || !dataUnchanged)) {
       render();
     }
   });
@@ -1300,19 +1438,23 @@ async function checkInOneGuest(id) {
   const nowIso = new Date().toISOString();
 
   await runDb("Check in", async () => {
-    const updateResult = await db
-      .from("guests")
-      .update({
-        checked_in_count:newCount,
-        last_checked_in_at:nowIso,
-        last_checked_in_by_name:user.name,
-        last_door_location:state.doorLocation
-      })
-      .eq("id", id);
+    const updateResult = await withDoorFlowTimeout(
+      db
+        .from("guests")
+        .update({
+          checked_in_count:newCount,
+          last_checked_in_at:nowIso,
+          last_checked_in_by_name:user.name,
+          last_door_location:state.doorLocation
+        })
+        .eq("id", id),
+      "Saving check-in",
+      12000
+    );
 
     must(updateResult.data, updateResult.error);
 
-    const logResult = await db.from("check_in_logs").insert({
+    const logResult = await withDoorFlowTimeout(db.from("check_in_logs").insert({
       guest_id:guest.id,
       group_id:guest.group_id,
       action:"Check In 1",
@@ -1320,7 +1462,7 @@ async function checkInOneGuest(id) {
       door_location:state.doorLocation,
       staff_user_id:null,
       staff_name:user.name
-    });
+    }), "Saving check-in log", 12000);
 
     must(logResult.data, logResult.error);
 
@@ -1346,19 +1488,23 @@ async function undoOneGuest(id) {
   const user = currentUser();
 
   await runDb("Undo check-in", async () => {
-    const updateResult = await db
-      .from("guests")
-      .update({
-        checked_in_count:newCount,
-        last_checked_in_at:newCount > 0 ? guest.last_checked_in_at : null,
-        last_checked_in_by_name:newCount > 0 ? guest.last_checked_in_by_name : null,
-        last_door_location:newCount > 0 ? guest.last_door_location : null
-      })
-      .eq("id", id);
+    const updateResult = await withDoorFlowTimeout(
+      db
+        .from("guests")
+        .update({
+          checked_in_count:newCount,
+          last_checked_in_at:newCount > 0 ? guest.last_checked_in_at : null,
+          last_checked_in_by_name:newCount > 0 ? guest.last_checked_in_by_name : null,
+          last_door_location:newCount > 0 ? guest.last_door_location : null
+        })
+        .eq("id", id),
+      "Saving undo check-in",
+      12000
+    );
 
     must(updateResult.data, updateResult.error);
 
-    const logResult = await db.from("check_in_logs").insert({
+    const logResult = await withDoorFlowTimeout(db.from("check_in_logs").insert({
       guest_id:guest.id,
       group_id:guest.group_id,
       action:"Undo 1",
@@ -1366,7 +1512,7 @@ async function undoOneGuest(id) {
       door_location:state.doorLocation,
       staff_user_id:null,
       staff_name:user.name
-    });
+    }), "Saving undo log", 12000);
 
     must(logResult.data, logResult.error);
 
@@ -1393,10 +1539,8 @@ async function createGroup(event) {
   const form = new FormData(event.target);
   const date = String(form.get("date") || state.activeDate);
 
-  await loadDataForDate(date);
-
   const payload = {
-    service_day_id:state.serviceDay.id,
+    service_day_id:null,
     name:String(form.get("name") || "").trim(),
     group_type:String(form.get("group_type") || "Bottle Service"),
     host_name:String(form.get("host_name") || "").trim(),
@@ -1411,24 +1555,37 @@ async function createGroup(event) {
     return;
   }
 
-  await runDb("Create group", async () => {
-    const insertResult = await db.from("groups").insert(payload);
-    must(insertResult.data, insertResult.error);
+  await runDb("Create group", async () => runCriticalAction("Creating party/group...", async () => {
+    const serviceDay = state.serviceDay?.service_date === date
+      ? state.serviceDay
+      : await withDoorFlowTimeout(ensureServiceDay(date), "Finding the active service date", 12000);
 
+    payload.service_day_id = serviceDay.id;
+
+    const insertResult = await withDoorFlowTimeout(
+      db.from("groups").insert(payload).select("*").limit(1),
+      "Creating party/group",
+      15000
+    );
+
+    const createdGroup = firstRow(must(insertResult.data, insertResult.error)) || {
+      ...payload,
+      id:`local-group-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
+
+    state.activeDate = date;
+    state.activeDay = dayNameFromDate(date);
+    state.serviceDay = serviceDay;
+    state.groups = [createdGroup, ...state.groups.filter(item => item.id !== createdGroup.id)];
+    state.selectedGroupId = createdGroup.id;
+    state.currentMode = "GROUP";
     state.modal = null;
-    await loadDataForDate(date);
-
-    const createdGroup = [...state.groups]
-      .filter(item => item.service_day_id === payload.service_day_id && item.name === payload.name)
-      .sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0] || null;
-
-    if (createdGroup) {
-      state.selectedGroupId = createdGroup.id;
-      state.currentMode = "GROUP";
-    }
+    state.lastSyncAt = new Date();
 
     render();
-  });
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function updateGroup(event) {
@@ -1454,15 +1611,23 @@ async function updateGroup(event) {
     return;
   }
 
-  await runDb("Update group", async () => {
-    const result = await db.from("groups").update(payload).eq("id", group.id);
-    must(result.data, result.error);
+  await runDb("Update group", async () => runCriticalAction("Updating party/group...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("groups").update(payload).eq("id", group.id).select("*").limit(1),
+      "Updating party/group",
+      15000
+    );
 
+    const updatedGroup = firstRow(must(result.data, result.error)) || { ...group, ...payload };
+
+    state.groups = state.groups.map(item => item.id === group.id ? updatedGroup : item);
     state.modal = null;
     state.editingGroupId = null;
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function deleteGroup(id) {
@@ -1550,17 +1715,30 @@ async function createGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
-  await runDb("Create guest", async () => {
-    const result = await db.from("guests").insert(payload);
-    must(result.data, result.error);
+  await runDb("Create guest", async () => runCriticalAction("Adding guest...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").insert(payload).select("*").limit(1),
+      "Adding guest",
+      15000
+    );
 
+    const insertedGuest = firstRow(must(result.data, result.error)) || {
+      ...payload,
+      id:`local-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
+
+    state.guests = [...state.guests.filter(item => item.id !== insertedGuest.id), insertedGuest];
     state.selectedGroupId = group.id;
     state.currentMode = isGeneralGroup(group) ? "GENERAL" : "GROUP";
     state.modal = null;
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
+
 
 
 function setMobileManagerNotice(message, type = "info") {
@@ -1594,6 +1772,88 @@ function scrollToMobileCreateGroup() {
 function readMobileField(id) {
   return String(document.getElementById(id)?.value || "").trim();
 }
+
+function withDoorFlowTimeout(promise, label = "Database request", timeoutMs = 15000) {
+  let timer = null;
+
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`${label} timed out. Tap Refresh Data before trying again so you do not accidentally add a duplicate.`));
+      }, timeoutMs);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+async function runCriticalAction(label, fn) {
+  activeDoorFlowAction = true;
+  lastDoorFlowActionAt = Date.now();
+
+  try {
+    updateSyncStatus("Saving", label);
+    return await fn();
+  } finally {
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
+  }
+}
+
+function queueBackgroundRefreshAfterWrite() {
+  window.setTimeout(() => {
+    if (!auth.currentUser) return;
+    refreshLiveDataSilently("post-write").catch(error => {
+      console.warn("DoorFlow background refresh after write failed:", error);
+      updateSyncStatus("Polling", "Saved locally. Tap Refresh Data if another device does not update.");
+      render();
+    });
+  }, 650);
+}
+
+function mobileDraftValue(id) {
+  return String(document.getElementById(id)?.value || "").trim();
+}
+
+function hasUnsavedMobileManagerDraft() {
+  const quickName = mobileDraftValue("mobileQuickGuestName");
+  const plusCount = mobileDraftValue("mobileQuickPlusCount");
+  const groupName = mobileDraftValue("mobileGroupName");
+  const groupHost = mobileDraftValue("mobileGroupHost");
+  const groupLocation = mobileDraftValue("mobileGroupLocation");
+  const groupNotes = mobileDraftValue("mobileGroupNotes");
+
+  return Boolean(
+    quickName ||
+    (plusCount && plusCount !== "0") ||
+    groupName ||
+    groupHost ||
+    groupLocation ||
+    groupNotes
+  );
+}
+
+function clearMobileQuickAddFields() {
+  const guestName = document.getElementById("mobileQuickGuestName");
+  const plusCount = document.getElementById("mobileQuickPlusCount");
+  const reason = document.getElementById("mobileQuickReason");
+
+  if (guestName) guestName.value = "";
+  if (plusCount) plusCount.value = "0";
+  if (reason) reason.value = "Added by manager during shift";
+}
+
+function clearMobileCreateGroupFields() {
+  ["mobileGroupName", "mobileGroupHost", "mobileGroupNotes"].forEach(id => {
+    const field = document.getElementById(id);
+    if (field) field.value = "";
+  });
+
+  const location = document.getElementById("mobileGroupLocation");
+  if (location) location.value = "";
+}
+
 
 async function mobileQuickAddGuest() {
   if (!requirePerm("manage")) return;
@@ -1630,10 +1890,11 @@ async function mobileQuickAddGuest() {
 
   try {
     window.__doorFlowMobileSubmitting = true;
+    activeDoorFlowAction = true;
     showMobileManagerNotice("Adding guest...", "info");
 
     if (target === "general") {
-      group = await getGeneralGroupForActiveDate();
+      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
     } else if (target.startsWith("group:")) {
       const groupId = target.replace("group:", "");
       group = state.groups.find(item => item.id === groupId) || null;
@@ -1668,22 +1929,40 @@ async function mobileQuickAddGuest() {
       return;
     }
 
-    await runDb("Mobile quick add guest", async () => {
-      const result = await db.from("guests").insert(payload);
-      must(result.data, result.error);
+    const insertResult = await withDoorFlowTimeout(
+      db.from("guests").insert(payload).select("*").limit(1),
+      "Adding guest",
+      15000
+    );
 
-      state.selectedGroupId = group.id;
-      state.currentMode = group.name === "General Guest List" || group.group_type === "General Guest List" ? "GENERAL" : "GROUP";
+    const insertedGuest = firstRow(must(insertResult.data, insertResult.error)) || {
+      ...payload,
+      id:`local-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
 
-      await loadDataForDate(state.activeDate);
-      setMobileManagerNotice(`${payload.first_name} ${payload.last_name}${plusCount ? ` +${plusCount}` : ""} added to ${group.name}.`, "success");
-      render();
-    });
+    // Optimistic local update so the phone does not sit on "Adding guest..."
+    // while waiting for the full list refresh/realtime event.
+    if (!state.guests.some(item => item.id === insertedGuest.id)) {
+      state.guests = [...state.guests, insertedGuest];
+    }
+
+    state.selectedGroupId = group.id;
+    state.currentMode = isGeneralGroup(group) ? "GENERAL" : "GROUP";
+    state.lastSyncAt = new Date();
+    setMobileManagerNotice(`${payload.first_name} ${payload.last_name}${plusCount ? ` +${plusCount}` : ""} added to ${group.name}.`, "success");
+
+    clearMobileQuickAddFields();
+    window.__doorFlowMobileSubmitting = false;
+    render();
+    queueBackgroundRefreshAfterWrite();
   } catch (error) {
     console.error(error);
-    showMobileManagerNotice(error?.message || "Guest could not be added. Try Refresh Data and try again.", "error");
+    showMobileManagerNotice(error?.message || "Guest could not be added. Tap Refresh Data and try again.", "error");
   } finally {
     window.__doorFlowMobileSubmitting = false;
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
   }
 }
 
@@ -1707,9 +1986,12 @@ async function mobileQuickCreateGroup() {
 
   try {
     window.__doorFlowMobileSubmitting = true;
+    activeDoorFlowAction = true;
     showMobileManagerNotice("Creating party/group...", "info");
 
-    const serviceDay = state.serviceDay?.id ? state.serviceDay : await ensureServiceDay(state.activeDate);
+    const serviceDay = state.serviceDay?.id
+      ? state.serviceDay
+      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
 
     const payload = {
       service_day_id:serviceDay.id,
@@ -1722,29 +2004,38 @@ async function mobileQuickCreateGroup() {
       status:"Active"
     };
 
-    await runDb("Mobile create party/group", async () => {
-      const result = await db.from("groups").insert(payload);
-      must(result.data, result.error);
+    const insertResult = await withDoorFlowTimeout(
+      db.from("groups").insert(payload).select("*").limit(1),
+      "Creating party/group",
+      15000
+    );
 
-      await loadDataForDate(state.activeDate);
+    const createdGroup = firstRow(must(insertResult.data, insertResult.error)) || {
+      ...payload,
+      id:`local-group-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
 
-      const createdGroup = [...state.groups]
-        .filter(item => item.service_day_id === serviceDay.id && item.name === name && item.group_type === groupType)
-        .sort((a,b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0] || null;
+    if (!state.groups.some(item => item.id === createdGroup.id)) {
+      state.groups = [createdGroup, ...state.groups];
+    }
 
-      if (createdGroup) {
-        state.selectedGroupId = createdGroup.id;
-        state.currentMode = "GROUP";
-      }
+    state.selectedGroupId = createdGroup.id;
+    state.currentMode = "GROUP";
+    state.lastSyncAt = new Date();
+    setMobileManagerNotice(`${name} created. You can now add guests to that list.`, "success");
 
-      setMobileManagerNotice(`${name} created. You can now add guests to that list.`, "success");
-      render();
-    });
+    clearMobileCreateGroupFields();
+    window.__doorFlowMobileSubmitting = false;
+    render();
+    queueBackgroundRefreshAfterWrite();
   } catch (error) {
     console.error(error);
-    showMobileManagerNotice(error?.message || "Party/group could not be created. Try Refresh Data and try again.", "error");
+    showMobileManagerNotice(error?.message || "Party/group could not be created. Tap Refresh Data and try again.", "error");
   } finally {
     window.__doorFlowMobileSubmitting = false;
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
   }
 }
 
@@ -1816,15 +2107,27 @@ async function createQuickManagerGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
-  await runDb("Quick add guest", async () => {
-    const result = await db.from("guests").insert(payload);
-    must(result.data, result.error);
+  await runDb("Quick add guest", async () => runCriticalAction("Adding guest...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").insert(payload).select("*").limit(1),
+      "Adding guest",
+      15000
+    );
 
+    const insertedGuest = firstRow(must(result.data, result.error)) || {
+      ...payload,
+      id:`local-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
+
+    state.guests = [...state.guests.filter(item => item.id !== insertedGuest.id), insertedGuest];
     state.selectedGroupId = group.id;
     state.currentMode = group.name === "General Guest List" || group.group_type === "General Guest List" ? "GENERAL" : "GROUP";
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function recentManagerAdds(limit = 5) {
