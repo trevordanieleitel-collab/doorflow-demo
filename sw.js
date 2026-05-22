@@ -1,7 +1,7 @@
-// DoorFlow PWA service worker - smooth live sync/cache update v12
+// DoorFlow PWA service worker - smooth live sync/cache update v13
 // DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v12";
+const CACHE_NAME = "doorflow-cache-v13";
 const APP_SHELL = [
   "/",
   "/index.html",
