@@ -82,3 +82,14 @@ DoorFlow Smooth Live Sync v7 notes:
 - Avoids interrupting mobile manager form fields while managers are typing.
 - Flushes pending sync after a manager leaves a field.
 - Service worker cache bumped to v11.
+
+
+DoorFlow Smooth Live Sync v8 - Booth Dropdown Update
+---------------------------------------------------
+Changes in v8:
+- Create Party / Group booth/location field is now a dropdown.
+- Booth/location options: POD1 through POD9, DJ Pod, and Fulton St. Corner.
+- Change applies to both mobile manager Create Party / Group and desktop Create Party/Edit Party modal.
+- Service worker cache bumped to v12.
+
+No Supabase SQL is needed for this update.

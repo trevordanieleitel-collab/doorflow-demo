@@ -11,6 +11,7 @@ const roles = {
 
 const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const groupTypes = ["Bottle Service", "VIP Party", "Private Party", "Staff Party", "Vendor Group"];
+const boothOptions = ["POD1", "POD2", "POD3", "POD4", "POD5", "POD6", "POD7", "POD8", "POD9", "DJ Pod", "Fulton St. Corner"];
 const guestTypes = ["Guest", "VIP", "Comp", "Host", "Birthday", "Bottle Service", "Staff", "Vendor", "Do Not Admit"];
 const sortOptions = [
   { value:"LAST_ASC", label:"Last Name A-Z" },
@@ -1942,8 +1943,11 @@ function renderMobileManagerView() {
             </div>
 
             <div>
-              <label>Table / Location</label>
-              <input id="mobileGroupLocation" placeholder="Optional" autocomplete="off" autocapitalize="words" />
+              <label>Booth / Location</label>
+              <select id="mobileGroupLocation">
+                <option value="">Select booth/location</option>
+                ${boothOptions.map(booth => `<option value="${esc(booth)}">${esc(booth)}</option>`).join("")}
+              </select>
             </div>
 
             <div>
@@ -4007,8 +4011,12 @@ function renderGroupModal() {
           </div>
 
           <div>
-            <label>Table / Location</label>
-            <input name="table_location" value="${esc(group?.table_location || "")}" />
+            <label>Booth / Location</label>
+            <select name="table_location">
+              <option value="" ${!(group?.table_location) ? "selected" : ""}>Select booth/location</option>
+              ${group?.table_location && !boothOptions.includes(group.table_location) ? `<option selected value="${esc(group.table_location)}">${esc(group.table_location)}</option>` : ""}
+              ${boothOptions.map(booth => `<option value="${esc(booth)}" ${booth === (group?.table_location || "") ? "selected" : ""}>${esc(booth)}</option>`).join("")}
+            </select>
           </div>
 
           <div>
