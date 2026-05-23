@@ -1,4 +1,4 @@
-DoorFlow Launch Stability v12 - Date Refresh Fix
+DoorFlow Launch Stability v13 - Idle Recovery Fix
 
 Purpose:
 This package is a launch-night stability pass over the v9/v10 DoorFlow build. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, and backup refresh system, but makes the app less likely to feel frozen or require a close/reopen after sitting idle.
@@ -13,9 +13,14 @@ Changes:
 - Adds database request timeouts so stuck requests show an error instead of hanging.
 - Adds safer no-store fetch handling for Supabase REST/auth requests.
 - Keeps booth/location dropdown options: POD1-POD9, DJ Pod, Fulton St. Corner.
-- Service worker cache bumped to v16.
 - Browser/PWA refresh now keeps the selected service date instead of resetting.
 - Current date now uses the device's local date instead of UTC, preventing late-night rollover to the next day.
+- Preserves the current DoorFlow screen during Supabase token refresh events instead of jumping back to Door/Reports.
+- Refreshes the Supabase auth session before database loads when a tablet wakes from idle.
+- Reconnects realtime and forces a live data refresh on visibility/focus/pageshow/online resume events.
+- Defers idle recovery while modals/forms are open so draft entries are not wiped by a wake-up refresh.
+- Flushes any pending idle sync shortly after a modal is closed.
+- Service worker cache bumped to v20.
 
 Deployment:
 1. Upload/replace all files in GitHub.

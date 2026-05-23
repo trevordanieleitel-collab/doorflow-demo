@@ -1,6 +1,9 @@
 const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
 const DOORFLOW_FETCH_TIMEOUT_MS = 18000;
+const DOORFLOW_SESSION_REFRESH_WINDOW_MS = 120000;
+const DOORFLOW_IDLE_RECOVERY_MS = 60000;
+const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
 
 function doorFlowFetch(input, init = {}) {
   const controller = new AbortController();
@@ -66,6 +69,7 @@ let auth = {
 
 // Keep the selected service date through browser/PWA refreshes.
 // Also avoid UTC rollover issues that can make the app jump to tomorrow at night.
+const DOORFLOW_ACTIVE_DATE_KEY = "doorflow_active_date_v1";
 const initialActiveDate = getInitialActiveDate();
 
 let state = {
@@ -99,6 +103,7 @@ let state = {
   realtimeStatus:"Not connected",
   realtimeSubscribedAt:null,
   lastSyncAt:null,
+  lastResumeAt:null,
   lastRealtimeAt:null,
   lastDataHash:"",
   pendingSync:false
@@ -108,13 +113,15 @@ let realtimeChannel = null;
 let realtimeDebounceTimer = null;
 let realtimeHealthTimer = null;
 let autoRefreshTimer = null;
+let resumeRecoveryTimer = null;
 let lastAutoRefreshAt = null;
+let lastHiddenAt = null;
 let isAutoRefreshing = false;
+let isResumeRecovering = false;
+let isBootingDatabase = false;
 let lastUserInputAt = 0;
 let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
-
-const DOORFLOW_ACTIVE_DATE_KEY = "doorflow_active_date_v1";
 
 function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -195,6 +202,20 @@ function requirePerm(permission) {
 
 function roleLabel(role) {
   return roles[role]?.label || role;
+}
+
+function defaultViewForRole(role) {
+  return roles[role]?.door ? "door" : "reports";
+}
+
+function viewAllowedForRole(role, view) {
+  const p = roles[role];
+  if (!p) return false;
+  if (view === "door" || view === "tabletDoor") return p.door;
+  if (view === "manage") return p.manage;
+  if (view === "users") return p.users;
+  if (view === "reports") return p.reports;
+  return false;
 }
 
 function captureFocusedInput() {
@@ -326,6 +347,7 @@ async function runDb(label, fn) {
     return await fn();
   } catch (error) {
     console.error(error);
+    state.loading = false;
     state.error = label + " failed: " + (error.message || error);
     render();
     throw error;
@@ -390,6 +412,23 @@ function updateSyncStatus(status, message) {
   state.syncMessage = message || "";
 }
 
+function msSinceDate(value) {
+  const time = value ? new Date(value).getTime() : 0;
+  return time ? Date.now() - time : Infinity;
+}
+
+function shouldReconnectRealtimeAfterIdle() {
+  if (!realtimeChannel) return true;
+  if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(state.realtimeStatus)) return true;
+  if (state.realtimeStatus !== "SUBSCRIBED") return true;
+  if (lastHiddenAt && Date.now() - lastHiddenAt > DOORFLOW_IDLE_RECOVERY_MS) return true;
+  if (
+    msSinceDate(state.lastSyncAt) > DOORFLOW_REALTIME_RECONNECT_MS &&
+    msSinceDate(state.lastRealtimeAt) > DOORFLOW_REALTIME_RECONNECT_MS
+  ) return true;
+  return false;
+}
+
 function shouldSkipAutoRefresh(options = {}) {
   const force = Boolean(options.force);
 
@@ -452,6 +491,39 @@ function realtimePayloadAppliesToActiveDate(table, payload = {}) {
   return true;
 }
 
+async function ensureFreshAuthSession(reason = "session") {
+  const { data, error } = await db.auth.getSession();
+  if (error) throw error;
+
+  let session = data.session || null;
+
+  if (!session?.user) {
+    auth.session = null;
+    auth.currentUser = null;
+    auth.profile = null;
+    stopAutoRefresh();
+    unsubscribeRealtime();
+    return null;
+  }
+
+  const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0;
+  const expiresSoon = expiresAtMs && expiresAtMs - Date.now() < DOORFLOW_SESSION_REFRESH_WINDOW_MS;
+
+  if (expiresSoon) {
+    const refreshed = await db.auth.refreshSession();
+    if (refreshed.error) throw refreshed.error;
+    session = refreshed.data.session || session;
+  }
+
+  auth.session = session;
+
+  if (!auth.currentUser || auth.currentUser.id !== session.user.id) {
+    await loadStaffProfile(session.user, { preserveView:true });
+  }
+
+  return session;
+}
+
 async function refreshLiveDataSilently(reason = "auto", options = {}) {
   if (shouldSkipAutoRefresh(options)) {
     schedulePendingSync(reason);
@@ -511,6 +583,7 @@ function startRealtimeHealthCheck() {
 
     if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(state.realtimeStatus)) {
       subscribeRealtime();
+      refreshLiveDataSilently("realtime-reconnect", { force:true });
       return;
     }
 
@@ -518,7 +591,7 @@ function startRealtimeHealthCheck() {
     const msSinceSync = lastSyncMs ? Date.now() - lastSyncMs : Infinity;
 
     if (msSinceSync > 90000 && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
-      refreshLiveDataSilently("health-check");
+      recoverFromIdle("health-check");
     }
   }, 45000);
 }
@@ -541,6 +614,11 @@ function stopAutoRefresh() {
     realtimeDebounceTimer = null;
   }
 
+  if (resumeRecoveryTimer) {
+    clearTimeout(resumeRecoveryTimer);
+    resumeRecoveryTimer = null;
+  }
+
   stopRealtimeHealthCheck();
 }
 
@@ -552,7 +630,7 @@ function flushPendingSync(reason = "resume") {
   if (!auth.currentUser || document.hidden) return;
 
   if (state.pendingSync) {
-    if (isUserActivelyEditing() || hasUnsavedMobileManagerDraft() || activeDoorFlowAction) {
+    if (state.modal || isUserActivelyEditing() || hasUnsavedMobileManagerDraft() || activeDoorFlowAction) {
       updateSyncStatus("Pending", `Update waiting while user finishes (${reason}).`);
       return;
     }
@@ -566,33 +644,96 @@ function flushPendingSync(reason = "resume") {
 
   // Do not force-refresh on every focus/tap. On iOS PWAs, focus events can fire
   // while a manager is about to press a button, which can make the app feel frozen.
-  if (msSinceSync > 20000 && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
+  if (msSinceSync > 20000 && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
     refreshLiveDataSilently(reason);
   }
 }
 
+function scheduleResumeRecovery(reason = "resume", delayMs = 650) {
+  if (resumeRecoveryTimer) {
+    clearTimeout(resumeRecoveryTimer);
+  }
+
+  resumeRecoveryTimer = setTimeout(() => {
+    resumeRecoveryTimer = null;
+    recoverFromIdle(reason);
+  }, delayMs);
+}
+
+async function recoverFromIdle(reason = "resume") {
+  if (!auth.currentUser || document.hidden || isResumeRecovering) return;
+
+  if (state.modal || activeDoorFlowAction || window.__doorFlowMobileSubmitting || hasUnsavedMobileManagerDraft()) {
+    schedulePendingSync(reason);
+    return;
+  }
+
+  const msSinceSync = msSinceDate(state.lastSyncAt);
+  const shouldRefresh = state.pendingSync || msSinceSync > 15000 || reason === "online";
+
+  if (!shouldRefresh && !shouldReconnectRealtimeAfterIdle()) {
+    return;
+  }
+
+  try {
+    isResumeRecovering = true;
+    state.lastResumeAt = new Date();
+    updateSyncStatus("Syncing", `Reconnecting after ${reason}.`);
+
+    const session = await ensureFreshAuthSession(reason);
+
+    if (!session) {
+      updateSyncStatus("Signed out", "Session expired. Log in again.");
+      render();
+      return;
+    }
+
+    if (shouldReconnectRealtimeAfterIdle()) {
+      subscribeRealtime();
+    }
+
+    if (shouldRefresh) {
+      await refreshLiveDataSilently(`resume:${reason}`, { force:true });
+    } else {
+      render();
+    }
+  } catch (error) {
+    console.warn("DoorFlow idle recovery failed:", reason, error);
+    updateSyncStatus("Reconnect", error?.message || "Live sync needs attention. Tap Refresh Data if needed.");
+    render();
+  } finally {
+    if (!document.hidden) lastHiddenAt = null;
+    isResumeRecovering = false;
+  }
+}
+
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && auth.currentUser) {
-    setTimeout(() => flushPendingSync("visibilitychange"), 500);
+  if (document.hidden) {
+    lastHiddenAt = Date.now();
+    return;
+  }
+
+  if (auth.currentUser) {
+    scheduleResumeRecovery("visibilitychange", 500);
   }
 });
 
 window.addEventListener("focus", () => {
   if (auth.currentUser) {
-    setTimeout(() => flushPendingSync("focus"), 500);
+    scheduleResumeRecovery("focus", 500);
   }
 });
 
-window.addEventListener("pageshow", () => {
+window.addEventListener("pageshow", event => {
   if (auth.currentUser) {
-    setTimeout(() => flushPendingSync("pageshow"), 500);
+    scheduleResumeRecovery(event.persisted ? "pageshow-cache" : "pageshow", 500);
   }
 });
 
 window.addEventListener("online", () => {
   if (auth.currentUser) {
     updateSyncStatus("Syncing", "Connection restored. Refreshing live data.");
-    setTimeout(() => refreshLiveDataSilently("online", { force:true }), 500);
+    scheduleResumeRecovery("online", 500);
   }
 });
 
@@ -618,11 +759,23 @@ async function initAuth() {
     await loadStaffProfile(auth.session.user);
   }
 
-  db.auth.onAuthStateChange(async (_event, session) => {
+  db.auth.onAuthStateChange(async (event, session) => {
     auth.session = session || null;
 
     if (session?.user) {
-      await loadStaffProfile(session.user);
+      if (event === "TOKEN_REFRESHED" && auth.currentUser?.id === session.user.id) {
+        updateSyncStatus(state.syncStatus || "Live", "Session refreshed. Live sync is still active.");
+        return;
+      }
+
+      const preserveView = event === "TOKEN_REFRESHED" || Boolean(auth.currentUser);
+      await loadStaffProfile(session.user, { preserveView });
+
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        updateSyncStatus(state.syncStatus || "Live", "Session refreshed. Live sync is still active.");
+        return;
+      }
+
       await bootDatabase();
     } else {
       stopAutoRefresh();
@@ -651,7 +804,9 @@ async function initAuth() {
   }
 }
 
-async function loadStaffProfile(user) {
+async function loadStaffProfile(user, options = {}) {
+  const previousView = state.view;
+
   const { data, error } = await db
     .from("staff_profiles")
     .select("*")
@@ -682,6 +837,14 @@ async function loadStaffProfile(user) {
     return;
   }
 
+  if (!roles[data.role]) {
+    state.error = `This DoorFlow account has an unknown role: ${data.role || "blank"}.`;
+    auth.currentUser = null;
+    auth.profile = null;
+    render();
+    return;
+  }
+
   auth.profile = data;
   auth.currentUser = {
     id:user.id,
@@ -692,7 +855,9 @@ async function loadStaffProfile(user) {
   };
 
   state.error = "";
-  state.view = roles[data.role].door ? "door" : "reports";
+  state.view = options.preserveView && viewAllowedForRole(data.role, previousView)
+    ? previousView
+    : defaultViewForRole(data.role);
 
   if (data.role === "admin") {
     await loadStaffProfilesForAdmin();
@@ -765,10 +930,24 @@ async function logout() {
 
 async function bootDatabase() {
   if (!auth.currentUser) return;
-  await loadDataForDate(state.activeDate);
-  subscribeRealtime();
-  startAutoRefresh();
-  startRealtimeHealthCheck();
+
+  if (isBootingDatabase) return;
+
+  try {
+    isBootingDatabase = true;
+    const session = await ensureFreshAuthSession("boot");
+    if (!session) {
+      state.error = "Session expired. Log in again.";
+      render();
+      return;
+    }
+    await loadDataForDate(state.activeDate);
+    subscribeRealtime();
+    startAutoRefresh();
+    startRealtimeHealthCheck();
+  } finally {
+    isBootingDatabase = false;
+  }
 }
 
 function canManageData() {
@@ -905,6 +1084,11 @@ async function ensureGeneralGroup(serviceDayId) {
 
 async function loadDataForDate(dateString) {
   return runDb("Loading live data", async () => {
+    if (auth.session?.user) {
+      const session = await ensureFreshAuthSession("load-data");
+      if (!session) throw new Error("Session expired. Log in again.");
+    }
+
     if (!isAutoRefreshing && !state.modal && !activeDoorFlowAction && !hasUnsavedMobileManagerDraft()) {
       state.loading = true;
       render();
@@ -1022,6 +1206,7 @@ function subscribeRealtime() {
 
       if (status === "SUBSCRIBED") {
         state.realtimeSubscribedAt = new Date();
+        state.lastRealtimeAt = new Date();
         updateSyncStatus("Live", "Realtime connected. Backup refresh is active.");
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         updateSyncStatus("Polling", "Realtime is reconnecting. Backup refresh is still active.");
@@ -1029,7 +1214,7 @@ function subscribeRealtime() {
         updateSyncStatus("Connecting", `Realtime status: ${status}`);
       }
 
-      if (auth.currentUser && !isUserActivelyEditing()) {
+      if (auth.currentUser && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
         render();
       }
     });
@@ -3579,6 +3764,10 @@ function closeModal() {
   state.editingGuestId = null;
   state.editingShiftNoteId = null;
   render();
+
+  if (auth.currentUser && state.pendingSync) {
+    setTimeout(() => flushPendingSync("modal-close"), 150);
+  }
 }
 
 /* RENDER */
@@ -4641,4 +4830,3 @@ Object.assign(window, {
 
 render();
 initAuth();
-
