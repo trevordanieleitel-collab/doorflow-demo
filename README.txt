@@ -20,7 +20,9 @@ Changes:
 - Reconnects realtime and forces a live data refresh on visibility/focus/pageshow/online resume events.
 - Defers idle recovery while modals/forms are open so draft entries are not wiped by a wake-up refresh.
 - Flushes any pending idle sync shortly after a modal is closed.
-- Service worker cache bumped to v20.
+- Verifies the Supabase session with the server before save/delete/check-in actions after wake.
+- Refreshes the realtime auth token before database actions and reconnects realtime after any screen sleep.
+- Service worker cache bumped to v21.
 
 Deployment:
 1. Upload/replace all files in GitHub.

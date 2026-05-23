@@ -2,8 +2,9 @@ const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
 const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
 const DOORFLOW_FETCH_TIMEOUT_MS = 18000;
 const DOORFLOW_SESSION_REFRESH_WINDOW_MS = 120000;
-const DOORFLOW_IDLE_RECOVERY_MS = 60000;
 const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
+const DOORFLOW_ACTION_SESSION_CHECK_MS = 15000;
+const DOORFLOW_WAKE_ACTION_WINDOW_MS = 10000;
 
 function doorFlowFetch(input, init = {}) {
   const controller = new AbortController();
@@ -116,6 +117,7 @@ let autoRefreshTimer = null;
 let resumeRecoveryTimer = null;
 let lastAutoRefreshAt = null;
 let lastHiddenAt = null;
+let lastActionSessionCheckAt = null;
 let isAutoRefreshing = false;
 let isResumeRecovering = false;
 let isBootingDatabase = false;
@@ -344,6 +346,9 @@ function render() {
 async function runDb(label, fn) {
   try {
     state.error = "";
+    if (auth.session?.user && label !== "Loading live data") {
+      await prepareDatabaseAction(label);
+    }
     return await fn();
   } catch (error) {
     console.error(error);
@@ -421,12 +426,16 @@ function shouldReconnectRealtimeAfterIdle() {
   if (!realtimeChannel) return true;
   if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(state.realtimeStatus)) return true;
   if (state.realtimeStatus !== "SUBSCRIBED") return true;
-  if (lastHiddenAt && Date.now() - lastHiddenAt > DOORFLOW_IDLE_RECOVERY_MS) return true;
+  if (lastHiddenAt) return true;
   if (
     msSinceDate(state.lastSyncAt) > DOORFLOW_REALTIME_RECONNECT_MS &&
     msSinceDate(state.lastRealtimeAt) > DOORFLOW_REALTIME_RECONNECT_MS
   ) return true;
   return false;
+}
+
+function isWakeRecoveryReason(reason = "") {
+  return ["visibilitychange", "focus", "pageshow", "pageshow-cache"].includes(String(reason));
 }
 
 function shouldSkipAutoRefresh(options = {}) {
@@ -522,6 +531,57 @@ async function ensureFreshAuthSession(reason = "session") {
   }
 
   return session;
+}
+
+function syncRealtimeAuth(session) {
+  try {
+    if (session?.access_token && db.realtime && typeof db.realtime.setAuth === "function") {
+      db.realtime.setAuth(session.access_token);
+    }
+  } catch (error) {
+    console.warn("DoorFlow realtime auth refresh warning:", error);
+  }
+}
+
+function shouldVerifyActionSession() {
+  if (lastHiddenAt) return true;
+  if (msSinceDate(state.lastResumeAt) < DOORFLOW_WAKE_ACTION_WINDOW_MS) return true;
+  if (msSinceDate(lastActionSessionCheckAt) > DOORFLOW_ACTION_SESSION_CHECK_MS) return true;
+  if (state.realtimeStatus !== "SUBSCRIBED") return true;
+  return false;
+}
+
+async function verifyActionSessionWithServer() {
+  const result = await withDoorFlowTimeout(
+    db.auth.getUser(),
+    "Reconnecting DoorFlow session",
+    8000
+  );
+
+  if (result.error) throw result.error;
+  lastActionSessionCheckAt = new Date();
+  return result.data?.user || null;
+}
+
+async function prepareDatabaseAction(label = "Database action") {
+  if (navigator.onLine === false) {
+    throw new Error("This device appears offline. Reconnect Wi-Fi/cellular, then try again.");
+  }
+
+  const session = await ensureFreshAuthSession(`action:${label}`);
+  if (!session) throw new Error("Session expired. Log in again.");
+
+  syncRealtimeAuth(session);
+
+  if (shouldVerifyActionSession()) {
+    await verifyActionSessionWithServer();
+  }
+
+  if (shouldReconnectRealtimeAfterIdle()) {
+    subscribeRealtime();
+  }
+
+  lastHiddenAt = null;
 }
 
 async function refreshLiveDataSilently(reason = "auto", options = {}) {
@@ -671,7 +731,7 @@ async function recoverFromIdle(reason = "resume") {
   const msSinceSync = msSinceDate(state.lastSyncAt);
   const shouldRefresh = state.pendingSync || msSinceSync > 15000 || reason === "online";
 
-  if (!shouldRefresh && !shouldReconnectRealtimeAfterIdle()) {
+  if (!shouldRefresh && !shouldReconnectRealtimeAfterIdle() && !isWakeRecoveryReason(reason)) {
     return;
   }
 
@@ -688,7 +748,9 @@ async function recoverFromIdle(reason = "resume") {
       return;
     }
 
-    if (shouldReconnectRealtimeAfterIdle()) {
+    syncRealtimeAuth(session);
+
+    if (shouldReconnectRealtimeAfterIdle() || isWakeRecoveryReason(reason)) {
       subscribeRealtime();
     }
 
@@ -1562,6 +1624,8 @@ async function updateStaffProfile(event) {
     return;
   }
 
+  await prepareDatabaseAction("Update staff profile");
+
   const result = await db.from("staff_profiles").update(payload).eq("id", id);
 
   if (result.error) {
@@ -1887,6 +1951,8 @@ async function createGuest(event) {
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
 
+  await prepareDatabaseAction("Create guest");
+
   let group = null;
 
   try {
@@ -2115,6 +2181,8 @@ async function mobileQuickAddGuest() {
   let group = null;
 
   try {
+    await prepareDatabaseAction("Mobile quick add guest");
+
     window.__doorFlowMobileSubmitting = true;
     activeDoorFlowAction = true;
     showMobileManagerNotice("Adding guest...", "info");
@@ -2211,6 +2279,8 @@ async function mobileQuickCreateGroup() {
   }
 
   try {
+    await prepareDatabaseAction("Mobile create party/group");
+
     window.__doorFlowMobileSubmitting = true;
     activeDoorFlowAction = true;
     showMobileManagerNotice("Creating party/group...", "info");
