@@ -1317,6 +1317,10 @@ let auth = {
   profile:null
 };
 
+// Keep the selected service date through browser/PWA refreshes.
+// Also avoid UTC rollover issues that can make the app jump to tomorrow at night.
+const initialActiveDate = getInitialActiveDate();
+
 let state = {
   loading:false,
   error:"",
@@ -1328,8 +1332,8 @@ let state = {
   shiftNotes:[],
   staffProfiles:[],
   view:"door",
-  activeDate:todayISO(),
-  activeDay:dayNameFromDate(todayISO()),
+  activeDate:initialActiveDate,
+  activeDay:dayNameFromDate(initialActiveDate),
   selectedGroupId:null,
   currentMode:"GENERAL",
   searchText:"",
@@ -1363,8 +1367,40 @@ let lastUserInputAt = 0;
 let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
 
+const DOORFLOW_ACTIVE_DATE_KEY = "doorflow_active_date_v1";
+
+function isValidISODate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function localISOFromDate(date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0,10);
+}
+
 function todayISO() {
-  return new Date().toISOString().slice(0,10);
+  return localISOFromDate(new Date());
+}
+
+function getInitialActiveDate() {
+  try {
+    const storedDate = localStorage.getItem(DOORFLOW_ACTIVE_DATE_KEY);
+    if (isValidISODate(storedDate)) return storedDate;
+  } catch (error) {
+    console.warn("Could not read saved DoorFlow date:", error);
+  }
+
+  return todayISO();
+}
+
+function saveActiveDate(dateString) {
+  if (!isValidISODate(dateString)) return;
+
+  try {
+    localStorage.setItem(DOORFLOW_ACTIVE_DATE_KEY, dateString);
+  } catch (error) {
+    console.warn("Could not save DoorFlow date:", error);
+  }
 }
 
 function dayNameFromDate(dateString) {
@@ -1380,7 +1416,7 @@ function nextDateForDay(dayName) {
   const offset = (targetIndex - currentIndex + 7) % 7;
   const result = new Date(today);
   result.setDate(today.getDate() + offset);
-  return result.toISOString().slice(0,10);
+  return localISOFromDate(result);
 }
 
 function esc(value) {
@@ -2129,6 +2165,7 @@ async function loadDataForDate(dateString) {
 
     state.activeDate = dateString;
     state.activeDay = dayNameFromDate(dateString);
+    saveActiveDate(dateString);
 
     const serviceDay = await ensureServiceDay(dateString);
     await ensureGeneralGroup(serviceDay.id);
@@ -2615,10 +2652,13 @@ async function refreshStaffProfiles() {
 
 async function setActiveDay(day) {
   const date = nextDateForDay(day);
+  saveActiveDate(date);
   await loadDataForDate(date);
 }
 
 async function setActiveDate(date) {
+  if (!isValidISODate(date)) return;
+  saveActiveDate(date);
   await loadDataForDate(date);
 }
 
@@ -2829,6 +2869,7 @@ async function createGroup(event) {
 
     state.activeDate = date;
     state.activeDay = dayNameFromDate(date);
+    saveActiveDate(date);
     state.serviceDay = serviceDay;
     state.groups = [createdGroup, ...state.groups.filter(item => item.id !== createdGroup.id)];
     state.selectedGroupId = createdGroup.id;
