@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v13 - Idle Recovery Fix
+DoorFlow Launch Stability v14 - Mobile Shift Notes + Emoji Keyboard
 
 Purpose:
-This package is a launch-night stability pass over the v9/v10 DoorFlow build. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, and backup refresh system, but makes the app less likely to feel frozen or require a close/reopen after sitting idle.
+This package builds on the v13 idle recovery fix. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, and backup refresh system, and adds manager shift note creation from phones.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -22,7 +22,11 @@ Changes:
 - Flushes any pending idle sync shortly after a modal is closed.
 - Verifies the Supabase session with the server before save/delete/check-in actions after wake.
 - Refreshes the realtime auth token before database actions and reconnects realtime after any screen sleep.
-- Service worker cache bumped to v21.
+- Adds a phone-friendly manager Shift Notes composer in mobile manager mode.
+- Adds an emoji keyboard to manager shift note add/edit fields.
+- Makes shift note add/edit/delete update the local screen immediately and refresh in the background.
+- Protects mobile shift note drafts from idle refresh/re-render events.
+- Service worker cache bumped to v22.
 
 Deployment:
 1. Upload/replace all files in GitHub.

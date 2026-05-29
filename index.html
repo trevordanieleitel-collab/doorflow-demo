@@ -204,6 +204,34 @@
       box-shadow:0 0 0 3px rgba(17,24,39,.12);
     }
 
+    .emoji-keyboard {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:8px;
+    }
+
+    .emoji-key {
+      width:36px;
+      height:36px;
+      padding:0;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:#fff;
+      color:#111827;
+      font-size:18px;
+      line-height:1;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .emoji-key:hover,
+    .emoji-key:focus {
+      background:#f9fafb;
+      border-color:#cbd5e1;
+    }
+
     label {
       display:block;
       font-size:13px;
@@ -957,6 +985,12 @@
         resize:vertical;
       }
 
+      .mobile-manager-form .emoji-key {
+        width:40px;
+        height:40px;
+        font-size:20px;
+      }
+
       .mobile-manager-help {
         margin:6px 0 0!important;
         color:#64748b!important;
@@ -1660,7 +1694,7 @@ function isUserActivelyEditing() {
   // Mobile manager forms should not be interrupted while a manager has a field open.
   // For the tablet search box, allow refresh once typing pauses so door screens still update.
   const id = String(active.id || "");
-  if (id.startsWith("mobileQuick") || id.startsWith("mobileGroup")) return true;
+  if (id.startsWith("mobileQuick") || id.startsWith("mobileGroup") || id.startsWith("mobileShiftNote")) return true;
 
   return userRecentlyTyped(3000);
 }
@@ -1722,7 +1756,7 @@ function buildLiveDataHash(groups, guests, logs, shiftNotes) {
     (groups || []).map(row => compactRowStamp(row, ["id", "name", "group_type", "host_name", "status", "updated_at", "created_at"])).join("~"),
     (guests || []).map(row => compactRowStamp(row, ["id", "group_id", "first_name", "last_name", "guest_type", "total_allowed", "checked_in_count", "is_late_add", "late_add_approved_by", "late_add_reason", "notes", "updated_at", "created_at"])).join("~"),
     (logs || []).map(row => compactRowStamp(row, ["id", "guest_id", "group_id", "action", "amount", "created_at"])).join("~"),
-    (shiftNotes || []).map(row => compactRowStamp(row, ["id", "note", "notes", "created_at", "updated_at"])).join("~")
+    (shiftNotes || []).map(row => compactRowStamp(row, ["id", "category", "priority", "note_text", "created_at", "updated_at"])).join("~")
   ].join("||");
 }
 
@@ -3368,6 +3402,7 @@ function hasUnsavedMobileManagerDraft() {
   const groupHost = mobileDraftValue("mobileGroupHost");
   const groupLocation = mobileDraftValue("mobileGroupLocation");
   const groupNotes = mobileDraftValue("mobileGroupNotes");
+  const shiftNoteText = mobileDraftValue("mobileShiftNoteText");
 
   return Boolean(
     quickName ||
@@ -3375,7 +3410,8 @@ function hasUnsavedMobileManagerDraft() {
     groupName ||
     groupHost ||
     groupLocation ||
-    groupNotes
+    groupNotes ||
+    shiftNoteText
   );
 }
 
@@ -3397,6 +3433,14 @@ function clearMobileCreateGroupFields() {
 
   const location = document.getElementById("mobileGroupLocation");
   if (location) location.value = "";
+}
+
+function clearMobileShiftNoteFields() {
+  const noteText = document.getElementById("mobileShiftNoteText");
+  const priority = document.getElementById("mobileShiftNotePriority");
+
+  if (noteText) noteText.value = "";
+  if (priority) priority.value = "Normal";
 }
 
 
@@ -3581,6 +3625,72 @@ async function mobileQuickCreateGroup() {
   } catch (error) {
     console.error(error);
     showMobileManagerNotice(error?.message || "Party/group could not be created. Tap Refresh Data and try again.", "error");
+  } finally {
+    window.__doorFlowMobileSubmitting = false;
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
+  }
+}
+
+async function mobileAddShiftNote() {
+  if (!requirePerm("manage")) return;
+  if (window.__doorFlowMobileSubmitting) return;
+
+  clearMobileManagerNotice();
+
+  const category = readMobileField("mobileShiftNoteCategory") || "General Note";
+  const priority = readMobileField("mobileShiftNotePriority") || "Normal";
+  const noteText = readMobileField("mobileShiftNoteText");
+
+  if (!noteText) {
+    showMobileManagerNotice("Type a shift note before saving.", "error");
+    return;
+  }
+
+  try {
+    await prepareDatabaseAction("Mobile shift note");
+
+    window.__doorFlowMobileSubmitting = true;
+    activeDoorFlowAction = true;
+    showMobileManagerNotice("Saving shift note...", "info");
+
+    const serviceDay = state.serviceDay?.id
+      ? state.serviceDay
+      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
+
+    const payload = {
+      service_day_id:serviceDay.id,
+      category:noteCategories.includes(category) ? category : "General Note",
+      priority:notePriorities.includes(priority) ? priority : "Normal",
+      note_text:noteText,
+      created_by_name:currentUser()?.name || "Unknown",
+      created_by_user_id:auth.session?.user?.id || null
+    };
+
+    const insertResult = await withDoorFlowTimeout(
+      db.from("shift_notes").insert(payload).select("*").limit(1),
+      "Saving shift note",
+      15000
+    );
+
+    const insertedNote = firstRow(must(insertResult.data, insertResult.error)) || {
+      ...payload,
+      id:`local-note-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
+
+    state.shiftNotes = [insertedNote, ...state.shiftNotes.filter(item => item.id !== insertedNote.id)];
+    state.lastSyncAt = new Date();
+    state.importMessage = "Shift note added.";
+    setMobileManagerNotice("Shift note added for door staff.", "success");
+
+    clearMobileShiftNoteFields();
+    window.__doorFlowMobileSubmitting = false;
+    render();
+    queueBackgroundRefreshAfterWrite();
+  } catch (error) {
+    console.error(error);
+    showMobileManagerNotice(error?.message || "Shift note could not be saved. Tap Refresh Data and try again.", "error");
   } finally {
     window.__doorFlowMobileSubmitting = false;
     activeDoorFlowAction = false;
@@ -3818,22 +3928,48 @@ function renderMobileManagerView() {
       </section>
 
       <section class="mobile-manager-card">
-        <details class="mobile-manager-details">
+        <details class="mobile-manager-details" open>
           <summary>
             <div class="mobile-manager-inline-title">
               <span>📝</span>
               <div>
                 <h2>Shift Notes</h2>
-                <p>Visible to door staff</p>
+                <p>Add notes for door staff</p>
               </div>
             </div>
             <strong>⌄</strong>
           </summary>
 
-          <div class="mobile-manager-note-box">
-            <strong>${latestNote ? esc(latestNote.category || "Tonight") : "Tonight"}:</strong>
-            <p>${latestNote ? esc(latestNote.note_text || "") : "No shift notes have been added yet."}</p>
-            <button class="btn secondary" type="button" onclick="${latestNote ? `openEditShiftNote('${latestNote.id}')` : `alert('No shift notes have been added yet. Use the full manager screen on tablet/desktop to create the first note.')`}">Edit Shift Notes</button>
+          ${latestNote ? `
+            <div class="mobile-manager-note-box">
+              <strong>${esc(latestNote.category || "Tonight")}:</strong>
+              <p>${esc(latestNote.note_text || "")}</p>
+              <button class="btn secondary" type="button" onclick="openEditShiftNote('${latestNote.id}')">Edit Latest Note</button>
+            </div>
+          ` : `<div class="mobile-manager-empty-state">No shift notes have been added yet.</div>`}
+
+          <div class="mobile-manager-form" style="margin-top:14px;">
+            <div>
+              <label>Category</label>
+              <select id="mobileShiftNoteCategory">
+                ${noteCategories.map(item => `<option>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div>
+              <label>Priority</label>
+              <select id="mobileShiftNotePriority">
+                ${notePriorities.map(item => `<option>${esc(item)}</option>`).join("")}
+              </select>
+            </div>
+
+            <div>
+              <label>Note</label>
+              <textarea id="mobileShiftNoteText" rows="4" placeholder="Example: VIP table arriving at 10:30 PM. Approved by manager." autocapitalize="sentences"></textarea>
+              ${renderEmojiKeyboard("mobileShiftNoteText")}
+            </div>
+
+            <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileAddShiftNote()">Add Shift Note</button>
           </div>
         </details>
       </section>
@@ -4408,6 +4544,49 @@ const notePriorities = [
   "Urgent"
 ];
 
+const noteEmojiOptions = [
+  { label:"Star", value:"\u2b50" },
+  { label:"Fire", value:"\ud83d\udd25" },
+  { label:"Alert", value:"\ud83d\udea8" },
+  { label:"Check", value:"\u2705" },
+  { label:"Crown", value:"\ud83d\udc51" },
+  { label:"Bottle", value:"\ud83c\udf7e" },
+  { label:"Birthday", value:"\ud83c\udf82" },
+  { label:"Warning", value:"\u26a0\ufe0f" },
+  { label:"Money", value:"\ud83d\udcb5" },
+  { label:"Clipboard", value:"\ud83d\udccb" },
+  { label:"Door", value:"\ud83d\udeaa" },
+  { label:"Headset", value:"\ud83c\udfa7" },
+  { label:"Ice", value:"\ud83e\uddca" },
+  { label:"Clean", value:"\ud83e\uddf9" },
+  { label:"Note", value:"\ud83d\udcdd" }
+];
+
+function insertEmojiIntoField(targetId, emoji) {
+  const field = document.getElementById(targetId);
+  if (!field) return;
+
+  if (typeof field.setRangeText === "function" && typeof field.selectionStart === "number") {
+    field.setRangeText(emoji, field.selectionStart, field.selectionEnd, "end");
+  } else {
+    field.value = `${field.value || ""}${emoji}`;
+  }
+
+  field.dispatchEvent(new Event("input", { bubbles:true }));
+  field.focus();
+  markUserInputActivity();
+}
+
+function renderEmojiKeyboard(targetId) {
+  return `
+    <div class="emoji-keyboard" aria-label="Emoji keyboard">
+      ${noteEmojiOptions.map(item => `
+        <button class="emoji-key" type="button" title="${esc(item.label)}" aria-label="Insert ${esc(item.label)} emoji" onclick="insertEmojiIntoField('${esc(targetId)}', '${esc(item.value)}')">${esc(item.value)}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
 function notePriorityClass(priority) {
   const value = String(priority || "").toLowerCase();
   if (value.includes("urgent")) return "blocked";
@@ -4457,14 +4636,26 @@ async function createShiftNote(event) {
     return;
   }
 
-  await runDb("Create shift note", async () => {
-    const result = await db.from("shift_notes").insert(payload);
-    must(result.data, result.error);
+  await runDb("Create shift note", async () => runCriticalAction("Adding shift note...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("shift_notes").insert(payload).select("*").limit(1),
+      "Adding shift note",
+      15000
+    );
+
+    const insertedNote = firstRow(must(result.data, result.error)) || {
+      ...payload,
+      id:`local-note-${Date.now()}`,
+      created_at:new Date().toISOString()
+    };
 
     event.target.reset();
+    state.shiftNotes = [insertedNote, ...state.shiftNotes.filter(item => item.id !== insertedNote.id)];
+    state.lastSyncAt = new Date();
     state.importMessage = "Shift note added.";
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function openEditShiftNote(id) {
@@ -4498,15 +4689,23 @@ async function updateShiftNote(event) {
     return;
   }
 
-  await runDb("Update shift note", async () => {
-    const result = await db.from("shift_notes").update(payload).eq("id", note.id);
-    must(result.data, result.error);
+  await runDb("Update shift note", async () => runCriticalAction("Updating shift note...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("shift_notes").update(payload).eq("id", note.id).select("*").limit(1),
+      "Updating shift note",
+      15000
+    );
+
+    const updatedNote = firstRow(must(result.data, result.error)) || { ...note, ...payload };
 
     state.editingShiftNoteId = null;
     state.modal = null;
+    state.shiftNotes = state.shiftNotes.map(item => item.id === note.id ? updatedNote : item);
+    state.lastSyncAt = new Date();
     state.importMessage = "Shift note updated.";
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function deleteShiftNote(id) {
@@ -4514,13 +4713,20 @@ async function deleteShiftNote(id) {
 
   if (!confirm("Delete this shift note?")) return;
 
-  await runDb("Delete shift note", async () => {
-    const result = await db.from("shift_notes").delete().eq("id", id);
+  await runDb("Delete shift note", async () => runCriticalAction("Deleting shift note...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("shift_notes").delete().eq("id", id),
+      "Deleting shift note",
+      15000
+    );
     must(result.data, result.error);
 
+    state.shiftNotes = state.shiftNotes.filter(item => item.id !== id);
+    state.lastSyncAt = new Date();
     state.importMessage = "Shift note deleted.";
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function renderShiftNotesPanel(showComposer = true) {
@@ -4550,7 +4756,8 @@ function renderShiftNotesPanel(showComposer = true) {
 
           <div>
             <label>Note</label>
-            <textarea name="note_text" rows="4" placeholder="Example: VIP table arriving around 10:30 PM. Approved by manager."></textarea>
+            <textarea id="shiftNoteComposerText" name="note_text" rows="4" placeholder="Example: VIP table arriving around 10:30 PM. Approved by manager."></textarea>
+            ${renderEmojiKeyboard("shiftNoteComposerText")}
           </div>
 
           <div class="row-actions">
@@ -6069,7 +6276,8 @@ function renderShiftNoteModal() {
 
           <div>
             <label>Note</label>
-            <textarea name="note_text" rows="6">${esc(note.note_text || "")}</textarea>
+            <textarea id="shiftNoteEditText" name="note_text" rows="6">${esc(note.note_text || "")}</textarea>
+            ${renderEmojiKeyboard("shiftNoteEditText")}
           </div>
 
           <div class="row-actions">
@@ -6133,6 +6341,8 @@ Object.assign(window, {
   createQuickManagerGuest,
   mobileQuickAddGuest,
   mobileQuickCreateGroup,
+  mobileAddShiftNote,
+  insertEmojiIntoField,
   scrollToMobileCreateGroup,
   manualRefreshData,
   updateGuest,
@@ -6153,6 +6363,7 @@ Object.assign(window, {
 
 render();
 initAuth();
+
 </script>
 
 <script>
