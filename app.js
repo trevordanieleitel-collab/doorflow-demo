@@ -5,6 +5,7 @@ const DOORFLOW_SESSION_REFRESH_WINDOW_MS = 120000;
 const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
 const DOORFLOW_ACTION_SESSION_CHECK_MS = 15000;
 const DOORFLOW_WAKE_ACTION_WINDOW_MS = 10000;
+const DOORFLOW_STUCK_ACTION_RESET_MS = 25000;
 
 function doorFlowFetch(input, init = {}) {
   const controller = new AbortController();
@@ -344,18 +345,32 @@ function render() {
 }
 
 async function runDb(label, fn) {
+  const isAction = Boolean(auth.session?.user && label !== "Loading live data");
+
   try {
     state.error = "";
-    if (auth.session?.user && label !== "Loading live data") {
+    clearStuckActionState(`before ${label}`);
+
+    if (isAction) {
+      activeDoorFlowAction = true;
+      lastDoorFlowActionAt = Date.now();
+      updateSyncStatus("Saving", `${label}...`);
       await prepareDatabaseAction(label);
     }
+
     return await fn();
   } catch (error) {
     console.error(error);
     state.loading = false;
     state.error = label + " failed: " + (error.message || error);
+    updateSyncStatus("Action failed", error.message || String(error));
     render();
     throw error;
+  } finally {
+    if (isAction) {
+      activeDoorFlowAction = false;
+      lastDoorFlowActionAt = Date.now();
+    }
   }
 }
 
@@ -420,6 +435,40 @@ function updateSyncStatus(status, message) {
 function msSinceDate(value) {
   const time = value ? new Date(value).getTime() : 0;
   return time ? Date.now() - time : Infinity;
+}
+
+function clearStuckActionState(reason = "recovery") {
+  let changed = false;
+  const staleAction = activeDoorFlowAction && msSinceDate(lastDoorFlowActionAt) > DOORFLOW_STUCK_ACTION_RESET_MS;
+  const staleMobileSubmit = window.__doorFlowMobileSubmitting && msSinceDate(lastDoorFlowActionAt) > DOORFLOW_STUCK_ACTION_RESET_MS;
+  const staleAutoRefresh = isAutoRefreshing && msSinceDate(lastAutoRefreshAt) > DOORFLOW_STUCK_ACTION_RESET_MS;
+
+  if (staleAction) {
+    activeDoorFlowAction = false;
+    changed = true;
+  }
+
+  if (staleMobileSubmit) {
+    window.__doorFlowMobileSubmitting = false;
+    changed = true;
+  }
+
+  if (staleAutoRefresh) {
+    isAutoRefreshing = false;
+    changed = true;
+  }
+
+  if (state.loading && !activeDoorFlowAction && !isAutoRefreshing && msSinceDate(state.lastSyncAt) > DOORFLOW_STUCK_ACTION_RESET_MS) {
+    state.loading = false;
+    changed = true;
+  }
+
+  if (changed) {
+    updateSyncStatus("Reconnect", `Cleared a stale action after ${reason}. Try the button again if needed.`);
+    console.warn("DoorFlow cleared stale action state:", reason);
+  }
+
+  return changed;
 }
 
 function shouldReconnectRealtimeAfterIdle() {
@@ -519,7 +568,11 @@ async function ensureFreshAuthSession(reason = "session") {
   const expiresSoon = expiresAtMs && expiresAtMs - Date.now() < DOORFLOW_SESSION_REFRESH_WINDOW_MS;
 
   if (expiresSoon) {
-    const refreshed = await db.auth.refreshSession();
+    const refreshed = await withDoorFlowTimeout(
+      db.auth.refreshSession(),
+      "Refreshing DoorFlow session",
+      10000
+    );
     if (refreshed.error) throw refreshed.error;
     session = refreshed.data.session || session;
   }
@@ -564,6 +617,8 @@ async function verifyActionSessionWithServer() {
 }
 
 async function prepareDatabaseAction(label = "Database action") {
+  clearStuckActionState(`starting ${label}`);
+
   if (navigator.onLine === false) {
     throw new Error("This device appears offline. Reconnect Wi-Fi/cellular, then try again.");
   }
@@ -585,6 +640,8 @@ async function prepareDatabaseAction(label = "Database action") {
 }
 
 async function refreshLiveDataSilently(reason = "auto", options = {}) {
+  clearStuckActionState(`refresh:${reason}`);
+
   if (shouldSkipAutoRefresh(options)) {
     schedulePendingSync(reason);
     return;
@@ -723,13 +780,15 @@ function scheduleResumeRecovery(reason = "resume", delayMs = 650) {
 async function recoverFromIdle(reason = "resume") {
   if (!auth.currentUser || document.hidden || isResumeRecovering) return;
 
+  const clearedStaleState = clearStuckActionState(reason);
+
   if (state.modal || activeDoorFlowAction || window.__doorFlowMobileSubmitting || hasUnsavedMobileManagerDraft()) {
     schedulePendingSync(reason);
     return;
   }
 
   const msSinceSync = msSinceDate(state.lastSyncAt);
-  const shouldRefresh = state.pendingSync || msSinceSync > 15000 || reason === "online";
+  const shouldRefresh = clearedStaleState || state.pendingSync || msSinceSync > 15000 || reason === "online";
 
   if (!shouldRefresh && !shouldReconnectRealtimeAfterIdle() && !isWakeRecoveryReason(reason)) {
     return;
@@ -780,6 +839,10 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+window.addEventListener("pagehide", () => {
+  lastHiddenAt = Date.now();
+});
+
 window.addEventListener("focus", () => {
   if (auth.currentUser) {
     scheduleResumeRecovery("focus", 500);
@@ -802,6 +865,18 @@ window.addEventListener("online", () => {
 window.addEventListener("offline", () => {
   updateSyncStatus("Offline", "Device appears offline. Live updates are paused.");
   if (auth.currentUser) render();
+});
+
+window.addEventListener("unhandledrejection", event => {
+  const error = event.reason;
+  if (!auth.currentUser) return;
+
+  state.loading = false;
+  activeDoorFlowAction = false;
+  window.__doorFlowMobileSubmitting = false;
+  updateSyncStatus("Action failed", error?.message || "A DoorFlow action failed. Try again or tap Refresh Data.");
+  state.error = error?.message || "A DoorFlow action failed. Try again or tap Refresh Data.";
+  render();
 });
 
 /* AUTH */
@@ -940,17 +1015,26 @@ async function login(event) {
     return;
   }
 
-  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  try {
+    const { data, error } = await withDoorFlowTimeout(
+      db.auth.signInWithPassword({ email, password }),
+      "Logging in",
+      15000
+    );
 
-  if (error) {
-    state.error = error.message;
+    if (error) {
+      state.error = error.message;
+      render();
+      return;
+    }
+
+    auth.session = data.session;
+    await loadStaffProfile(data.user);
+    await bootDatabase();
+  } catch (error) {
+    state.error = error?.message || "Login failed. Check connection and try again.";
     render();
-    return;
   }
-
-  auth.session = data.session;
-  await loadStaffProfile(data.user);
-  await bootDatabase();
 }
 
 async function logout() {
@@ -1160,34 +1244,55 @@ async function loadDataForDate(dateString) {
     state.activeDay = dayNameFromDate(dateString);
     saveActiveDate(dateString);
 
-    const serviceDay = await ensureServiceDay(dateString);
-    await ensureGeneralGroup(serviceDay.id);
+    const serviceDay = await withDoorFlowTimeout(
+      ensureServiceDay(dateString),
+      "Loading the active service date",
+      15000
+    );
 
-    const groupsResult = await db
-      .from("groups")
-      .select("*")
-      .eq("service_day_id", serviceDay.id)
-      .order("created_at", { ascending:false });
+    await withDoorFlowTimeout(
+      ensureGeneralGroup(serviceDay.id),
+      "Loading the General Guest List",
+      15000
+    );
+
+    const groupsResult = await withDoorFlowTimeout(
+      db
+        .from("groups")
+        .select("*")
+        .eq("service_day_id", serviceDay.id)
+        .order("created_at", { ascending:false }),
+      "Loading party/group lists",
+      15000
+    );
 
     state.groups = must(groupsResult.data, groupsResult.error) || [];
 
     const groupIds = state.groups.map(group => group.id);
 
     if (groupIds.length) {
-      const guestsResult = await db
-        .from("guests")
-        .select("*")
-        .in("group_id", groupIds)
-        .order("last_name", { ascending:true });
+      const guestsResult = await withDoorFlowTimeout(
+        db
+          .from("guests")
+          .select("*")
+          .in("group_id", groupIds)
+          .order("last_name", { ascending:true }),
+        "Loading guest names",
+        15000
+      );
 
       state.guests = must(guestsResult.data, guestsResult.error) || [];
 
-      const logsResult = await db
-        .from("check_in_logs")
-        .select("*")
-        .in("group_id", groupIds)
-        .order("created_at", { ascending:false })
-        .limit(300);
+      const logsResult = await withDoorFlowTimeout(
+        db
+          .from("check_in_logs")
+          .select("*")
+          .in("group_id", groupIds)
+          .order("created_at", { ascending:false })
+          .limit(300),
+        "Loading check-in history",
+        15000
+      );
 
       state.logs = must(logsResult.data, logsResult.error) || [];
     } else {
@@ -1195,11 +1300,15 @@ async function loadDataForDate(dateString) {
       state.logs = [];
     }
 
-    const notesResult = await db
-      .from("shift_notes")
-      .select("*")
-      .eq("service_day_id", serviceDay.id)
-      .order("created_at", { ascending:false });
+    const notesResult = await withDoorFlowTimeout(
+      db
+        .from("shift_notes")
+        .select("*")
+        .eq("service_day_id", serviceDay.id)
+        .order("created_at", { ascending:false }),
+      "Loading shift notes",
+      15000
+    );
 
     state.shiftNotes = must(notesResult.data, notesResult.error) || [];
 
@@ -1593,10 +1702,14 @@ function lateAddBadge(guest) {
 async function loadStaffProfilesForAdmin() {
   if (!auth.currentUser || auth.currentUser.role !== "admin") return;
 
-  const result = await db
-    .from("staff_profiles")
-    .select("*")
-    .order("full_name", { ascending:true });
+  const result = await withDoorFlowTimeout(
+    db
+      .from("staff_profiles")
+      .select("*")
+      .order("full_name", { ascending:true }),
+    "Loading staff profiles",
+    15000
+  );
 
   if (result.error) {
     state.error = result.error.message;
@@ -1624,18 +1737,18 @@ async function updateStaffProfile(event) {
     return;
   }
 
-  await prepareDatabaseAction("Update staff profile");
+  await runDb("Update staff profile", async () => runCriticalAction("Updating staff profile...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("staff_profiles").update(payload).eq("id", id),
+      "Updating staff profile",
+      15000
+    );
 
-  const result = await db.from("staff_profiles").update(payload).eq("id", id);
-
-  if (result.error) {
-    state.error = result.error.message;
+    must(result.data, result.error);
+    await loadStaffProfilesForAdmin();
+    state.lastSyncAt = new Date();
     render();
-    return;
-  }
-
-  await loadStaffProfilesForAdmin();
-  render();
+  }));
 }
 
 async function refreshStaffProfiles() {
@@ -1726,7 +1839,7 @@ async function checkInOneGuest(id) {
   const user = currentUser();
   const nowIso = new Date().toISOString();
 
-  await runDb("Check in", async () => {
+  await runDb("Check in", async () => runCriticalAction("Checking in guest...", async () => {
     const updateResult = await withDoorFlowTimeout(
       db
         .from("guests")
@@ -1759,9 +1872,11 @@ async function checkInOneGuest(id) {
     guest.last_checked_in_at = nowIso;
     guest.last_checked_in_by_name = user.name;
     guest.last_door_location = state.doorLocation;
+    state.lastSyncAt = new Date();
 
     render();
-  });
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function undoOneGuest(id) {
@@ -1776,7 +1891,7 @@ async function undoOneGuest(id) {
   const newCount = checked - 1;
   const user = currentUser();
 
-  await runDb("Undo check-in", async () => {
+  await runDb("Undo check-in", async () => runCriticalAction("Undoing check-in...", async () => {
     const updateResult = await withDoorFlowTimeout(
       db
         .from("guests")
@@ -1806,8 +1921,10 @@ async function undoOneGuest(id) {
     must(logResult.data, logResult.error);
 
     guest.checked_in_count = newCount;
+    state.lastSyncAt = new Date();
     render();
-  });
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function toggleGuest(id) {
@@ -1933,15 +2050,23 @@ async function deleteGroup(id) {
 
   if (!confirm(`Delete "${group.name}" and all names under it?`)) return;
 
-  await runDb("Delete group", async () => {
-    const result = await db.from("groups").delete().eq("id", id);
+  await runDb("Delete group", async () => runCriticalAction("Deleting party/group...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("groups").delete().eq("id", id),
+      "Deleting party/group",
+      15000
+    );
     must(result.data, result.error);
 
+    state.groups = state.groups.filter(item => item.id !== id);
+    state.guests = state.guests.filter(item => item.group_id !== id);
     state.selectedGroupId = specificGroups()[0]?.id || null;
     state.currentMode = "GENERAL";
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function createGuest(event) {
@@ -1951,33 +2076,10 @@ async function createGuest(event) {
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
 
-  await prepareDatabaseAction("Create guest");
-
-  let group = null;
-
-  try {
-    if (target === "general") {
-      group = await getGeneralGroupForActiveDate();
-    } else if (target === "selected") {
-      group = selectedGroup();
-    } else if (target.startsWith("group:")) {
-      const groupId = target.replace("group:", "");
-      group = state.groups.find(item => item.id === groupId) || null;
-    }
-  } catch (error) {
-    alert(error?.message || "DoorFlow could not find the selected list. Use Refresh Data and try again.");
-    return;
-  }
-
-  if (!group) {
-    alert(target === "general" ? "DoorFlow could not find the General Guest List for this date. Tap Refresh Data and try again." : "Select or create a group first.");
-    return;
-  }
-
   const isLateAddEntry = form.get("is_late_add") === "on";
 
   const payload = {
-    group_id:group.id,
+    group_id:null,
     first_name:String(form.get("first_name") || "").trim(),
     last_name:String(form.get("last_name") || "").trim(),
     guest_type:String(form.get("guest_type") || "Guest"),
@@ -2008,6 +2110,23 @@ async function createGuest(event) {
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
   await runDb("Create guest", async () => runCriticalAction("Adding guest...", async () => {
+    let group = null;
+
+    if (target === "general") {
+      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+    } else if (target === "selected") {
+      group = selectedGroup();
+    } else if (target.startsWith("group:")) {
+      const groupId = target.replace("group:", "");
+      group = state.groups.find(item => item.id === groupId) || null;
+    }
+
+    if (!group) {
+      throw new Error(target === "general" ? "DoorFlow could not find the General Guest List for this date. Tap Refresh Data and try again." : "Select or create a group first.");
+    }
+
+    payload.group_id = group.id;
+
     const result = await withDoorFlowTimeout(
       db.from("guests").insert(payload).select("*").limit(1),
       "Adding guest",
@@ -2191,11 +2310,11 @@ async function mobileQuickAddGuest() {
   let group = null;
 
   try {
-    await prepareDatabaseAction("Mobile quick add guest");
-
     window.__doorFlowMobileSubmitting = true;
     activeDoorFlowAction = true;
+    lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Adding guest...", "info");
+    await prepareDatabaseAction("Mobile quick add guest");
 
     if (target === "general") {
       group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
@@ -2289,11 +2408,11 @@ async function mobileQuickCreateGroup() {
   }
 
   try {
-    await prepareDatabaseAction("Mobile create party/group");
-
     window.__doorFlowMobileSubmitting = true;
     activeDoorFlowAction = true;
+    lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Creating party/group...", "info");
+    await prepareDatabaseAction("Mobile create party/group");
 
     const serviceDay = state.serviceDay?.id
       ? state.serviceDay
@@ -2361,11 +2480,11 @@ async function mobileAddShiftNote() {
   }
 
   try {
-    await prepareDatabaseAction("Mobile shift note");
-
     window.__doorFlowMobileSubmitting = true;
     activeDoorFlowAction = true;
+    lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Saving shift note...", "info");
+    await prepareDatabaseAction("Mobile shift note");
 
     const serviceDay = state.serviceDay?.id
       ? state.serviceDay
@@ -2444,22 +2563,8 @@ async function createQuickManagerGuest(event) {
     return;
   }
 
-  let group = null;
-
-  if (target === "general") {
-    group = await getGeneralGroupForActiveDate();
-  } else if (target.startsWith("group:")) {
-    const groupId = target.replace("group:", "");
-    group = state.groups.find(item => item.id === groupId) || null;
-  }
-
-  if (!group) {
-    alert("Select or create a list/group first.");
-    return;
-  }
-
   const payload = {
-    group_id:group.id,
+    group_id:null,
     first_name:split.first_name,
     last_name:split.last_name,
     guest_type:"Guest",
@@ -2480,6 +2585,21 @@ async function createQuickManagerGuest(event) {
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
   await runDb("Quick add guest", async () => runCriticalAction("Adding guest...", async () => {
+    let group = null;
+
+    if (target === "general") {
+      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+    } else if (target.startsWith("group:")) {
+      const groupId = target.replace("group:", "");
+      group = state.groups.find(item => item.id === groupId) || null;
+    }
+
+    if (!group) {
+      throw new Error("Select or create a list/group first.");
+    }
+
+    payload.group_id = group.id;
+
     const result = await withDoorFlowTimeout(
       db.from("guests").insert(payload).select("*").limit(1),
       "Adding guest",
@@ -2789,26 +2909,41 @@ async function updateGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name, guest.id)) return;
 
-  await runDb("Update guest", async () => {
-    const result = await db.from("guests").update(payload).eq("id", guest.id);
-    must(result.data, result.error);
+  await runDb("Update guest", async () => runCriticalAction("Updating guest...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").update(payload).eq("id", guest.id).select("*").limit(1),
+      "Updating guest",
+      15000
+    );
+
+    const updatedGuest = firstRow(must(result.data, result.error)) || { ...guest, ...payload };
 
     state.modal = null;
     state.editingGuestId = null;
+    state.guests = state.guests.map(item => item.id === guest.id ? updatedGuest : item);
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function deleteGuest(id) {
   if (!requirePerm("manage")) return;
   if (!confirm("Delete this name from the list?")) return;
 
-  await runDb("Delete guest", async () => {
-    const result = await db.from("guests").delete().eq("id", id);
+  await runDb("Delete guest", async () => runCriticalAction("Deleting guest...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").delete().eq("id", id),
+      "Deleting guest",
+      15000
+    );
     must(result.data, result.error);
-    await loadDataForDate(state.activeDate);
-  });
+    state.guests = state.guests.filter(item => item.id !== id);
+    state.lastSyncAt = new Date();
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function clearGeneralGuestList() {
@@ -2830,14 +2965,21 @@ async function clearGeneralGuestList() {
 
   if (!confirm(`Clear ${count} name${count === 1 ? "" : "s"} from the General Guest List for ${state.activeDate}?\n\nBottle service and party/group names will NOT be deleted.`)) return;
 
-  await runDb("Clear General Guest List", async () => {
-    const result = await db.from("guests").delete().eq("group_id", group.id);
+  await runDb("Clear General Guest List", async () => runCriticalAction("Clearing General Guest List...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").delete().eq("group_id", group.id),
+      "Clearing General Guest List",
+      15000
+    );
     must(result.data, result.error);
 
+    state.guests = state.guests.filter(item => item.group_id !== group.id);
     state.importMessage = `Cleared ${count} name${count === 1 ? "" : "s"} from General Guest List.`;
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 async function clearGroupNames(id) {
@@ -2864,14 +3006,21 @@ async function clearGroupNames(id) {
 
   if (!confirm(`Clear ${count} name${count === 1 ? "" : "s"} from "${group.name}"?\n\nThis will keep the party/group itself, but remove every name under it. This cannot be undone.`)) return;
 
-  await runDb("Clear group names", async () => {
-    const result = await db.from("guests").delete().eq("group_id", group.id);
+  await runDb("Clear group names", async () => runCriticalAction("Clearing group names...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").delete().eq("group_id", group.id),
+      "Clearing group names",
+      15000
+    );
     must(result.data, result.error);
 
+    state.guests = state.guests.filter(item => item.group_id !== group.id);
     state.importMessage = `Cleared ${count} name${count === 1 ? "" : "s"} from ${group.name}.`;
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 /* BULK AND EXCEL */
@@ -2922,17 +3071,6 @@ async function bulkAddNames(event) {
   const form = new FormData(event.target);
   const target = String(form.get("target") || "general");
 
-  let group = null;
-
-  if (target === "general") {
-    group = await getGeneralGroupForActiveDate();
-  } else if (target === "selected") {
-    group = selectedGroup();
-  } else if (target.startsWith("group:")) {
-    const groupId = target.replace("group:", "");
-    group = state.groups.find(item => item.id === groupId) || null;
-  }
-
   const defaultType = String(form.get("defaultType") || "Guest");
   const bulkText = String(form.get("bulkNames") || "").trim();
 
@@ -2941,15 +3079,10 @@ async function bulkAddNames(event) {
     return;
   }
 
-  if (!group) {
-    alert("Select or create a group first.");
-    return;
-  }
-
   const rows = parseBulkNames(bulkText)
     .filter(item => item.first_name && item.last_name)
     .map(item => ({
-      group_id:group.id,
+      group_id:null,
       first_name:item.first_name,
       last_name:item.last_name,
       guest_type:item.guest_type && item.guest_type !== "Guest" ? item.guest_type : defaultType,
@@ -2971,17 +3104,40 @@ async function bulkAddNames(event) {
 
   if (!confirmDuplicateRows(rows, "Bulk paste")) return;
 
-  await runDb("Bulk add names", async () => {
-    const result = await db.from("guests").insert(rows);
+  await runDb("Bulk add names", async () => runCriticalAction("Adding pasted names...", async () => {
+    let group = null;
+
+    if (target === "general") {
+      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+    } else if (target === "selected") {
+      group = selectedGroup();
+    } else if (target.startsWith("group:")) {
+      const groupId = target.replace("group:", "");
+      group = state.groups.find(item => item.id === groupId) || null;
+    }
+
+    if (!group) {
+      throw new Error("Select or create a group first.");
+    }
+
+    const rowsForInsert = rows.map(row => ({ ...row, group_id:group.id }));
+    const result = await withDoorFlowTimeout(
+      db.from("guests").insert(rowsForInsert).select("*"),
+      "Adding pasted names",
+      18000
+    );
     must(result.data, result.error);
 
     state.selectedGroupId = group.id;
     state.currentMode = target === "general" ? "GENERAL" : "GROUP";
     state.importMessage = `Bulk added ${rows.length} name${rows.length === 1 ? "" : "s"} into ${group.name}.`;
     state.modal = null;
+    state.guests = [...state.guests, ...((result.data && result.data.length) ? result.data : rowsForInsert)];
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function normalizeHeader(value) {
@@ -3092,34 +3248,11 @@ function parseCsv(text) {
 async function importRows(rows, targetMode) {
   if (!requirePerm("manage")) return;
 
-  let group = null;
-
-  if (targetMode === "general") {
-    try {
-      group = await getGeneralGroupForActiveDate();
-    } catch (error) {
-      state.importMessage = error?.message || "DoorFlow could not find the General Guest List for this date.";
-      render();
-      return;
-    }
-  } else if (targetMode === "selected") {
-    group = selectedGroup();
-  } else if (targetMode.startsWith("group:")) {
-    const groupId = targetMode.replace("group:", "");
-    group = state.groups.find(item => item.id === groupId) || null;
-  }
-
-  if (!group) {
-    state.importMessage = targetMode === "general" ? "DoorFlow could not find the General Guest List for this date. Tap Refresh Data and try again." : "Select or create a group first.";
-    render();
-    return;
-  }
-
   const valid = [];
   const skipped = [];
 
   rows.forEach((row, index) => {
-    const guest = rowToGuest(row, group.id);
+    const guest = rowToGuest(row, null);
 
     if (!guest.first_name || !guest.last_name) {
       skipped.push(index + 2);
@@ -3137,15 +3270,38 @@ async function importRows(rows, targetMode) {
 
   if (!confirmDuplicateRows(valid, "Excel/CSV import")) return;
 
-  await runDb("Import file", async () => {
-    const result = await db.from("guests").insert(valid);
+  await runDb("Import file", async () => runCriticalAction("Importing names...", async () => {
+    let group = null;
+
+    if (targetMode === "general") {
+      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+    } else if (targetMode === "selected") {
+      group = selectedGroup();
+    } else if (targetMode.startsWith("group:")) {
+      const groupId = targetMode.replace("group:", "");
+      group = state.groups.find(item => item.id === groupId) || null;
+    }
+
+    if (!group) {
+      throw new Error(targetMode === "general" ? "DoorFlow could not find the General Guest List for this date. Tap Refresh Data and try again." : "Select or create a group first.");
+    }
+
+    const validForInsert = valid.map(guest => ({ ...guest, group_id:group.id }));
+    const result = await withDoorFlowTimeout(
+      db.from("guests").insert(validForInsert).select("*"),
+      "Importing names",
+      18000
+    );
     must(result.data, result.error);
 
     state.selectedGroupId = group.id;
     state.importMessage = `Imported ${valid.length} name${valid.length === 1 ? "" : "s"} into ${group.name}. ${skipped.length ? `Skipped ${skipped.length} row${skipped.length === 1 ? "" : "s"}.` : ""}`;
+    state.guests = [...state.guests, ...((result.data && result.data.length) ? result.data : validForInsert)];
+    state.lastSyncAt = new Date();
 
-    await loadDataForDate(state.activeDate);
-  });
+    render();
+    queueBackgroundRefreshAfterWrite();
+  }));
 }
 
 function handleFileUpload(event) {

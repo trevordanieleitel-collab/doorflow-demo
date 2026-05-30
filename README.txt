@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v14 - Mobile Shift Notes + Emoji Keyboard
+DoorFlow Launch Stability v15 - Idle Button Recovery
 
 Purpose:
-This package builds on the v13 idle recovery fix. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, and backup refresh system, and adds manager shift note creation from phones.
+This package builds on the v14 mobile shift notes update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, and emoji keyboard while hardening button actions after idle/PWA wake.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -26,7 +26,12 @@ Changes:
 - Adds an emoji keyboard to manager shift note add/edit fields.
 - Makes shift note add/edit/delete update the local screen immediately and refresh in the background.
 - Protects mobile shift note drafts from idle refresh/re-render events.
-- Service worker cache bumped to v22.
+- Clears stale saving/loading/mobile-submit flags after idle/wake so buttons do not stay blocked.
+- Marks Check In, Undo, Create Party, Add Guest, Quick Add, edits, deletes, bulk paste, imports, and staff saves as protected active actions.
+- Moves General Guest List lookup for desktop Add Guest, desktop Quick Add, bulk paste, and imports inside timeout-protected save flows.
+- Adds timeouts around the main live-data refresh queries so a hung refresh cannot leave the app in a stale loading state.
+- Adds pagehide and unhandled action failure recovery so failed async handlers show a clear message.
+- Service worker cache bumped to v23.
 
 Deployment:
 1. Upload/replace all files in GitHub.
