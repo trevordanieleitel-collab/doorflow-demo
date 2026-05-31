@@ -69,8 +69,8 @@ let auth = {
   profile:null
 };
 
-// Keep the selected service date through browser/PWA refreshes.
-// Also avoid UTC rollover issues that can make the app jump to tomorrow at night.
+// Clear legacy persisted service dates. A browser/PWA reload should start on
+// the device's current local calendar date, not yesterday's selected event date.
 const DOORFLOW_ACTIVE_DATE_KEY = "doorflow_active_date_v1";
 const initialActiveDate = getInitialActiveDate();
 
@@ -130,33 +130,42 @@ function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
+function getLocalTodayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function localISOFromDate(date) {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0,10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function todayISO() {
-  return localISOFromDate(new Date());
+  return getLocalTodayDateString();
 }
 
 function getInitialActiveDate() {
   try {
-    const storedDate = localStorage.getItem(DOORFLOW_ACTIVE_DATE_KEY);
-    if (isValidISODate(storedDate)) return storedDate;
+    localStorage.removeItem(DOORFLOW_ACTIVE_DATE_KEY);
   } catch (error) {
-    console.warn("Could not read saved DoorFlow date:", error);
+    console.warn("Could not clear saved DoorFlow date:", error);
   }
 
-  return todayISO();
+  return getLocalTodayDateString();
 }
 
 function saveActiveDate(dateString) {
   if (!isValidISODate(dateString)) return;
 
   try {
-    localStorage.setItem(DOORFLOW_ACTIVE_DATE_KEY, dateString);
+    localStorage.removeItem(DOORFLOW_ACTIVE_DATE_KEY);
   } catch (error) {
-    console.warn("Could not save DoorFlow date:", error);
+    console.warn("Could not clear saved DoorFlow date:", error);
   }
 }
 
@@ -1401,7 +1410,7 @@ async function getGeneralGroupForActiveDate() {
   let group = generalGroup();
   if (group) return group;
 
-  const serviceDay = state.serviceDay?.id
+  const serviceDay = state.serviceDay?.service_date === state.activeDate
     ? state.serviceDay
     : await ensureServiceDay(state.activeDate);
 
@@ -1771,6 +1780,10 @@ async function setActiveDate(date) {
   await loadDataForDate(date);
 }
 
+async function useTodayDate() {
+  await setActiveDate(getLocalTodayDateString());
+}
+
 function selectGroup(id) {
   state.selectedGroupId = id;
   state.currentMode = "GROUP";
@@ -1943,7 +1956,7 @@ async function createGroup(event) {
   if (!requirePerm("manage")) return;
 
   const form = new FormData(event.target);
-  const date = String(form.get("date") || state.activeDate);
+  const date = state.activeDate;
 
   const payload = {
     service_day_id:null,
@@ -2414,7 +2427,7 @@ async function mobileQuickCreateGroup() {
     showMobileManagerNotice("Creating party/group...", "info");
     await prepareDatabaseAction("Mobile create party/group");
 
-    const serviceDay = state.serviceDay?.id
+    const serviceDay = state.serviceDay?.service_date === state.activeDate
       ? state.serviceDay
       : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
 
@@ -2486,7 +2499,7 @@ async function mobileAddShiftNote() {
     showMobileManagerNotice("Saving shift note...", "info");
     await prepareDatabaseAction("Mobile shift note");
 
-    const serviceDay = state.serviceDay?.id
+    const serviceDay = state.serviceDay?.service_date === state.activeDate
       ? state.serviceDay
       : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
 
@@ -2658,6 +2671,8 @@ function renderMobileManagerView() {
         </div>
       </section>
 
+      ${renderMobileManagerServiceDateCard()}
+
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
           <div>
@@ -2685,7 +2700,7 @@ function renderMobileManagerView() {
             <label>Add To</label>
             <select id="mobileQuickTarget">
               <option value="general">General Guest List</option>
-              ${specificGroups().map(group => `<option value="group:${group.id}" ${group.id === selectedGroup()?.id ? "selected" : ""}>${esc(group.name)}${group.host_name ? ` — ${esc(group.host_name)}` : ""}</option>`).join("")}
+              ${specificGroups().map(group => `<option value="group:${group.id}">${esc(group.name)}${group.host_name ? ` — ${esc(group.host_name)}` : ""}</option>`).join("")}
             </select>
           </div>
 
@@ -3484,15 +3499,10 @@ async function createShiftNote(event) {
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
-  if (!state.serviceDay?.id) {
-    alert("Service day is not loaded yet.");
-    return;
-  }
-
   const form = new FormData(event.target);
 
   const payload = {
-    service_day_id:state.serviceDay.id,
+    service_day_id:null,
     category:String(form.get("category") || "General Note"),
     priority:String(form.get("priority") || "Normal"),
     note_text:String(form.get("note_text") || "").trim(),
@@ -3506,6 +3516,12 @@ async function createShiftNote(event) {
   }
 
   await runDb("Create shift note", async () => runCriticalAction("Adding shift note...", async () => {
+    const serviceDay = state.serviceDay?.service_date === state.activeDate
+      ? state.serviceDay
+      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
+
+    payload.service_day_id = serviceDay.id;
+
     const result = await withDoorFlowTimeout(
       db.from("shift_notes").insert(payload).select("*").limit(1),
       "Adding shift note",
@@ -3604,7 +3620,7 @@ function renderShiftNotesPanel(showComposer = true) {
   return `
     <div class="card">
       <h2>Manager / Shift Notes</h2>
-      <p class="subtle">Use this for live notes that door staff and managers need for the night. Examples: cover charge, VIP instructions, problem guests, staffing notes, and end-of-night notes.</p>
+      <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Use this for live notes that door staff and managers need for the night.</p>
 
       ${showComposer && perms()?.manage ? `
         <form onsubmit="createShiftNote(event)" class="form" style="margin-bottom:16px;">
@@ -4313,6 +4329,49 @@ function renderDateBar() {
   `;
 }
 
+function renderManagerServiceDateCard() {
+  return `
+    <div class="card">
+      <h2>Service Date</h2>
+      <p class="subtle">Adding to: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
+
+      <div class="form two">
+        <div>
+          <label>Service Date</label>
+          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+        </div>
+
+        <div>
+          <label>Quick Action</label>
+          <button class="btn secondary" type="button" onclick="useTodayDate()">Use Today</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderMobileManagerServiceDateCard() {
+  return `
+    <section class="mobile-manager-card">
+      <div class="mobile-manager-title-row">
+        <div>
+          <h2>Service Date</h2>
+          <p>Adding to ${esc(state.activeDate)}</p>
+        </div>
+      </div>
+
+      <div class="mobile-manager-form">
+        <div>
+          <label>Service Date</label>
+          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+        </div>
+
+        <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
+      </div>
+    </section>
+  `;
+}
+
 function renderStats() {
   const stats = dayStats();
 
@@ -4531,7 +4590,7 @@ function renderMainWorkspace(showManagement = false) {
 
           <div class="card">
             <h2>Upload Names from Excel / CSV</h2>
-            <p class="subtle">Recommended columns: First Name, Last Name, Guest Type, Party Size or Plus Count, Notes.</p>
+            <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Recommended columns: First Name, Last Name, Guest Type, Party Size or Plus Count, Notes.</p>
 
             ${state.importMessage ? `<div class="notice ${state.importMessage.startsWith("Imported") || state.importMessage.startsWith("Bulk") || state.importMessage.startsWith("Cleared") ? "greenbox" : "redbox"}">${esc(state.importMessage)}</div>` : ""}
 
@@ -4540,7 +4599,7 @@ function renderMainWorkspace(showManagement = false) {
                 <label>Upload Target</label>
                 <select id="uploadTarget">
                   <option value="general">General Guest List / Individual Guest</option>
-                  ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === selectedGroup()?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
+                  ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
                 </select>
               </div>
 
@@ -4703,6 +4762,8 @@ function renderManagement() {
   return `
     ${renderMobileManagerView()}
     <div class="stack manage-desktop-view">
+      ${renderManagerServiceDateCard()}
+
       <div class="card">
         <h2>Management Controls</h2>
         <p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p>
@@ -4918,6 +4979,7 @@ function renderGroupModal() {
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
       <div class="modal">
         <h2>${isEdit ? "Edit Party / Group" : "Create Party / Group"}</h2>
+        <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong></p>
 
         <form onsubmit="${isEdit ? "updateGroup(event)" : "createGroup(event)"}" class="form two">
           <div>
@@ -4933,8 +4995,8 @@ function renderGroupModal() {
           </div>
 
           <div>
-            <label>Date</label>
-            <input name="date" type="date" value="${esc(state.activeDate)}" />
+            <label>Service Date</label>
+            <input name="date" type="date" value="${esc(state.activeDate)}" readonly />
           </div>
 
           <div>
@@ -4986,6 +5048,7 @@ function renderGuestModal() {
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
       <div class="modal">
         <h2>${isEdit ? "Edit Name" : "Add Name"}</h2>
+        <p class="subtle">${isEdit ? "Editing this name on" : "Adding to"}: <strong>${esc(state.activeDate)}</strong></p>
 
         <form onsubmit="${isEdit ? "updateGuest(event)" : "createGuest(event)"}" class="form two">
           ${!isEdit ? `
@@ -4993,7 +5056,7 @@ function renderGuestModal() {
               <label>Add To</label>
               <select name="target">
                 <option value="general">General Guest List / Individual Guest</option>
-                ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === selectedGroup()?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
+                ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
           ` : ""}
@@ -5065,13 +5128,11 @@ function renderGuestModal() {
 }
 
 function renderBulkModal() {
-  const group = selectedGroup();
-
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
       <div class="modal">
         <h2>Bulk Paste Names</h2>
-        <p class="subtle">Paste one name per line. Supports plus counts like Sarah Johnson +2.</p>
+        <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Paste one name per line. Supports plus counts like Sarah Johnson +2.</p>
 
         <div class="notice warn">
           <strong>Examples:</strong><br>
@@ -5086,7 +5147,7 @@ function renderBulkModal() {
               <label>Add To</label>
               <select name="target">
                 <option value="general">General Guest List / Individual Guest</option>
-                ${specificGroups().map(item => `<option value="group:${item.id}" ${item.id === group?.id ? "selected" : ""}>${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
+                ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
 
@@ -5196,6 +5257,7 @@ Object.assign(window, {
   switchView,
   setActiveDay,
   setActiveDate,
+  useTodayDate,
   selectGroup,
   setMode,
   setSortMode,

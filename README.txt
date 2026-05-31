@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v15 - Idle Button Recovery
+DoorFlow Launch Stability v16 - Manager Date Control
 
 Purpose:
-This package builds on the v14 mobile shift notes update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, and emoji keyboard while hardening button actions after idle/PWA wake.
+This package builds on the v15 idle button recovery update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, and idle button fixes while making manager date selection clearer and safer.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -13,7 +13,7 @@ Changes:
 - Adds database request timeouts so stuck requests show an error instead of hanging.
 - Adds safer no-store fetch handling for Supabase REST/auth requests.
 - Keeps booth/location dropdown options: POD1-POD9, DJ Pod, Fulton St. Corner.
-- Browser/PWA refresh now keeps the selected service date instead of resetting.
+- Browser/PWA refresh now resets to the device's current local calendar date.
 - Current date now uses the device's local date instead of UTC, preventing late-night rollover to the next day.
 - Preserves the current DoorFlow screen during Supabase token refresh events instead of jumping back to Door/Reports.
 - Refreshes the Supabase auth session before database loads when a tablet wakes from idle.
@@ -31,7 +31,13 @@ Changes:
 - Moves General Guest List lookup for desktop Add Guest, desktop Quick Add, bulk paste, and imports inside timeout-protected save flows.
 - Adds timeouts around the main live-data refresh queries so a hung refresh cannot leave the app in a stale loading state.
 - Adds pagehide and unhandled action failure recovery so failed async handlers show a clear message.
-- Service worker cache bumped to v23.
+- Browser/PWA load now starts on the device's current local calendar date instead of a saved previous service date.
+- Adds a clear Service Date card to the desktop manager portal.
+- Adds a Service Date selector and Use Today button near the top of Mobile Manager Mode.
+- Defaults Add Individual Guest, Mobile Quick Add, Bulk Paste, and Excel/CSV upload targets to General Guest List.
+- Shows "Adding to" service-date text in manager add/import/note flows.
+- Verifies service-day helpers match the currently selected date before saving groups, guests, and shift notes.
+- Service worker cache bumped to v24.
 
 Deployment:
 1. Upload/replace all files in GitHub.

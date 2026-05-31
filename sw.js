@@ -1,7 +1,7 @@
-// DoorFlow PWA service worker - launch stability/idle recovery fix v23
+// DoorFlow PWA service worker - manager date/defaults fix v24
 // DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v23";
+const CACHE_NAME = "doorflow-cache-v24";
 const APP_SHELL = [
   "/",
   "/index.html",
