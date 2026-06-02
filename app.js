@@ -6,6 +6,13 @@ const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
 const DOORFLOW_ACTION_SESSION_CHECK_MS = 15000;
 const DOORFLOW_WAKE_ACTION_WINDOW_MS = 10000;
 const DOORFLOW_STUCK_ACTION_RESET_MS = 25000;
+const BOB_BRAND = {
+  appName:"The B.O.B. DoorFlow",
+  shortName:"DoorFlow",
+  logoSrc:"/branding/bob-logo.png",
+  darkLogoSrc:"/branding/bob-logo-dark.png",
+  fallback:"The B.O.B."
+};
 
 function doorFlowFetch(input, init = {}) {
   const controller = new AbortController();
@@ -108,7 +115,8 @@ let state = {
   lastResumeAt:null,
   lastRealtimeAt:null,
   lastDataHash:"",
-  pendingSync:false
+  pendingSync:false,
+  actionBusy:{}
 };
 
 let realtimeChannel = null;
@@ -125,6 +133,8 @@ let isBootingDatabase = false;
 let lastUserInputAt = 0;
 let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
+let visibleGuestCache = { key:"", rows:[] };
+let visibleGroupCache = { key:"", rows:[] };
 
 function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -398,6 +408,175 @@ function newestMatchingRow(rows, predicate) {
   return rows.find(predicate) || null;
 }
 
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeNullableText(value) {
+  const text = normalizeText(value);
+  return text || null;
+}
+
+function normalizeNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeBoolean(value) {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function normalizeServiceDay(row = {}) {
+  row = row || {};
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    service_date:normalizeText(row.service_date || state.activeDate),
+    day_name:normalizeText(row.day_name || dayNameFromDate(row.service_date || state.activeDate)),
+    venue_name:normalizeText(row.venue_name || row.venue || "The B.O.B."),
+    status:normalizeText(row.status || "Active")
+  };
+}
+
+function normalizeGroup(row = {}) {
+  row = row || {};
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    service_day_id:normalizeNullableText(row.service_day_id),
+    name:normalizeText(row.name),
+    group_type:normalizeText(row.group_type || "Bottle Service"),
+    host_name:normalizeText(row.host_name),
+    table_location:normalizeText(row.table_location),
+    approved_by:normalizeText(row.approved_by || "Management"),
+    notes:normalizeText(row.notes),
+    status:normalizeText(row.status || "Active"),
+    created_at:normalizeText(row.created_at),
+    updated_at:normalizeText(row.updated_at)
+  };
+}
+
+function normalizeGuest(row = {}) {
+  row = row || {};
+  const totalAllowed = Math.max(1, normalizeNumber(row.total_allowed, 1));
+  const checkedIn = Math.max(0, Math.min(totalAllowed, normalizeNumber(row.checked_in_count, 0)));
+
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    group_id:normalizeNullableText(row.group_id),
+    first_name:normalizeText(row.first_name),
+    last_name:normalizeText(row.last_name),
+    guest_type:normalizeText(row.guest_type || "Guest"),
+    total_allowed:totalAllowed,
+    checked_in_count:checkedIn,
+    notes:normalizeText(row.notes),
+    last_checked_in_at:normalizeNullableText(row.last_checked_in_at),
+    last_checked_in_by_name:normalizeText(row.last_checked_in_by_name),
+    last_door_location:normalizeText(row.last_door_location),
+    added_by_name:normalizeText(row.added_by_name),
+    added_by_user_id:normalizeNullableText(row.added_by_user_id),
+    added_at:normalizeNullableText(row.added_at),
+    is_late_add:normalizeBoolean(row.is_late_add),
+    late_add_approved_by:normalizeNullableText(row.late_add_approved_by),
+    late_add_reason:normalizeNullableText(row.late_add_reason),
+    created_at:normalizeText(row.created_at),
+    updated_at:normalizeText(row.updated_at)
+  };
+}
+
+function normalizeShiftNote(row = {}) {
+  row = row || {};
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    service_day_id:normalizeNullableText(row.service_day_id),
+    category:normalizeText(row.category || "General Note"),
+    priority:normalizeText(row.priority || "Normal"),
+    note_text:normalizeText(row.note_text),
+    created_by_name:normalizeText(row.created_by_name || "Unknown"),
+    created_by_user_id:normalizeNullableText(row.created_by_user_id),
+    created_at:normalizeText(row.created_at),
+    updated_at:normalizeText(row.updated_at)
+  };
+}
+
+function normalizeCheckInLog(row = {}) {
+  row = row || {};
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    guest_id:normalizeNullableText(row.guest_id),
+    group_id:normalizeNullableText(row.group_id),
+    action:normalizeText(row.action),
+    amount:Math.max(0, normalizeNumber(row.amount, 0)),
+    door_location:normalizeText(row.door_location),
+    staff_name:normalizeText(row.staff_name),
+    staff_user_id:normalizeNullableText(row.staff_user_id),
+    created_at:normalizeText(row.created_at)
+  };
+}
+
+function normalizeStaffProfile(row = {}) {
+  row = row || {};
+  return {
+    ...row,
+    id:normalizeText(row.id),
+    user_id:normalizeNullableText(row.user_id),
+    full_name:normalizeText(row.full_name),
+    role:normalizeText(row.role || "door"),
+    active:row.active !== false && row.active !== "false" && row.active !== 0 && row.active !== "0",
+    created_at:normalizeText(row.created_at),
+    updated_at:normalizeText(row.updated_at)
+  };
+}
+
+function normalizeRows(rows, normalizer) {
+  return (Array.isArray(rows) ? rows : []).map(row => normalizer(row));
+}
+
+function emptyGuestForm() {
+  return normalizeGuest({
+    first_name:"",
+    last_name:"",
+    guest_type:"Guest",
+    total_allowed:1,
+    checked_in_count:0,
+    notes:"",
+    is_late_add:false
+  });
+}
+
+function emptyGroupForm() {
+  return normalizeGroup({
+    name:"",
+    group_type:"Bottle Service",
+    host_name:"",
+    table_location:"",
+    approved_by:"Management",
+    notes:"",
+    status:"Active"
+  });
+}
+
+function emptyShiftNoteForm() {
+  return normalizeShiftNote({
+    category:"General Note",
+    priority:"Normal",
+    note_text:"",
+    created_by_name:currentUser()?.name || "Unknown"
+  });
+}
+
+function setActionBusy(key, busy) {
+  if (!key) return;
+  state.actionBusy = { ...(state.actionBusy || {}), [key]:Boolean(busy) };
+}
+
+function isActionBusy(key) {
+  return Boolean(key && state.actionBusy?.[key]);
+}
+
 
 /* AUTO REFRESH / LIVE SYNC */
 
@@ -528,6 +707,32 @@ function buildLiveDataHash(groups, guests, logs, shiftNotes) {
     (guests || []).map(row => compactRowStamp(row, ["id", "group_id", "first_name", "last_name", "guest_type", "total_allowed", "checked_in_count", "is_late_add", "late_add_approved_by", "late_add_reason", "notes", "updated_at", "created_at"])).join("~"),
     (logs || []).map(row => compactRowStamp(row, ["id", "guest_id", "group_id", "action", "amount", "created_at"])).join("~"),
     (shiftNotes || []).map(row => compactRowStamp(row, ["id", "category", "priority", "note_text", "created_at", "updated_at"])).join("~")
+  ].join("||");
+}
+
+function resetDerivedListCaches() {
+  visibleGuestCache = { key:"", rows:[] };
+  visibleGroupCache = { key:"", rows:[] };
+}
+
+function liveGuestListVersion() {
+  return [
+    state.lastDataHash,
+    state.groups.length,
+    state.guests.length,
+    state.logs.length,
+    state.groups.map(row => compactRowStamp(row, ["id", "name", "group_type", "host_name", "table_location", "status", "updated_at", "created_at"])).join("~"),
+    state.guests.map(row => compactRowStamp(row, ["id", "group_id", "first_name", "last_name", "guest_type", "total_allowed", "checked_in_count", "last_checked_in_at", "last_checked_in_by_name", "last_door_location", "is_late_add", "late_add_approved_by", "late_add_reason", "notes", "updated_at", "created_at"])).join("~")
+  ].join("||");
+}
+
+function liveGroupListVersion() {
+  return [
+    state.lastDataHash,
+    state.groups.length,
+    state.guests.length,
+    state.groups.map(row => compactRowStamp(row, ["id", "name", "group_type", "host_name", "table_location", "status", "updated_at", "created_at"])).join("~"),
+    state.guests.map(row => compactRowStamp(row, ["id", "group_id", "total_allowed", "checked_in_count", "updated_at", "created_at"])).join("~")
   ].join("||");
 }
 
@@ -975,7 +1180,9 @@ async function loadStaffProfile(user, options = {}) {
     return;
   }
 
-  if (!data.active) {
+  const profile = normalizeStaffProfile(data);
+
+  if (!profile.active) {
     state.error = "This DoorFlow account is inactive.";
     auth.currentUser = null;
     auth.profile = null;
@@ -983,29 +1190,29 @@ async function loadStaffProfile(user, options = {}) {
     return;
   }
 
-  if (!roles[data.role]) {
-    state.error = `This DoorFlow account has an unknown role: ${data.role || "blank"}.`;
+  if (!roles[profile.role]) {
+    state.error = `This DoorFlow account has an unknown role: ${profile.role || "blank"}.`;
     auth.currentUser = null;
     auth.profile = null;
     render();
     return;
   }
 
-  auth.profile = data;
+  auth.profile = profile;
   auth.currentUser = {
     id:user.id,
     email:user.email,
-    name:data.full_name,
-    role:data.role,
-    active:data.active
+    name:profile.full_name,
+    role:profile.role,
+    active:profile.active
   };
 
   state.error = "";
-  state.view = options.preserveView && viewAllowedForRole(data.role, previousView)
+  state.view = options.preserveView && viewAllowedForRole(profile.role, previousView)
     ? previousView
-    : defaultViewForRole(data.role);
+    : defaultViewForRole(profile.role);
 
-  if (data.role === "admin") {
+  if (profile.role === "admin") {
     await loadStaffProfilesForAdmin();
   }
 
@@ -1253,11 +1460,11 @@ async function loadDataForDate(dateString) {
     state.activeDay = dayNameFromDate(dateString);
     saveActiveDate(dateString);
 
-    const serviceDay = await withDoorFlowTimeout(
+    const serviceDay = normalizeServiceDay(await withDoorFlowTimeout(
       ensureServiceDay(dateString),
       "Loading the active service date",
       15000
-    );
+    ));
 
     await withDoorFlowTimeout(
       ensureGeneralGroup(serviceDay.id),
@@ -1275,9 +1482,11 @@ async function loadDataForDate(dateString) {
       15000
     );
 
-    state.groups = must(groupsResult.data, groupsResult.error) || [];
+    const nextGroups = normalizeRows(must(groupsResult.data, groupsResult.error), normalizeGroup);
 
-    const groupIds = state.groups.map(group => group.id);
+    const groupIds = nextGroups.map(group => group.id);
+    let nextGuests = [];
+    let nextLogs = [];
 
     if (groupIds.length) {
       const guestsResult = await withDoorFlowTimeout(
@@ -1290,7 +1499,7 @@ async function loadDataForDate(dateString) {
         15000
       );
 
-      state.guests = must(guestsResult.data, guestsResult.error) || [];
+      nextGuests = normalizeRows(must(guestsResult.data, guestsResult.error), normalizeGuest);
 
       const logsResult = await withDoorFlowTimeout(
         db
@@ -1303,10 +1512,7 @@ async function loadDataForDate(dateString) {
         15000
       );
 
-      state.logs = must(logsResult.data, logsResult.error) || [];
-    } else {
-      state.guests = [];
-      state.logs = [];
+      nextLogs = normalizeRows(must(logsResult.data, logsResult.error), normalizeCheckInLog);
     }
 
     const notesResult = await withDoorFlowTimeout(
@@ -1319,7 +1525,20 @@ async function loadDataForDate(dateString) {
       15000
     );
 
-    state.shiftNotes = must(notesResult.data, notesResult.error) || [];
+    const nextShiftNotes = normalizeRows(must(notesResult.data, notesResult.error), normalizeShiftNote);
+
+    const newDataHash = buildLiveDataHash(nextGroups, nextGuests, nextLogs, nextShiftNotes);
+    const dataUnchanged = Boolean(state.lastDataHash && state.lastDataHash === newDataHash);
+
+    state.serviceDay = serviceDay;
+
+    if (!dataUnchanged) {
+      state.groups = nextGroups;
+      state.guests = nextGuests;
+      state.logs = nextLogs;
+      state.shiftNotes = nextShiftNotes;
+      resetDerivedListCaches();
+    }
 
     if (!selectedGroup() && specificGroups()[0]) {
       state.selectedGroupId = specificGroups()[0].id;
@@ -1329,8 +1548,6 @@ async function loadDataForDate(dateString) {
       await loadStaffProfilesForAdmin();
     }
 
-    const newDataHash = buildLiveDataHash(state.groups, state.guests, state.logs, state.shiftNotes);
-    const dataUnchanged = Boolean(state.lastDataHash && state.lastDataHash === newDataHash);
     state.lastDataHash = newDataHash;
 
     state.loading = false;
@@ -1345,7 +1562,11 @@ async function loadDataForDate(dateString) {
 
     // Auto-refresh should not repaint the whole app when nothing actually changed.
     // This is what makes phones/tablets feel smoother during live service.
-    if (!activeDoorFlowAction && (!isAutoRefreshing || !dataUnchanged)) {
+    if (!activeDoorFlowAction && dataUnchanged) {
+      refreshLiveSurfaces();
+    } else if (!activeDoorFlowAction && isAutoRefreshing && shouldPatchLiveRefresh()) {
+      refreshLiveSurfaces();
+    } else if (!activeDoorFlowAction) {
       render();
     }
   });
@@ -1394,7 +1615,9 @@ function subscribeRealtime() {
         updateSyncStatus("Connecting", `Realtime status: ${status}`);
       }
 
-      if (auth.currentUser && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
+      if (auth.currentUser && !state.modal && shouldPatchLiveRefresh()) {
+        refreshLiveSurfaces();
+      } else if (auth.currentUser && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
         render();
       }
     });
@@ -1414,7 +1637,7 @@ async function getGeneralGroupForActiveDate() {
     ? state.serviceDay
     : await ensureServiceDay(state.activeDate);
 
-  group = await ensureGeneralGroup(serviceDay.id);
+  group = normalizeGroup(await ensureGeneralGroup(serviceDay.id));
 
   if (group && !state.groups.some(item => item.id === group.id)) {
     state.groups = [group, ...state.groups];
@@ -1451,6 +1674,84 @@ function guestRemaining(guest) {
 
 function isGuestFullyIn(guest) {
   return guestChecked(guest) >= guestTotal(guest);
+}
+
+function normalizeSearchCorpus(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+:/.-]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function searchTerms(value) {
+  return normalizeSearchCorpus(value).split(" ").filter(Boolean);
+}
+
+function matchesSearchTerms(haystack, terms) {
+  if (!terms.length) return true;
+  const normalized = normalizeSearchCorpus(haystack);
+  return terms.every(term => normalized.includes(term));
+}
+
+function guestStatusSearchText(guest) {
+  const total = guestTotal(guest);
+  const checked = guestChecked(guest);
+  const remaining = guestRemaining(guest);
+
+  return [
+    checked > 0 ? "checked in" : "not checked in",
+    remaining > 0 ? `${remaining} remaining` : "fully checked in",
+    checked > 0 && checked < total ? "partial partially checked in" : "",
+    isLateAdd(guest) ? "late add manager approved" : "",
+    guest.guest_type === "Do Not Admit" ? "do not admit watch blocked" : ""
+  ].join(" ");
+}
+
+function guestSearchHaystack(guest, group) {
+  const plusOnes = Math.max(0, guestTotal(guest) - 1);
+  const lastCheckTime = guest.last_checked_in_at
+    ? `${formatClock(guest.last_checked_in_at)} ${new Date(guest.last_checked_in_at).toLocaleString()}`
+    : "";
+
+  return [
+    guest.first_name,
+    guest.last_name,
+    `${guest.first_name} ${guest.last_name}`,
+    guest.guest_type,
+    guest.notes,
+    guest.late_add_approved_by,
+    guest.late_add_reason,
+    guest.added_by_name,
+    group?.name,
+    group?.group_type,
+    group?.host_name,
+    group?.table_location,
+    plusOnes ? `plus ${plusOnes} +${plusOnes}` : "plus 0",
+    guestStatusSearchText(guest),
+    state.activeDate,
+    state.activeDay,
+    lastCheckTime
+  ].join(" ");
+}
+
+function groupSearchHaystack(group) {
+  const stats = groupStats(group.id);
+
+  return [
+    group.name,
+    group.group_type,
+    group.host_name,
+    group.table_location,
+    group.approved_by,
+    group.notes,
+    group.status,
+    `${stats.checked} checked in`,
+    `${stats.remaining} remaining`,
+    `${stats.total} total`,
+    state.activeDate,
+    state.activeDay
+  ].join(" ");
 }
 
 function groupStats(groupId) {
@@ -1491,30 +1792,52 @@ function sortGuests(list) {
 }
 
 function visibleGuests() {
+  const selected = selectedGroup();
+  const key = [
+    state.currentMode,
+    selected?.id || "",
+    state.searchText,
+    state.guestFilter || "ALL",
+    state.sortMode,
+    liveGuestListVersion()
+  ].join("||");
+
+  if (visibleGuestCache.key === key) return visibleGuestCache.rows;
+
   const source = state.currentMode === "GENERAL"
     ? state.guests
-    : selectedGroup()
-      ? guestsForGroup(selectedGroup().id)
+    : selected
+      ? guestsForGroup(selected.id)
       : [];
 
-  const query = state.searchText.trim().toLowerCase();
+  const terms = searchTerms(state.searchText);
 
   const filtered = source.filter(guest => {
     const group = state.groups.find(item => item.id === guest.group_id);
-    const groupText = group ? `${group.name} ${group.group_type} ${group.host_name || ""}` : "";
-    const searchMatch = !query || `${guest.first_name} ${guest.last_name} ${guest.guest_type} ${guest.notes || ""} ${guest.late_add_approved_by || ""} ${guest.late_add_reason || ""} ${guest.added_by_name || ""} ${groupText}`.toLowerCase().includes(query);
-    return searchMatch && guestMatchesStatusFilter(guest);
+    return matchesSearchTerms(guestSearchHaystack(guest, group), terms) && guestMatchesStatusFilter(guest);
   });
 
-  return sortGuests([...filtered]);
+  visibleGuestCache = { key, rows:sortGuests([...filtered]) };
+  return visibleGuestCache.rows;
 }
 
 function visibleGroups() {
-  const query = state.groupSearchText.trim().toLowerCase();
+  const key = [
+    state.groupSearchText,
+    state.currentMode,
+    state.selectedGroupId || "",
+    liveGroupListVersion()
+  ].join("||");
 
-  return specificGroups().filter(group => {
-    return !query || `${group.name} ${group.group_type} ${group.host_name || ""} ${group.table_location || ""} ${group.notes || ""}`.toLowerCase().includes(query);
-  });
+  if (visibleGroupCache.key === key) return visibleGroupCache.rows;
+
+  const terms = searchTerms(state.groupSearchText);
+
+  visibleGroupCache = { key, rows:specificGroups().filter(group => {
+    return matchesSearchTerms(groupSearchHaystack(group), terms);
+  }) };
+
+  return visibleGroupCache.rows;
 }
 
 function typeClass(type) {
@@ -1567,7 +1890,12 @@ function guestMatchesStatusFilter(guest) {
 function setGuestFilter(value) {
   state.guestFilter = value || "ALL";
   state.searchText = state.searchText || "";
-  render();
+  resetDerivedListCaches();
+  syncGuestFilterControls();
+
+  if (!refreshVisibleGuestSurface()) {
+    render();
+  }
 }
 
 function activeFilterLabel() {
@@ -1726,7 +2054,7 @@ async function loadStaffProfilesForAdmin() {
     return;
   }
 
-  state.staffProfiles = result.data || [];
+  state.staffProfiles = normalizeRows(result.data, normalizeStaffProfile);
 }
 
 async function updateStaffProfile(event) {
@@ -1799,7 +2127,12 @@ function setMode(mode) {
 
 function setSortMode(value) {
   state.sortMode = value;
-  render();
+  resetDerivedListCaches();
+  syncSortControls();
+
+  if (!refreshVisibleGuestSurface()) {
+    render();
+  }
 }
 
 function selectTabletList(value) {
@@ -1881,15 +2214,19 @@ async function checkInOneGuest(id) {
 
     must(logResult.data, logResult.error);
 
-    guest.checked_in_count = newCount;
-    guest.last_checked_in_at = nowIso;
-    guest.last_checked_in_by_name = user.name;
-    guest.last_door_location = state.doorLocation;
+    Object.assign(guest, normalizeGuest({
+      ...guest,
+      checked_in_count:newCount,
+      last_checked_in_at:nowIso,
+      last_checked_in_by_name:user.name,
+      last_door_location:state.doorLocation
+    }));
     state.lastSyncAt = new Date();
+    resetDerivedListCaches();
 
-    render();
+    if (!refreshLiveSurfaces()) render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  }, `checkin:${id}`));
 }
 
 async function undoOneGuest(id) {
@@ -1933,11 +2270,13 @@ async function undoOneGuest(id) {
 
     must(logResult.data, logResult.error);
 
-    guest.checked_in_count = newCount;
+    Object.assign(guest, normalizeGuest({ ...guest, checked_in_count:newCount }));
     state.lastSyncAt = new Date();
-    render();
+    resetDerivedListCaches();
+
+    if (!refreshLiveSurfaces()) render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  }, `undo:${id}`));
 }
 
 function toggleGuest(id) {
@@ -1987,11 +2326,11 @@ async function createGroup(event) {
       15000
     );
 
-    const createdGroup = firstRow(must(insertResult.data, insertResult.error)) || {
+    const createdGroup = normalizeGroup(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
       id:`local-group-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     state.activeDate = date;
     state.activeDay = dayNameFromDate(date);
@@ -2038,7 +2377,7 @@ async function updateGroup(event) {
       15000
     );
 
-    const updatedGroup = firstRow(must(result.data, result.error)) || { ...group, ...payload };
+    const updatedGroup = normalizeGroup(firstRow(must(result.data, result.error)) || { ...group, ...payload });
 
     state.groups = state.groups.map(item => item.id === group.id ? updatedGroup : item);
     state.modal = null;
@@ -2146,11 +2485,11 @@ async function createGuest(event) {
       15000
     );
 
-    const insertedGuest = firstRow(must(result.data, result.error)) || {
+    const insertedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || {
       ...payload,
       id:`local-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     state.guests = [...state.guests.filter(item => item.id !== insertedGuest.id), insertedGuest];
     state.selectedGroupId = group.id;
@@ -2212,9 +2551,10 @@ function withDoorFlowTimeout(promise, label = "Database request", timeoutMs = 15
   });
 }
 
-async function runCriticalAction(label, fn) {
+async function runCriticalAction(label, fn, actionKey = label) {
   activeDoorFlowAction = true;
   lastDoorFlowActionAt = Date.now();
+  setActionBusy(actionKey, true);
 
   try {
     updateSyncStatus("Saving", label);
@@ -2222,6 +2562,7 @@ async function runCriticalAction(label, fn) {
   } finally {
     activeDoorFlowAction = false;
     lastDoorFlowActionAt = Date.now();
+    setActionBusy(actionKey, false);
   }
 }
 
@@ -2371,11 +2712,11 @@ async function mobileQuickAddGuest() {
       15000
     );
 
-    const insertedGuest = firstRow(must(insertResult.data, insertResult.error)) || {
+    const insertedGuest = normalizeGuest(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
       id:`local-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     // Optimistic local update so the phone does not sit on "Adding guest..."
     // while waiting for the full list refresh/realtime event.
@@ -2448,11 +2789,11 @@ async function mobileQuickCreateGroup() {
       15000
     );
 
-    const createdGroup = firstRow(must(insertResult.data, insertResult.error)) || {
+    const createdGroup = normalizeGroup(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
       id:`local-group-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     if (!state.groups.some(item => item.id === createdGroup.id)) {
       state.groups = [createdGroup, ...state.groups];
@@ -2518,11 +2859,11 @@ async function mobileAddShiftNote() {
       15000
     );
 
-    const insertedNote = firstRow(must(insertResult.data, insertResult.error)) || {
+    const insertedNote = normalizeShiftNote(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
       id:`local-note-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     state.shiftNotes = [insertedNote, ...state.shiftNotes.filter(item => item.id !== insertedNote.id)];
     state.lastSyncAt = new Date();
@@ -2619,11 +2960,11 @@ async function createQuickManagerGuest(event) {
       15000
     );
 
-    const insertedGuest = firstRow(must(result.data, result.error)) || {
+    const insertedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || {
       ...payload,
       id:`local-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     state.guests = [...state.guests.filter(item => item.id !== insertedGuest.id), insertedGuest];
     state.selectedGroupId = group.id;
@@ -2656,11 +2997,7 @@ function renderMobileManagerView() {
     <div class="mobile-manager-view">
       <section class="mobile-manager-header">
         <div class="mobile-manager-header-top">
-          <div>
-            <p class="mobile-manager-kicker">DoorFlow</p>
-            <h2>Manager Mode</h2>
-            <p class="mobile-manager-subtitle">The B.O.B. • ${esc(state.activeDate)}</p>
-          </div>
+          ${renderBrandBlock({ title:"Manager Mode", subtitle:`The B.O.B. · ${state.activeDate}`, variant:"dark", compact:true })}
           <div class="mobile-manager-live-badge">Live</div>
         </div>
 
@@ -2931,7 +3268,7 @@ async function updateGuest(event) {
       15000
     );
 
-    const updatedGuest = firstRow(must(result.data, result.error)) || { ...guest, ...payload };
+    const updatedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || { ...guest, ...payload });
 
     state.modal = null;
     state.editingGuestId = null;
@@ -3147,7 +3484,7 @@ async function bulkAddNames(event) {
     state.currentMode = target === "general" ? "GENERAL" : "GROUP";
     state.importMessage = `Bulk added ${rows.length} name${rows.length === 1 ? "" : "s"} into ${group.name}.`;
     state.modal = null;
-    state.guests = [...state.guests, ...((result.data && result.data.length) ? result.data : rowsForInsert)];
+    state.guests = [...state.guests, ...normalizeRows((result.data && result.data.length) ? result.data : rowsForInsert, normalizeGuest)];
     state.lastSyncAt = new Date();
 
     render();
@@ -3311,7 +3648,7 @@ async function importRows(rows, targetMode) {
 
     state.selectedGroupId = group.id;
     state.importMessage = `Imported ${valid.length} name${valid.length === 1 ? "" : "s"} into ${group.name}. ${skipped.length ? `Skipped ${skipped.length} row${skipped.length === 1 ? "" : "s"}.` : ""}`;
-    state.guests = [...state.guests, ...((result.data && result.data.length) ? result.data : validForInsert)];
+    state.guests = [...state.guests, ...normalizeRows((result.data && result.data.length) ? result.data : validForInsert, normalizeGuest)];
     state.lastSyncAt = new Date();
 
     render();
@@ -3528,11 +3865,11 @@ async function createShiftNote(event) {
       15000
     );
 
-    const insertedNote = firstRow(must(result.data, result.error)) || {
+    const insertedNote = normalizeShiftNote(firstRow(must(result.data, result.error)) || {
       ...payload,
       id:`local-note-${Date.now()}`,
       created_at:new Date().toISOString()
-    };
+    });
 
     event.target.reset();
     state.shiftNotes = [insertedNote, ...state.shiftNotes.filter(item => item.id !== insertedNote.id)];
@@ -3581,7 +3918,7 @@ async function updateShiftNote(event) {
       15000
     );
 
-    const updatedNote = firstRow(must(result.data, result.error)) || { ...note, ...payload };
+    const updatedNote = normalizeShiftNote(firstRow(must(result.data, result.error)) || { ...note, ...payload });
 
     state.editingShiftNoteId = null;
     state.modal = null;
@@ -3666,8 +4003,8 @@ function renderShiftNotesPanel(showComposer = true) {
 
               ${perms()?.manage ? `
                 <div class="row-actions">
-                  <button class="btn secondary small" onclick="openEditShiftNote('${note.id}')">Edit Note</button>
-                  <button class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
+                  <button type="button" class="btn secondary small" onclick="openEditShiftNote('${note.id}')">Edit Note</button>
+                  <button type="button" class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
                 </div>
               ` : ""}
             </div>
@@ -3700,7 +4037,7 @@ function renderShiftNotesForDoorStaff() {
       <p class="subtle">Read these before working the door. These are live instructions from management for the active service day.</p>
 
       <div class="row-actions" style="margin-bottom:12px;">
-        <button class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Notes</button>
+        <button type="button" class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Notes</button>
       </div>
 
       <div class="shift-note-list">
@@ -3849,7 +4186,7 @@ function buildCloseOutReportHtml(report) {
 
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;">
-      <h2 style="margin-bottom:4px;">DoorFlow Close Out Report</h2>
+      <h2 style="margin-bottom:4px;">${esc(BOB_BRAND.appName)} Close Out Report</h2>
       <p style="margin-top:0;color:#6b7280;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
 
       <h3>Summary</h3>
@@ -3985,15 +4322,15 @@ function renderCloseOutReportModal() {
       <div class="modal" style="max-width:1100px;">
         <div class="closeout-print-header">
           <div>
-            <h2>DoorFlow Close Out Report</h2>
+            ${renderBrandBlock({ title:"Close Out Report", subtitle:`${report.venue} · ${report.day_name} · ${report.service_date}`, compact:true })}
             <p class="subtle" style="margin:0;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
             <p class="subtle" style="margin:4px 0 0;">Generated by ${esc(report.generated_by)} · ${new Date(report.generated_at).toLocaleString()}</p>
           </div>
 
           <div class="row-actions">
-            <button class="btn secondary" onclick="downloadCloseOutReportCsv()">Export Report CSV</button>
-            <button class="btn secondary" onclick="printCloseOutReport()">Print</button>
-            <button class="btn" onclick="closeModal()">Close</button>
+            <button type="button" class="btn secondary" onclick="downloadCloseOutReportCsv()">Export Report CSV</button>
+            <button type="button" class="btn secondary" onclick="printCloseOutReport()">Print</button>
+            <button type="button" class="btn" onclick="closeModal()">Close</button>
           </div>
         </div>
 
@@ -4191,12 +4528,8 @@ function renderLogin() {
   return `
     <div class="auth">
       <div class="card">
-        <div class="brand" style="margin-bottom:18px;">
-          <div class="logo">DF</div>
-          <div>
-            <h1>DoorFlow Login</h1>
-            <p>Supabase email/password account</p>
-          </div>
+        <div style="margin-bottom:18px;">
+          ${renderBrandBlock({ title:`${BOB_BRAND.appName} Login`, subtitle:"Supabase email/password account" })}
         </div>
 
         <div class="notice greenbox">
@@ -4251,19 +4584,34 @@ function renderMobileSyncFooter() {
   return `<div class="mobile-manager-sync-footer ${syncClassName()}"><span class="sync-dot"></span><span>${esc(status)} · Updated ${esc(last)}</span></div>`;
 }
 
+function renderBrandBlock(options = {}) {
+  const title = options.title || BOB_BRAND.appName;
+  const subtitle = options.subtitle || "";
+  const variant = options.variant || "default";
+  const logoSrc = variant === "dark" ? BOB_BRAND.darkLogoSrc : BOB_BRAND.logoSrc;
+  const compactClass = options.compact ? " compact-brand" : "";
+
+  return `
+    <div class="brand bob-brand ${esc(variant)}${compactClass}">
+      <div class="logo bob-logo-shell" aria-label="${esc(BOB_BRAND.fallback)}">
+        <span class="bob-logo-fallback">${esc(BOB_BRAND.fallback)}</span>
+        <img class="bob-logo-img" src="${esc(logoSrc)}" alt="${esc(BOB_BRAND.fallback)} logo" loading="eager" decoding="async" onerror="this.hidden=true" />
+      </div>
+      <div>
+        <h1>${esc(title)}</h1>
+        ${subtitle ? `<p>${esc(subtitle)}</p>` : ""}
+      </div>
+    </div>
+  `;
+}
+
 function renderTopbar() {
   const user = currentUser();
 
   return `
     <header class="topbar">
       <div class="topbar-inner">
-        <div class="brand">
-          <div class="logo">DF</div>
-          <div>
-            <h1>DoorFlow</h1>
-            <p>${esc(state.activeDay)} · ${esc(state.activeDate)} · Live Database</p>
-          </div>
-        </div>
+        ${renderBrandBlock({ subtitle:`${state.activeDay} · ${state.activeDate} · Live Database` })}
 
         <div class="top-actions">
           ${renderSyncPill()}
@@ -4281,11 +4629,11 @@ function renderTabs() {
 
   return `
     <div class="tabs">
-      ${p.door ? `<button class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
-      ${p.door ? `<button class="tab ${state.view === "tabletDoor" ? "active" : ""}" onclick="switchView('tabletDoor')">Tablet Door Mode</button>` : ""}
-      ${p.manage ? `<button class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
-      ${p.users ? `<button class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Staff</button>` : ""}
-      ${p.reports ? `<button class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
+      ${p.door ? `<button type="button" class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
+      ${p.door ? `<button type="button" class="tab ${state.view === "tabletDoor" ? "active" : ""}" onclick="switchView('tabletDoor')">Tablet Door Mode</button>` : ""}
+      ${p.manage ? `<button type="button" class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
+      ${p.users ? `<button type="button" class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Staff</button>` : ""}
+      ${p.reports ? `<button type="button" class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
     </div>
   `;
 }
@@ -4376,7 +4724,7 @@ function renderStats() {
   const stats = dayStats();
 
   return `
-    <div class="stats">
+    <div id="dayStatsPanel" class="stats">
       <div class="stat"><span>Groups</span><strong>${stats.groups}</strong></div>
       <div class="stat"><span>Complete Groups</span><strong>${stats.completeGroups}</strong></div>
       <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
@@ -4428,9 +4776,9 @@ function renderGroupList(showActions = false) {
 
             ${showActions ? `
               <div class="row-actions" style="margin-top:10px;">
-                <button class="btn secondary small" onclick="event.stopPropagation(); openGroupModal('${group.id}')">Edit</button>
-                <button class="btn danger small" onclick="event.stopPropagation(); clearGroupNames('${group.id}')">Clear Names</button>
-                <button class="btn danger small" onclick="event.stopPropagation(); deleteGroup('${group.id}')">Delete</button>
+                <button type="button" class="btn secondary small" onclick="event.stopPropagation(); openGroupModal('${group.id}')">Edit</button>
+                <button type="button" class="btn danger small" onclick="event.stopPropagation(); clearGroupNames('${group.id}')">Clear Names</button>
+                <button type="button" class="btn danger small" onclick="event.stopPropagation(); deleteGroup('${group.id}')">Delete</button>
               </div>
             ` : ""}
           </div>
@@ -4440,9 +4788,7 @@ function renderGroupList(showActions = false) {
   `;
 }
 
-function renderGuestList(showActions = false) {
-  const guests = visibleGuests();
-
+function renderGuestList(showActions = false, guests = visibleGuests()) {
   if (!guests.length) {
     return `<div class="notice warn">No names found for the selected view.</div>`;
   }
@@ -4456,10 +4802,12 @@ function renderGuestList(showActions = false) {
         const remaining = guestRemaining(guest);
         const fullyIn = isGuestFullyIn(guest);
         const showLast = checked > 0 && guest.last_checked_in_by_name;
+        const checkInBusy = isActionBusy(`checkin:${guest.id}`);
+        const undoBusy = isActionBusy(`undo:${guest.id}`);
 
         return `
           <div class="guest-row ${fullyIn ? "checked" : ""}">
-            <button class="guest-check" onclick="toggleGuest('${guest.id}')">${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
+            <button type="button" class="guest-check" onclick="toggleGuest('${guest.id}')">${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
 
             <div>
               <div class="name-line">
@@ -4478,11 +4826,11 @@ function renderGuestList(showActions = false) {
             </div>
 
             <div class="row-actions">
-              ${remaining > 0 ? `<button class="btn green small" onclick="checkInOneGuest('${guest.id}')">Check In 1</button>` : `<span class="badge in">Fully In</span>`}
-              ${checked > 0 ? `<button class="btn secondary small" onclick="undoOneGuest('${guest.id}')">Undo 1</button>` : ""}
+              ${remaining > 0 ? `<button type="button" class="btn green small" onclick="checkInOneGuest('${guest.id}')" ${checkInBusy ? "disabled" : ""}>${checkInBusy ? "Checking..." : "Check In 1"}</button>` : `<span class="badge in">Fully In</span>`}
+              ${checked > 0 ? `<button type="button" class="btn secondary small" onclick="undoOneGuest('${guest.id}')" ${undoBusy ? "disabled" : ""}>${undoBusy ? "Undoing..." : "Undo 1"}</button>` : ""}
               ${showActions ? `
-                <button class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
-                <button class="btn danger small" onclick="deleteGuest('${guest.id}')">Delete</button>
+                <button type="button" class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
+                <button type="button" class="btn danger small" onclick="deleteGuest('${guest.id}')">Delete</button>
               ` : ""}
             </div>
           </div>
@@ -4525,8 +4873,8 @@ function renderSelectedGroupPanel() {
 
       ${perms().manage ? `
         <div class="row-actions">
-          <button class="btn secondary small" onclick="openGroupModal('${group.id}')">Edit Group</button>
-          <button class="btn danger small" onclick="deleteGroup('${group.id}')">Delete Group</button>
+          <button type="button" class="btn secondary small" onclick="openGroupModal('${group.id}')">Edit Group</button>
+          <button type="button" class="btn danger small" onclick="deleteGroup('${group.id}')">Delete Group</button>
         </div>
       ` : ""}
     </div>
@@ -4538,6 +4886,7 @@ function renderMainWorkspace(showManagement = false) {
   const subtitle = state.currentMode === "GENERAL"
     ? "This master list shows everyone for the selected date, including bottle service attendees."
     : "This shows only the names under the selected group.";
+  const guests = visibleGuests();
 
   return `
     ${renderDateBar()}
@@ -4547,24 +4896,24 @@ function renderMainWorkspace(showManagement = false) {
       <main class="stack">
         <div class="card tight">
           <div class="toolbar">
-            <input id="mainSearchInput" placeholder="${state.currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(state.searchText)}" oninput="state.searchText=this.value;render()" />
+            <input id="mainSearchInput" placeholder="${state.currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(state.searchText)}" oninput="updateMainSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
 
             <select onchange="setMode(this.value)">
               <option value="GENERAL" ${state.currentMode === "GENERAL" ? "selected" : ""}>General Guest List</option>
               <option value="GROUP" ${state.currentMode === "GROUP" ? "selected" : ""}>Selected Group Only</option>
             </select>
 
-            <select onchange="setGuestFilter(this.value)">
+            <select id="mainGuestFilterSelect" onchange="setGuestFilter(this.value)">
               ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
 
-            <select onchange="setSortMode(this.value)">
+            <select id="mainSortModeSelect" onchange="setSortMode(this.value)">
               ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
 
             ${showManagement
-              ? `<button class="btn" onclick="openGuestModal()">Add Individual Guest</button>`
-              : `<button class="btn secondary" onclick="state.searchText='';render()">Clear Search</button>`
+              ? `<button type="button" class="btn" onclick="openGuestModal()">Add Individual Guest</button>`
+              : `<button type="button" class="btn secondary" onclick="clearMainSearch()">Clear Search</button>`
             }
           </div>
         </div>
@@ -4573,11 +4922,11 @@ function renderMainWorkspace(showManagement = false) {
           <h2>${title}</h2>
           <p class="subtle">${subtitle}</p>
           <div class="party-meta" style="margin-bottom:12px;">
-            <span class="badge general">Filter: ${esc(activeFilterLabel())}</span>
-            <span class="badge general">${visibleGuests().length} shown</span>
+            <span id="mainFilterBadge" class="badge general">Filter: ${esc(activeFilterLabel())}</span>
+            <span id="mainShownCount" class="badge general">${guests.length} shown</span>
           </div>
           <div id="guestScrollPanel" class="scroll-panel">
-            ${renderGuestList(showManagement)}
+            ${renderGuestList(showManagement, guests)}
           </div>
         </div>
 
@@ -4585,7 +4934,7 @@ function renderMainWorkspace(showManagement = false) {
           <div class="card">
             <h2>Bulk Paste Names</h2>
             <p class="subtle">Paste one name per line and add them to the General Guest List or selected group.</p>
-            <button class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button>
+            <button type="button" class="btn secondary" onclick="openBulkPasteModal()">Open Bulk Paste Tool</button>
           </div>
 
           <div class="card">
@@ -4616,7 +4965,7 @@ function renderMainWorkspace(showManagement = false) {
         <div class="card">
           <h2>Party / Bottle Service Groups</h2>
           <p class="subtle">Click General Guest List to see everyone, or click a group to see only that group.</p>
-          <input id="groupSearchInput" placeholder="Search groups..." value="${esc(state.groupSearchText)}" oninput="state.groupSearchText=this.value;render()" style="margin-bottom:12px;" />
+          <input id="groupSearchInput" placeholder="Search groups..." value="${esc(state.groupSearchText)}" oninput="updateGroupSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="margin-bottom:12px;" />
           <div id="groupScrollPanel" class="scroll-panel short">
             ${renderGroupList(showManagement)}
           </div>
@@ -4628,20 +4977,215 @@ function renderMainWorkspace(showManagement = false) {
   `;
 }
 
+function shouldShowManagementActions() {
+  return Boolean(state.view === "manage" && perms().manage);
+}
+
+function replaceRenderedElement(id, html) {
+  const current = document.getElementById(id);
+  if (!current) return false;
+
+  const template = document.createElement("template");
+  template.innerHTML = String(html || "").trim();
+  const next = template.content.firstElementChild;
+  if (!next) return false;
+
+  current.replaceWith(next);
+  return true;
+}
+
+function syncGuestFilterControls() {
+  ["mainGuestFilterSelect", "tabletGuestFilterSelect"].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = state.guestFilter || "ALL";
+  });
+}
+
+function syncSortControls() {
+  ["mainSortModeSelect", "tabletSortModeSelect"].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = state.sortMode || "LAST_ASC";
+  });
+}
+
+function refreshSyncStatusSurface() {
+  let touched = false;
+  const syncPill = document.querySelector(".sync-pill");
+  if (syncPill) {
+    const template = document.createElement("template");
+    template.innerHTML = renderSyncPill();
+    const next = template.content.firstElementChild;
+    if (next) {
+      syncPill.replaceWith(next);
+      touched = true;
+    }
+  }
+
+  const footer = document.querySelector(".mobile-manager-sync-footer");
+  if (footer) {
+    const template = document.createElement("template");
+    template.innerHTML = renderMobileSyncFooter();
+    const next = template.content.firstElementChild;
+    if (next) {
+      footer.replaceWith(next);
+      touched = true;
+    }
+  }
+
+  return touched;
+}
+
+function refreshStatsSurface() {
+  let touched = replaceRenderedElement("dayStatsPanel", renderStats());
+  const tabletSummary = document.getElementById("tabletMobileSummaryBar");
+  const tabletStats = document.getElementById("tabletDayStatsPanel");
+
+  if (tabletSummary) {
+    const stats = dayStats();
+    tabletSummary.innerHTML = `
+      <div class="mobile-summary-item"><span>In</span><strong>${stats.checked}</strong></div>
+      <div class="mobile-summary-item"><span>Left</span><strong>${stats.remaining}</strong></div>
+      <div class="mobile-summary-item"><span>Total</span><strong>${stats.total}</strong></div>
+    `;
+    touched = true;
+  }
+
+  if (tabletStats) {
+    const stats = dayStats();
+    tabletStats.innerHTML = `
+      <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
+      <div class="stat"><span>Remaining</span><strong>${stats.remaining}</strong></div>
+      <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
+    `;
+    touched = true;
+  }
+
+  return touched;
+}
+
+function refreshVisibleGuestSurface() {
+  const guests = visibleGuests();
+  let touched = false;
+
+  const mainFilter = document.getElementById("mainFilterBadge");
+  if (mainFilter) {
+    mainFilter.textContent = `Filter: ${activeFilterLabel()}`;
+    touched = true;
+  }
+
+  const mainCount = document.getElementById("mainShownCount");
+  if (mainCount) {
+    mainCount.textContent = `${guests.length} shown`;
+    touched = true;
+  }
+
+  const guestPanel = document.getElementById("guestScrollPanel");
+  if (guestPanel) {
+    guestPanel.innerHTML = renderGuestList(shouldShowManagementActions(), guests);
+    touched = true;
+  }
+
+  const tabletCount = document.getElementById("tabletShownCount");
+  if (tabletCount) {
+    tabletCount.textContent = `${guests.length} shown`;
+    touched = true;
+  }
+
+  const tabletFilter = document.getElementById("tabletFilterBadge");
+  if (tabletFilter) {
+    tabletFilter.textContent = `Filter: ${activeFilterLabel()}`;
+    touched = true;
+  }
+
+  const tabletGrid = document.getElementById("tabletCardGrid");
+  if (tabletGrid) {
+    tabletGrid.innerHTML = renderTabletGuestCards(guests);
+    touched = true;
+  }
+
+  refreshStatsSurface();
+  syncGuestFilterControls();
+  syncSortControls();
+
+  return touched;
+}
+
+function refreshGroupListSurface() {
+  const groupPanel = document.getElementById("groupScrollPanel");
+  if (!groupPanel) return false;
+
+  groupPanel.innerHTML = renderGroupList(shouldShowManagementActions());
+  return true;
+}
+
+function refreshLiveSurfaces() {
+  const touchedSync = refreshSyncStatusSurface();
+  const touchedStats = refreshStatsSurface();
+  const touchedGuests = refreshVisibleGuestSurface();
+  const touchedGroups = refreshGroupListSurface();
+  return touchedSync || touchedStats || touchedGuests || touchedGroups;
+}
+
+function shouldPatchLiveRefresh() {
+  const activeId = String(document.activeElement?.id || "");
+  if (["mainSearchInput", "groupSearchInput", "tabletSearchInput"].includes(activeId)) return true;
+  return userRecentlyTyped(2000);
+}
+
+function updateMainSearch(value) {
+  state.searchText = value;
+  resetDerivedListCaches();
+
+  if (!refreshVisibleGuestSurface()) {
+    render();
+  }
+}
+
+function clearMainSearch() {
+  state.searchText = "";
+  resetDerivedListCaches();
+
+  ["mainSearchInput", "tabletSearchInput"].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = "";
+  });
+
+  if (!refreshVisibleGuestSurface()) {
+    render();
+  }
+}
+
+function updateGroupSearch(value) {
+  state.groupSearchText = value;
+  resetDerivedListCaches();
+
+  if (!refreshGroupListSurface()) {
+    render();
+  }
+}
+
+function clearTabletSearchFilter() {
+  state.searchText = "";
+  state.guestFilter = "ALL";
+  resetDerivedListCaches();
+
+  const input = document.getElementById("tabletSearchInput");
+  if (input) input.value = "";
+
+  syncGuestFilterControls();
+
+  if (!refreshVisibleGuestSurface()) {
+    render();
+  }
+}
+
 
 function updateTabletSearch(value) {
   state.searchText = value;
+  resetDerivedListCaches();
 
-  const guests = visibleGuests();
-  const grid = document.getElementById("tabletCardGrid");
-  const count = document.getElementById("tabletShownCount");
-
-  if (count) {
-    count.textContent = `${guests.length} shown`;
-  }
-
-  if (grid) {
-    grid.innerHTML = renderTabletGuestCards(guests);
+  if (!refreshVisibleGuestSurface()) {
+    render();
   }
 }
 
@@ -4652,6 +5196,8 @@ function renderTabletGuestCards(guests) {
     const checked = guestChecked(guest);
     const remaining = guestRemaining(guest);
     const fullyIn = isGuestFullyIn(guest);
+    const checkInBusy = isActionBusy(`checkin:${guest.id}`);
+    const undoBusy = isActionBusy(`undo:${guest.id}`);
 
     return `
       <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
@@ -4667,8 +5213,8 @@ function renderTabletGuestCards(guests) {
         <p class="tablet-note">${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</p>
 
         <div class="tablet-actions">
-          ${remaining > 0 ? `<button class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')">Check In 1</button>` : `<button class="btn green tablet-check-btn" disabled>Fully In</button>`}
-          ${checked > 0 ? `<button class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')">Undo 1</button>` : `<button class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
+          ${remaining > 0 ? `<button type="button" class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')" ${checkInBusy ? "disabled" : ""}>${checkInBusy ? "Checking..." : "Check In 1"}</button>` : `<button type="button" class="btn green tablet-check-btn" disabled>Fully In</button>`}
+          ${checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')" ${undoBusy ? "disabled" : ""}>${undoBusy ? "Undoing..." : "Undo 1"}</button>` : `<button type="button" class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
         </div>
       </div>
     `;
@@ -4684,7 +5230,7 @@ function renderTabletDoorMode() {
   return `
     ${renderDateBar()}
 
-    <div class="mobile-summary-bar">
+    <div id="tabletMobileSummaryBar" class="mobile-summary-bar">
       <div class="mobile-summary-item"><span>In</span><strong>${stats.checked}</strong></div>
       <div class="mobile-summary-item"><span>Left</span><strong>${stats.remaining}</strong></div>
       <div class="mobile-summary-item"><span>Total</span><strong>${stats.total}</strong></div>
@@ -4692,10 +5238,12 @@ function renderTabletDoorMode() {
 
     <div class="tablet-door-shell">
       <div class="card">
+        ${renderBrandBlock({ title:"Tablet Door Mode", subtitle:"Large-format check-in screen for The B.O.B.", compact:true })}
+        <div class="brand-spacer"></div>
         <h2>Tablet Door Mode</h2>
         <p class="subtle">Large-format check-in screen for iPad/tablet use at the door.</p>
 
-        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
+        <div id="tabletDayStatsPanel" class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
           <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
           <div class="stat"><span>Remaining</span><strong>${stats.remaining}</strong></div>
           <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
@@ -4711,7 +5259,7 @@ function renderTabletDoorMode() {
 
           <div>
             <label>Guest List / Party</label>
-            <select onchange="selectTabletList(this.value)">
+            <select id="tabletListSelect" onchange="selectTabletList(this.value)">
               <option value="GENERAL" ${selectedListValue === "GENERAL" ? "selected" : ""}>General Guest List</option>
               ${specificGroups().map(group => `
                 <option value="${group.id}" ${selectedListValue === group.id ? "selected" : ""}>${esc(group.name)}${group.host_name ? ` — ${esc(group.host_name)}` : ""}</option>
@@ -4721,21 +5269,21 @@ function renderTabletDoorMode() {
 
           <div>
             <label>Quick Clear</label>
-            <button class="btn secondary" onclick="state.searchText='';state.guestFilter='ALL';render()">Clear Search/Filter</button>
+            <button type="button" class="btn secondary" onclick="clearTabletSearchFilter()">Clear Search/Filter</button>
           </div>
         </div>
 
         <div class="tablet-filter-row">
           <div>
             <label>Filter</label>
-            <select onchange="setGuestFilter(this.value)">
+            <select id="tabletGuestFilterSelect" onchange="setGuestFilter(this.value)">
               ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
           </div>
 
           <div>
             <label>Sort</label>
-            <select onchange="setSortMode(this.value)">
+            <select id="tabletSortModeSelect" onchange="setSortMode(this.value)">
               ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
           </div>
@@ -4744,7 +5292,7 @@ function renderTabletDoorMode() {
 
       <div class="card tight">
         <div class="party-meta">
-          <span class="badge general">Filter: ${esc(activeFilterLabel())}</span>
+          <span id="tabletFilterBadge" class="badge general">Filter: ${esc(activeFilterLabel())}</span>
           <span id="tabletShownCount" class="badge general">${guests.length} shown</span>
         </div>
       </div>
@@ -4765,17 +5313,19 @@ function renderManagement() {
       ${renderManagerServiceDateCard()}
 
       <div class="card">
+        ${renderBrandBlock({ title:"Manager Portal", subtitle:`Adding to ${state.activeDay} ${state.activeDate}`, compact:true })}
+        <div class="brand-spacer"></div>
         <h2>Management Controls</h2>
         <p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p>
 
         <div class="row-actions">
-          <button class="btn" onclick="openGroupModal()">Create Party</button>
-          <button class="btn secondary" onclick="openGuestModal()">Add Individual Guest</button>
-          <button class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
-          <button class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
-          <button class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
-          <button class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
-          <button class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
+          <button type="button" class="btn" onclick="openGroupModal()">Create Party</button>
+          <button type="button" class="btn secondary" onclick="openGuestModal()">Add Individual Guest</button>
+          <button type="button" class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
+          <button type="button" class="btn secondary" onclick="setMode('GENERAL')">View General Guest List</button>
+          <button type="button" class="btn danger" onclick="clearGeneralGuestList()">Clear General Guest List</button>
+          <button type="button" class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
+          <button type="button" class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
       </div>
 
@@ -4795,7 +5345,7 @@ function renderStaffManagement() {
         <div class="card">
           <h2>Staff Management</h2>
           <p class="subtle">Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
-          <button class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+          <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
         </div>
 
         <div class="card">
@@ -4877,8 +5427,8 @@ function renderReports() {
           <h2>Reports</h2>\n        <p class="subtle">Late Adds This Date: <strong>${state.guests.filter(guest => isLateAdd(guest)).length}</strong></p>
           <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
           <div class="row-actions">
-            <button class="btn" onclick="exportCsv()">Export Current Day CSV</button>
-            <button class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
+            <button type="button" class="btn" onclick="exportCsv()">Export Current Day CSV</button>
+            <button type="button" class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
           </div>
         </div>
 
@@ -4972,8 +5522,9 @@ function renderReports() {
 }
 
 function renderGroupModal() {
-  const group = state.editingGroupId ? state.groups.find(item => item.id === state.editingGroupId) : null;
-  const isEdit = Boolean(group);
+  const existingGroup = state.editingGroupId ? state.groups.find(item => item.id === state.editingGroupId) : null;
+  const isEdit = Boolean(existingGroup);
+  const group = isEdit ? normalizeGroup(existingGroup) : emptyGroupForm();
 
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
@@ -5041,8 +5592,9 @@ function renderGroupModal() {
 }
 
 function renderGuestModal() {
-  const guest = state.editingGuestId ? state.guests.find(item => item.id === state.editingGuestId) : null;
-  const isEdit = Boolean(guest);
+  const existingGuest = state.editingGuestId ? state.guests.find(item => item.id === state.editingGuestId) : null;
+  const isEdit = Boolean(existingGuest);
+  const guest = isEdit ? normalizeGuest(existingGuest) : emptyGuestForm();
 
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
@@ -5175,9 +5727,9 @@ function renderBulkModal() {
 }
 
 function renderShiftNoteModal() {
-  const note = (state.shiftNotes || []).find(item => item.id === state.editingShiftNoteId);
+  const note = normalizeShiftNote((state.shiftNotes || []).find(item => item.id === state.editingShiftNoteId));
 
-  if (!note) {
+  if (!note.id) {
     return "";
   }
 
@@ -5262,6 +5814,11 @@ Object.assign(window, {
   setMode,
   setSortMode,
   selectTabletList,
+  updateMainSearch,
+  updateGroupSearch,
+  updateTabletSearch,
+  clearMainSearch,
+  clearTabletSearchFilter,
   checkInOneGuest,
   undoOneGuest,
   toggleGuest,

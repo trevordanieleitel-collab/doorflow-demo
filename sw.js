@@ -1,14 +1,16 @@
-// DoorFlow PWA service worker - manager date/defaults fix v24
+// DoorFlow PWA service worker - The B.O.B. logo asset fix v27
 // DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v24";
+const CACHE_NAME = "doorflow-cache-v27";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/maskable-512.png"
+  "/branding/bob-logo.png",
+  "/branding/bob-logo-dark.png",
+  "/branding/bob-icon-192.png",
+  "/branding/bob-icon-512.png",
+  "/branding/bob-icon-maskable-512.png"
 ];
 
 self.addEventListener("install", event => {

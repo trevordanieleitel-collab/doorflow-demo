@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v16 - Manager Date Control
+DoorFlow Launch Stability v19 - B.O.B. Logo and PWA Icon Wiring
 
 Purpose:
-This package builds on the v15 idle button recovery update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, and idle button fixes while making manager date selection clearer and safer.
+This package builds on the v18 Foundr-style stability and branding update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, date/default protections, General Guest List defaults, idle button fixes, normalized raw records, memoized local selectors, stable search surfaces, and non-disruptive refresh while wiring in the real The B.O.B. logo assets.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -37,7 +37,25 @@ Changes:
 - Defaults Add Individual Guest, Mobile Quick Add, Bulk Paste, and Excel/CSV upload targets to General Guest List.
 - Shows "Adding to" service-date text in manager add/import/note flows.
 - Verifies service-day helpers match the currently selected date before saving groups, guests, and shift notes.
-- Service worker cache bumped to v24.
+- Tablet and desktop guest search now update only the visible result/card panel instead of remounting the whole app on each typed letter.
+- Group search now updates only the group list panel.
+- Guest list and group list filtering use small derived-list caches to avoid repeated filtering/sorting during a render.
+- Silent live-data refresh now compares fetched rows before replacing app state, so unchanged realtime/backup syncs do not churn the UI.
+- When search is active, realtime/status refreshes patch visible list, stats, and sync surfaces instead of remounting the full DoorFlow screen.
+- Guest filter/sort controls now refresh result surfaces without a full root render when possible.
+- All non-submit buttons are explicitly marked type="button" to reduce accidental form submits/reloads.
+- Normalizes Supabase-loaded guests, groups, check-in logs, shift notes, service days, and staff profiles before the UI uses them.
+- Adds safe empty guest/group/shift-note form models so inputs do not receive undefined values.
+- Upgrades guest search to local multi-term matching. Each search term must match somewhere in the guest, group, booth, plus-one, status, late-add, date, or check-in-time haystack.
+- Upgrades group search to local multi-term matching against group, host, booth, status, stats, and date text.
+- Adds action-specific busy keys for Check In and Undo so a single guest action cannot globally block the screen.
+- Check In and Undo now patch visible list, stats, and sync surfaces after successful saves instead of remounting the full app.
+- Adds the real The B.O.B. logo to /branding/bob-logo.png and /branding/bob-logo-dark.png.
+- Generates optimized branded PWA icons at /branding/bob-icon-192.png, /branding/bob-icon-512.png, and /branding/bob-icon-maskable-512.png.
+- Updates manifest.webmanifest icons to use the branded B.O.B. PWA icons.
+- Updates favicon and Apple touch icon links to use /branding/bob-icon-192.png.
+- Updates the PWA name to "The B.O.B. DoorFlow" while keeping the short name DoorFlow.
+- Service worker cache bumped to v27.
 
 Deployment:
 1. Upload/replace all files in GitHub.
