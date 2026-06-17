@@ -47,6 +47,8 @@ const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sun
 const groupTypes = ["Bottle Service", "VIP Party", "Private Party", "Staff Party", "Vendor Group"];
 const boothOptions = ["POD1", "POD2", "POD3", "POD4", "POD5", "POD6", "POD7", "POD8", "POD9", "DJ Pod", "Fulton St. Corner"];
 const guestTypes = ["Guest", "VIP", "Comp", "Host", "Birthday", "Bottle Service", "Staff", "Vendor", "Do Not Admit"];
+const HOST_GUEST_TYPE = "Host";
+const MAX_HOST_PLUS_ONES = 99;
 const sortOptions = [
   { value:"LAST_ASC", label:"Last Name A-Z" },
   { value:"LAST_DESC", label:"Last Name Z-A" },
@@ -1764,11 +1766,14 @@ function guestSearchHaystack(guest, group) {
 
 function groupSearchHaystack(group) {
   const stats = groupStats(group.id);
+  const hostGuest = findHostGuestForGroup(group);
+  const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
 
   return [
     group.name,
     group.group_type,
     group.host_name,
+    hostLabel,
     group.table_location,
     group.approved_by,
     group.notes,
@@ -1879,6 +1884,126 @@ function typeClass(type) {
 function groupNameForGuest(guest) {
   const group = state.groups.find(item => item.id === guest.group_id);
   return group ? group.name : "Unknown Group";
+}
+
+function groupDoorLabel(group) {
+  if (!group) return "";
+  return `${group.name}${group.table_location ? ` / ${group.table_location}` : ""}`;
+}
+
+function guestFullNameKey(guest) {
+  return normalizeSearchCorpus(`${guest?.first_name || ""} ${guest?.last_name || ""}`);
+}
+
+function hostNameKey(name) {
+  return normalizeSearchCorpus(name);
+}
+
+function parsePlusOnesInput(value, label = "Plus Ones", max = MAX_HOST_PLUS_ONES) {
+  const raw = String(value ?? "").trim();
+  const number = raw === "" ? 0 : Number(raw);
+
+  if (!Number.isInteger(number) || number < 0 || number > max) {
+    throw new Error(`${label} must be a whole number from 0 to ${max}.`);
+  }
+
+  return number;
+}
+
+function hostGuestsForGroup(groupId) {
+  return state.guests.filter(guest => guest.group_id === groupId && String(guest.guest_type || "").toLowerCase() === HOST_GUEST_TYPE.toLowerCase());
+}
+
+function findHostGuestForGroup(group, hostName = group?.host_name || "", previousHostName = "") {
+  if (!group?.id) return null;
+
+  const hostGuests = hostGuestsForGroup(group.id);
+  if (!hostGuests.length) return null;
+
+  const nameKeys = [hostName, previousHostName, group.host_name]
+    .map(hostNameKey)
+    .filter(Boolean);
+
+  const namedMatch = hostGuests.find(guest => nameKeys.includes(guestFullNameKey(guest)));
+  if (namedMatch) return namedMatch;
+
+  return hostGuests.length === 1 ? hostGuests[0] : null;
+}
+
+async function upsertPartyHostGuest(group, hostName, hostPlusOnes, options = {}) {
+  const name = String(hostName || "").trim();
+  if (!name) return null;
+
+  const split = splitFullName(name);
+  if (!split.first_name) {
+    throw new Error("Host Name is required before saving host plus ones.");
+  }
+
+  const existingHost = findHostGuestForGroup(group, name, options.previousHostName || "");
+  const totalAllowed = 1 + hostPlusOnes;
+  const checkedCount = existingHost ? Math.min(guestChecked(existingHost), totalAllowed) : 0;
+  const nowIso = new Date().toISOString();
+
+  const payload = {
+    group_id:group.id,
+    first_name:split.first_name,
+    last_name:split.last_name,
+    guest_type:HOST_GUEST_TYPE,
+    total_allowed:totalAllowed,
+    checked_in_count:checkedCount,
+    notes:existingHost?.notes || "",
+    last_checked_in_at:existingHost?.last_checked_in_at || null,
+    last_checked_in_by_name:existingHost?.last_checked_in_by_name || null,
+    last_door_location:existingHost?.last_door_location || null,
+    added_by_name:existingHost?.added_by_name || currentUser()?.name || "Management",
+    added_by_user_id:existingHost?.added_by_user_id || auth.session?.user?.id || null,
+    added_at:existingHost?.added_at || nowIso,
+    is_late_add:existingHost?.is_late_add || false,
+    late_add_approved_by:existingHost?.late_add_approved_by || null,
+    late_add_reason:existingHost?.late_add_reason || null
+  };
+
+  const result = existingHost
+    ? await withDoorFlowTimeout(
+      db.from("guests").update({
+        first_name:payload.first_name,
+        last_name:payload.last_name,
+        guest_type:payload.guest_type,
+        total_allowed:payload.total_allowed,
+        checked_in_count:payload.checked_in_count,
+        notes:payload.notes
+      }).eq("id", existingHost.id).select("*").limit(1),
+      "Updating party host",
+      15000
+    )
+    : await withDoorFlowTimeout(
+      db.from("guests").insert(payload).select("*").limit(1),
+      "Creating party host",
+      15000
+    );
+
+  const savedHost = normalizeGuest(firstRow(must(result.data, result.error)) || {
+    ...(existingHost || {}),
+    ...payload,
+    id:existingHost?.id || `local-host-${Date.now()}`
+  });
+
+  state.guests = [
+    ...state.guests.filter(guest => guest.id !== savedHost.id),
+    savedHost
+  ];
+  resetDerivedListCaches();
+
+  return savedHost;
+}
+
+function updateHostPlusTotal(source, targetId) {
+  const target = document.getElementById(targetId);
+  if (!target) return;
+
+  const raw = String(source?.value ?? "").trim();
+  const plusCount = raw === "" ? 0 : Number(raw);
+  target.value = Number.isInteger(plusCount) && plusCount >= 0 ? String(1 + plusCount) : "";
 }
 
 
@@ -2323,6 +2448,7 @@ async function createGroup(event) {
 
   const form = new FormData(event.target);
   const date = state.activeDate;
+  let hostPlusOnes = 0;
 
   const payload = {
     service_day_id:null,
@@ -2337,6 +2463,13 @@ async function createGroup(event) {
 
   if (!payload.name) {
     alert("Group name is required.");
+    return;
+  }
+
+  try {
+    hostPlusOnes = parsePlusOnesInput(form.get("host_plus_ones"), "Host Plus Ones");
+  } catch (error) {
+    alert(error.message || error);
     return;
   }
 
@@ -2366,8 +2499,15 @@ async function createGroup(event) {
     state.groups = [createdGroup, ...state.groups.filter(item => item.id !== createdGroup.id)];
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
+
+    await upsertPartyHostGuest(createdGroup, payload.host_name, hostPlusOnes);
+    await loadDataForDate(date);
+
+    state.selectedGroupId = createdGroup.id;
+    state.currentMode = "GROUP";
     state.modal = null;
     state.lastSyncAt = new Date();
+    resetDerivedListCaches();
 
     render();
     queueBackgroundRefreshAfterWrite();
@@ -2382,6 +2522,7 @@ async function updateGroup(event) {
   if (!group) return;
 
   const form = new FormData(event.target);
+  let hostPlusOnes = 0;
   const payload = {
     name:String(form.get("name") || "").trim(),
     group_type:String(form.get("group_type") || "Bottle Service"),
@@ -2397,6 +2538,13 @@ async function updateGroup(event) {
     return;
   }
 
+  try {
+    hostPlusOnes = parsePlusOnesInput(form.get("host_plus_ones"), "Host Plus Ones");
+  } catch (error) {
+    alert(error.message || error);
+    return;
+  }
+
   await runDb("Update group", async () => runCriticalAction("Updating party/group...", async () => {
     const result = await withDoorFlowTimeout(
       db.from("groups").update(payload).eq("id", group.id).select("*").limit(1),
@@ -2407,9 +2555,15 @@ async function updateGroup(event) {
     const updatedGroup = normalizeGroup(firstRow(must(result.data, result.error)) || { ...group, ...payload });
 
     state.groups = state.groups.map(item => item.id === group.id ? updatedGroup : item);
+    await upsertPartyHostGuest(updatedGroup, payload.host_name, hostPlusOnes, { previousHostName:group.host_name });
+    await loadDataForDate(state.activeDate);
+
+    state.selectedGroupId = updatedGroup.id;
+    state.currentMode = "GROUP";
     state.modal = null;
     state.editingGroupId = null;
     state.lastSyncAt = new Date();
+    resetDerivedListCaches();
 
     render();
     queueBackgroundRefreshAfterWrite();
@@ -2644,6 +2798,12 @@ function clearMobileCreateGroupFields() {
     if (field) field.value = "";
   });
 
+  const hostPlus = document.getElementById("mobileGroupHostPlusOnes");
+  if (hostPlus) hostPlus.value = "0";
+
+  const hostTotal = document.getElementById("mobileGroupHostTotalAllowed");
+  if (hostTotal) hostTotal.value = "1";
+
   const location = document.getElementById("mobileGroupLocation");
   if (location) location.value = "";
 }
@@ -2779,12 +2939,20 @@ async function mobileQuickCreateGroup() {
   const name = readMobileField("mobileGroupName");
   const groupType = readMobileField("mobileGroupType") || "VIP Party";
   const hostName = readMobileField("mobileGroupHost");
+  let hostPlusOnes = 0;
   const location = readMobileField("mobileGroupLocation");
   const approvedBy = readMobileField("mobileGroupApprovedBy") || currentUser()?.name || "Management";
   const notes = readMobileField("mobileGroupNotes");
 
   if (!name) {
     showMobileManagerNotice("Party / Group Name is required.", "error");
+    return;
+  }
+
+  try {
+    hostPlusOnes = parsePlusOnesInput(readMobileField("mobileGroupHostPlusOnes"), "Host Plus Ones");
+  } catch (error) {
+    showMobileManagerNotice(error?.message || "Host Plus Ones must be a whole number.", "error");
     return;
   }
 
@@ -2828,8 +2996,15 @@ async function mobileQuickCreateGroup() {
 
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
+
+    await upsertPartyHostGuest(createdGroup, hostName, hostPlusOnes);
+    await loadDataForDate(state.activeDate);
+
+    state.selectedGroupId = createdGroup.id;
+    state.currentMode = "GROUP";
     state.lastSyncAt = new Date();
-    setMobileManagerNotice(`${name} created. You can now add guests to that list.`, "success");
+    setMobileManagerNotice(`${name} created. You can now add named guests to that list.`, "success");
+    resetDerivedListCaches();
 
     clearMobileCreateGroupFields();
     window.__doorFlowMobileSubmitting = false;
@@ -3019,6 +3194,7 @@ function renderMobileManagerView() {
     general ? { id:"general", name:"General Guest List", count:guestsForGroup(general.id).length } : { id:"general", name:"General Guest List", count:0 },
     ...specificGroups().map(group => ({ id:group.id, name:group.name, count:guestsForGroup(group.id).length }))
   ];
+  const mobileEditableGroups = specificGroups();
   const mobilePlusGuests = sortGuests([...state.guests]);
 
   return `
@@ -3139,6 +3315,17 @@ function renderMobileManagerView() {
             </div>
 
             <div>
+              <label>Host Plus Ones</label>
+              <input id="mobileGroupHostPlusOnes" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="0" inputmode="numeric" oninput="updateHostPlusTotal(this,'mobileGroupHostTotalAllowed')" />
+              <p class="mobile-manager-help">Additional unnamed guests allowed under the host's name.</p>
+            </div>
+
+            <div>
+              <label>Total Allowed</label>
+              <input id="mobileGroupHostTotalAllowed" value="1" readonly />
+            </div>
+
+            <div>
               <label>Booth / Location</label>
               <select id="mobileGroupLocation">
                 <option value="">Select booth/location</option>
@@ -3159,6 +3346,27 @@ function renderMobileManagerView() {
             <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickCreateGroup()">Create Party / Group</button>
           </div>
         </details>
+      </section>
+
+      <section class="mobile-manager-card">
+        <div class="mobile-manager-title-row">
+          <div>
+            <h2>Edit Party / Host</h2>
+            <p>Update host name, host plus ones, booth, and party notes.</p>
+          </div>
+        </div>
+
+        <div class="mobile-manager-form">
+          <div>
+            <label>Party / Group</label>
+            <select id="mobileEditGroupSelect">
+              <option value="">Select a party/group</option>
+              ${mobileEditableGroups.map(group => `<option value="${group.id}">${esc(group.name)}${group.host_name ? ` - ${esc(group.host_name)}` : ""}</option>`).join("")}
+            </select>
+          </div>
+
+          <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="openMobileGroupEditModal()" ${mobileEditableGroups.length ? "" : "disabled"}>Edit Party / Host</button>
+        </div>
       </section>
 
       <section class="mobile-manager-card">
@@ -4672,6 +4880,18 @@ function openMobilePlusOnesModal() {
   openPlusOnesModal(id);
 }
 
+function openMobileGroupEditModal() {
+  if (!requirePerm("manage")) return;
+
+  const id = String(document.getElementById("mobileEditGroupSelect")?.value || "");
+  if (!id) {
+    showMobileManagerNotice("Select a party/group before editing.", "error");
+    return;
+  }
+
+  openGroupModal(id);
+}
+
 function openBulkPasteModal() {
   if (!requirePerm("manage")) return;
   state.modal = "bulk";
@@ -4928,6 +5148,8 @@ function renderGroupList(showActions = false) {
 
       ${groups.map(group => {
         const groupStat = groupStats(group.id);
+        const hostGuest = findHostGuestForGroup(group);
+        const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
         const complete = groupStat.total > 0 && groupStat.remaining === 0;
         const started = groupStat.checked > 0 && groupStat.remaining > 0;
 
@@ -4936,7 +5158,7 @@ function renderGroupList(showActions = false) {
             <h3 class="party-title">${esc(group.name)}</h3>
             <div class="party-meta">
               <span class="badge ${typeClass(group.group_type)}">${esc(group.group_type)}</span>
-              <span class="badge general">Host: ${esc(group.host_name || "N/A")}</span>
+              <span class="badge general">Host: ${esc(hostLabel)}</span>
               ${group.table_location ? `<span class="badge general">${esc(group.table_location)}</span>` : ""}
               <span class="badge in">${groupStat.checked} in</span>
               <span class="badge remaining">${groupStat.remaining} left</span>
@@ -4987,7 +5209,7 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
               </div>
               <p class="guest-detail">
                 ${esc(guest.guest_type)}
-                ${group ? ` · ${esc(group.name)}` : ""}
+                ${group ? ` · ${esc(groupDoorLabel(group))}` : ""}
                 ${guest.notes ? ` · ${esc(guest.notes)}` : ""}
               </p>
               ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
@@ -5023,11 +5245,13 @@ function renderSelectedGroupPanel() {
   }
 
   const stats = groupStats(group.id);
+  const hostGuest = findHostGuestForGroup(group);
+  const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
 
   return `
     <div class="card">
       <h2>${esc(group.name)}</h2>
-      <p class="subtle">${esc(group.group_type)} · Host: ${esc(group.host_name || "N/A")}</p>
+      <p class="subtle">${esc(group.group_type)} · Host: ${esc(hostLabel)}</p>
 
       <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
         <div class="stat"><span>Total</span><strong>${stats.total}</strong></div>
@@ -5374,7 +5598,7 @@ function renderTabletGuestCards(guests) {
         <div class="tablet-guest-top">
           <div>
             <p class="tablet-guest-name">${esc(guestDisplayName(guest))}</p>
-            <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(group.name)}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
+            <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(groupDoorLabel(group))}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
             ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
           </div>
           <div class="tablet-count">${checked}/${total}</div>
@@ -5695,6 +5919,8 @@ function renderGroupModal() {
   const existingGroup = state.editingGroupId ? state.groups.find(item => item.id === state.editingGroupId) : null;
   const isEdit = Boolean(existingGroup);
   const group = isEdit ? normalizeGroup(existingGroup) : emptyGroupForm();
+  const hostGuest = isEdit ? findHostGuestForGroup(group) : null;
+  const hostPlusOnes = hostGuest ? guestPlusCount(hostGuest) : 0;
 
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
@@ -5722,7 +5948,18 @@ function renderGroupModal() {
 
           <div>
             <label>Host Name</label>
-            <input name="host_name" value="${esc(group?.host_name || "")}" />
+            <input name="host_name" value="${esc(group?.host_name || "")}" placeholder="John Smith" />
+          </div>
+
+          <div>
+            <label>Host Plus Ones</label>
+            <input name="host_plus_ones" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="${hostPlusOnes}" oninput="updateHostPlusTotal(this,'groupHostTotalAllowed')" />
+            <p class="subtle" style="margin:6px 0 0;">Additional unnamed guests allowed under the host's name.</p>
+          </div>
+
+          <div>
+            <label>Total Allowed</label>
+            <input id="groupHostTotalAllowed" value="${1 + hostPlusOnes}" readonly />
           </div>
 
           <div>
@@ -6075,6 +6312,7 @@ Object.assign(window, {
   mobileQuickCreateGroup,
   mobileAddShiftNote,
   savePlusOnes,
+  updateHostPlusTotal,
   insertEmojiIntoField,
   scrollToMobileCreateGroup,
   manualRefreshData,
@@ -6090,6 +6328,7 @@ Object.assign(window, {
   openGuestModal,
   openPlusOnesModal,
   openMobilePlusOnesModal,
+  openMobileGroupEditModal,
   openBulkPasteModal,
   closeModal,
   render,

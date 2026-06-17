@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v20 - Existing Host Plus-One Adjustment
+DoorFlow Launch Stability v21 - Party Host Plus-One Create/Edit
 
 Purpose:
-This package builds on the v19 B.O.B. branding and PWA icon update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, date/default protections, General Guest List defaults, idle button fixes, normalized raw records, memoized local selectors, stable search surfaces, non-disruptive refresh, and real The B.O.B. logo assets while adding manager-only plus-one adjustment for existing host records.
+This package builds on the v20 existing-host plus-one adjustment update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, date/default protections, General Guest List defaults, idle button fixes, normalized raw records, memoized local selectors, stable search surfaces, non-disruptive refresh, real The B.O.B. logo assets, and manager-only plus-one adjustment while adding party host plus-one create/edit support.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -62,7 +62,15 @@ Changes:
 - Appends a plus-one adjustment audit note to the existing host record.
 - Keeps door, tablet, manager, mobile manager, activity, and close-out guest displays consistent as "Guest Name +N".
 - Adds Display Name and Plus Ones columns to CSV exports while keeping existing first/last/total columns.
-- Service worker cache bumped to v28.
+- Adds Host Plus Ones and Total Allowed fields to desktop Create/Edit Party / Group.
+- Adds Host Plus Ones and Total Allowed fields to Mobile Manager Create Party / Group.
+- Adds Mobile Manager edit access for existing party/host details.
+- Creates the party host as one guest record with guest_type "Host", group_id tied to the party/group, and total_allowed = 1 + Host Plus Ones.
+- Updates an existing host guest record for the same group when editing host name or host plus ones.
+- Keeps named guests as separate guest records under the same party/group; host plus ones do not replace named guests.
+- Keeps Add Individual Guest, Bulk Paste, and Excel/CSV upload into a party/group available after the host is created.
+- Door/tablet guest rows now show the party plus booth/location, such as Smith Birthday / POD4.
+- Service worker cache bumped to v29.
 
 Deployment:
 1. Upload/replace all files in GitHub.

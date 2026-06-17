@@ -1,7 +1,7 @@
-// DoorFlow PWA service worker - existing-host plus-one adjustment v28
+// DoorFlow PWA service worker - party host plus-one create/edit v29
 // DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v28";
+const CACHE_NAME = "doorflow-cache-v29";
 const APP_SHELL = [
   "/",
   "/index.html",
