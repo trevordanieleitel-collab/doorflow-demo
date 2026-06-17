@@ -1,7 +1,7 @@
-DoorFlow Launch Stability v19 - B.O.B. Logo and PWA Icon Wiring
+DoorFlow Launch Stability v20 - Existing Host Plus-One Adjustment
 
 Purpose:
-This package builds on the v18 Foundr-style stability and branding update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, date/default protections, General Guest List defaults, idle button fixes, normalized raw records, memoized local selectors, stable search surfaces, and non-disruptive refresh while wiring in the real The B.O.B. logo assets.
+This package builds on the v19 B.O.B. branding and PWA icon update. It keeps the mobile manager layout, booth dropdown, Supabase Realtime, backup refresh system, phone shift notes, emoji keyboard, date/default protections, General Guest List defaults, idle button fixes, normalized raw records, memoized local selectors, stable search surfaces, non-disruptive refresh, and real The B.O.B. logo assets while adding manager-only plus-one adjustment for existing host records.
 
 Changes:
 - Preserves form values and open mobile sections during live refresh/re-render events.
@@ -55,7 +55,14 @@ Changes:
 - Updates manifest.webmanifest icons to use the branded B.O.B. PWA icons.
 - Updates favicon and Apple touch icon links to use /branding/bob-icon-192.png.
 - Updates the PWA name to "The B.O.B. DoorFlow" while keeping the short name DoorFlow.
-- Service worker cache bumped to v27.
+- Adds manager/admin "Edit Plus Ones" actions to existing guest rows without creating unnamed guest records.
+- Adds a Mobile Manager "Adjust Plus Ones" selector for any existing guest on the selected service date.
+- Adds an Adjust Plus Ones modal with Host Name, Current Plus Ones, New Plus Ones, Approved By, and Notes/Reason.
+- Saves plus-one changes by guest ID to the existing guest.total_allowed field and reloads the selected service date after saving.
+- Appends a plus-one adjustment audit note to the existing host record.
+- Keeps door, tablet, manager, mobile manager, activity, and close-out guest displays consistent as "Guest Name +N".
+- Adds Display Name and Plus Ones columns to CSV exports while keeping existing first/last/total columns.
+- Service worker cache bumped to v28.
 
 Deployment:
 1. Upload/replace all files in GitHub.

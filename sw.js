@@ -1,7 +1,7 @@
-// DoorFlow PWA service worker - The B.O.B. logo asset fix v27
+// DoorFlow PWA service worker - existing-host plus-one adjustment v28
 // DoorFlow live data always requires internet/Supabase access.
 
-const CACHE_NAME = "doorflow-cache-v27";
+const CACHE_NAME = "doorflow-cache-v28";
 const APP_SHELL = [
   "/",
   "/index.html",

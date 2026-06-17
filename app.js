@@ -104,6 +104,7 @@ let state = {
   modal:null,
   editingGroupId:null,
   editingGuestId:null,
+  editingPlusGuestId:null,
   editingShiftNoteId:null,
   importMessage:"",
   mobileManagerNotice:null,
@@ -1277,6 +1278,10 @@ async function logout() {
   state.searchText = "";
   state.groupSearchText = "";
   state.modal = null;
+  state.editingGroupId = null;
+  state.editingGuestId = null;
+  state.editingPlusGuestId = null;
+  state.editingShiftNoteId = null;
   state.error = "";
 
   Object.keys(localStorage).forEach(key => {
@@ -1676,6 +1681,27 @@ function isGuestFullyIn(guest) {
   return guestChecked(guest) >= guestTotal(guest);
 }
 
+function guestPlusCount(guest) {
+  return Math.max(0, guestTotal(guest) - 1);
+}
+
+function guestBaseName(guest) {
+  return `${guest?.first_name || ""} ${guest?.last_name || ""}`.trim() || "Guest";
+}
+
+function guestDisplayName(guest) {
+  const name = guestBaseName(guest);
+  const plusCount = guestPlusCount(guest);
+  return plusCount > 0 ? `${name} +${plusCount}` : name;
+}
+
+function appendGuestNote(existing, note) {
+  const current = String(existing || "").trim();
+  const addition = String(note || "").trim();
+  if (!addition) return current;
+  return current ? `${current}\n${addition}` : addition;
+}
+
 function normalizeSearchCorpus(value) {
   return String(value ?? "")
     .toLowerCase()
@@ -1709,7 +1735,7 @@ function guestStatusSearchText(guest) {
 }
 
 function guestSearchHaystack(guest, group) {
-  const plusOnes = Math.max(0, guestTotal(guest) - 1);
+  const plusOnes = guestPlusCount(guest);
   const lastCheckTime = guest.last_checked_in_at
     ? `${formatClock(guest.last_checked_in_at)} ${new Date(guest.last_checked_in_at).toLocaleString()}`
     : "";
@@ -1718,6 +1744,7 @@ function guestSearchHaystack(guest, group) {
     guest.first_name,
     guest.last_name,
     `${guest.first_name} ${guest.last_name}`,
+    guestDisplayName(guest),
     guest.guest_type,
     guest.notes,
     guest.late_add_approved_by,
@@ -1919,7 +1946,7 @@ function groupFromLog(log) {
 
 function guestNameFromLog(log) {
   const guest = guestFromLog(log);
-  return guest ? `${guest.first_name} ${guest.last_name}` : "Guest record not found";
+  return guest ? guestDisplayName(guest) : "Guest record not found";
 }
 
 function groupNameFromLog(log) {
@@ -2992,6 +3019,7 @@ function renderMobileManagerView() {
     general ? { id:"general", name:"General Guest List", count:guestsForGroup(general.id).length } : { id:"general", name:"General Guest List", count:0 },
     ...specificGroups().map(group => ({ id:group.id, name:group.name, count:guestsForGroup(group.id).length }))
   ];
+  const mobilePlusGuests = sortGuests([...state.guests]);
 
   return `
     <div class="mobile-manager-view">
@@ -3052,6 +3080,27 @@ function renderMobileManagerView() {
           </div>
 
           <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickAddGuest()">Add Guest</button>
+        </div>
+      </section>
+
+      <section class="mobile-manager-card">
+        <div class="mobile-manager-title-row">
+          <div>
+            <h2>Adjust Plus Ones</h2>
+            <p>Change the allowed plus-one count on an existing host/name.</p>
+          </div>
+        </div>
+
+        <div class="mobile-manager-form">
+          <div>
+            <label>Existing Host / Guest</label>
+            <select id="mobilePlusGuestSelect">
+              <option value="">Select a name</option>
+              ${mobilePlusGuests.map(guest => `<option value="${guest.id}">${esc(guestDisplayName(guest))} - ${esc(groupNameForGuest(guest))}</option>`).join("")}
+            </select>
+          </div>
+
+          <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="openMobilePlusOnesModal()" ${mobilePlusGuests.length ? "" : "disabled"}>Edit Plus Ones</button>
         </div>
       </section>
 
@@ -3191,8 +3240,11 @@ function renderMobileManagerView() {
           ${recentAdds.length ? recentAdds.map(guest => `
             <div class="mobile-manager-recent-row">
               <div class="mobile-manager-recent-top">
-                <strong>${esc(guest.first_name)} ${esc(guest.last_name)}${guestTotal(guest) > 1 ? ` +${guestTotal(guest) - 1}` : ""}</strong>
+                <strong>${esc(guestDisplayName(guest))}</strong>
                 <span>${isLateAdd(guest) ? "Late Add" : "Added"}</span>
+              </div>
+              <div class="row-actions">
+                <button type="button" class="btn secondary small" onclick="openPlusOnesModal('${guest.id}')">Edit Plus Ones</button>
               </div>
               <p>${esc(groupNameForGuest(guest))} • Approved by ${esc(guest.late_add_approved_by || guest.added_by_name || "Manager")}</p>
             </div>
@@ -3278,6 +3330,93 @@ async function updateGuest(event) {
     render();
     queueBackgroundRefreshAfterWrite();
   }));
+}
+
+async function savePlusOnes(event) {
+  event.preventDefault();
+  if (!requirePerm("manage")) return;
+
+  const guest = state.guests.find(item => item.id === state.editingPlusGuestId);
+  if (!guest) {
+    alert("DoorFlow could not find that guest on the selected service date. Tap Refresh Data and try again.");
+    return;
+  }
+
+  const group = state.groups.find(item => item.id === guest.group_id);
+  if (!group || (state.serviceDay?.id && group.service_day_id !== state.serviceDay.id)) {
+    alert("This guest is not on the currently selected service date. Refresh Data before changing plus ones.");
+    return;
+  }
+
+  const form = new FormData(event.target);
+  const rawPlusCount = String(form.get("plus_count") || "").trim();
+  const plusCount = Number(rawPlusCount);
+  const approvedBy = String(form.get("approved_by") || "").trim();
+  const reason = String(form.get("reason") || "").trim();
+
+  if (rawPlusCount === "" || !Number.isInteger(plusCount) || plusCount < 0 || plusCount > 20) {
+    alert("New Plus Ones must be a whole number from 0 to 20.");
+    return;
+  }
+
+  if (!approvedBy) {
+    alert("Approved By is required before changing plus ones.");
+    return;
+  }
+
+  const totalAllowed = 1 + plusCount;
+  const checkedCount = guestChecked(guest);
+
+  if (totalAllowed < checkedCount) {
+    alert(`This guest already has ${checkedCount} checked in. Set plus ones to at least +${Math.max(0, checkedCount - 1)} or undo check-ins first.`);
+    return;
+  }
+
+  const oldPlusCount = guestPlusCount(guest);
+  const noteLine = `Plus ones adjusted from +${oldPlusCount} to +${plusCount} by ${approvedBy}${reason ? `: ${reason}` : ""}`;
+  const payload = {
+    total_allowed:totalAllowed,
+    checked_in_count:checkedCount,
+    notes:appendGuestNote(guest.notes, noteLine)
+  };
+
+  await runDb("Adjust plus ones", async () => runCriticalAction("Adjusting plus ones...", async () => {
+    const result = await withDoorFlowTimeout(
+      db.from("guests").update(payload).eq("id", guest.id).select("*").limit(1),
+      "Adjusting plus ones",
+      15000
+    );
+
+    const updatedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || { ...guest, ...payload });
+
+    state.guests = state.guests.map(item => item.id === guest.id ? updatedGuest : item);
+    state.lastSyncAt = new Date();
+    resetDerivedListCaches();
+
+    try {
+      const user = currentUser();
+      await withDoorFlowTimeout(db.from("check_in_logs").insert({
+        guest_id:guest.id,
+        group_id:guest.group_id,
+        action:`Adjust Plus Ones +${oldPlusCount} to +${plusCount}`,
+        amount:Math.abs(plusCount - oldPlusCount),
+        door_location:state.doorLocation,
+        staff_user_id:null,
+        staff_name:user?.name || approvedBy
+      }), "Logging plus-one adjustment", 8000);
+    } catch (error) {
+      console.warn("DoorFlow plus-one adjustment log skipped:", error);
+    }
+
+    await loadDataForDate(state.activeDate);
+
+    state.modal = null;
+    state.editingPlusGuestId = null;
+    state.lastSyncAt = new Date();
+    resetDerivedListCaches();
+
+    render();
+  }, `plus:${guest.id}`));
 }
 
 async function deleteGuest(id) {
@@ -3701,7 +3840,7 @@ function exportCsv() {
   if (!requirePerm("reports")) return;
 
   const rows = [
-    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Guest Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Late Add","Approved By","Late Add Reason","Added By","Added At","Checked In At","Checked In By","Door","Notes"],
+    ["Date","Day","Group","Group Type","Host","Table","First Name","Last Name","Display Name","Plus Ones","Guest Type","Total Allowed","Checked In Count","Remaining","Fully Checked In","Late Add","Approved By","Late Add Reason","Added By","Added At","Checked In At","Checked In By","Door","Notes"],
     ...state.guests.map(guest => {
       const group = state.groups.find(item => item.id === guest.group_id);
 
@@ -3714,6 +3853,8 @@ function exportCsv() {
         group?.table_location || "",
         guest.first_name,
         guest.last_name,
+        guestDisplayName(guest),
+        guestPlusCount(guest),
         guest.guest_type,
         guestTotal(guest),
         guestChecked(guest),
@@ -4078,9 +4219,11 @@ function buildCloseOutReportData() {
       checked_in:groupStat.checked,
       remaining:groupStat.remaining,
       guests:guests.map(guest => ({
+        display_name:guestDisplayName(guest),
         first_name:guest.first_name,
         last_name:guest.last_name,
         guest_type:guest.guest_type,
+        plus_ones:guestPlusCount(guest),
         total_allowed:guestTotal(guest),
         checked_in_count:guestChecked(guest),
         remaining:guestRemaining(guest),
@@ -4101,10 +4244,12 @@ function buildCloseOutReportData() {
   const noShows = state.guests
     .filter(guest => guestRemaining(guest) > 0)
     .map(guest => ({
+      display_name:guestDisplayName(guest),
       first_name:guest.first_name,
       last_name:guest.last_name,
       group_name:groupNameForGuest(guest),
       guest_type:guest.guest_type,
+      plus_ones:guestPlusCount(guest),
       total_allowed:guestTotal(guest),
       checked_in_count:guestChecked(guest),
       remaining:guestRemaining(guest),
@@ -4137,10 +4282,12 @@ function buildCloseOutReportData() {
     },
     groups:groupSummaries,
     late_adds:state.guests.filter(guest => isLateAdd(guest)).map(guest => ({
+      display_name:guestDisplayName(guest),
       first_name:guest.first_name,
       last_name:guest.last_name,
       group_name:groupNameForGuest(guest),
       guest_type:guest.guest_type,
+      plus_ones:guestPlusCount(guest),
       approved_by:guest.late_add_approved_by || "",
       reason:guest.late_add_reason || "",
       added_by:guest.added_by_name || "",
@@ -4174,7 +4321,7 @@ function buildCloseOutReportHtml(report) {
   const noShowRows = report.no_shows.length
     ? report.no_shows.map(guest => `
       <tr>
-        <td>${esc(guest.first_name)} ${esc(guest.last_name)}</td>
+        <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
         <td>${esc(guest.group_name)}</td>
         <td>${esc(guest.guest_type)}</td>
         <td>${guest.checked_in_count}/${guest.total_allowed}</td>
@@ -4269,11 +4416,12 @@ function downloadCloseOutReportCsv() {
   const report = buildCloseOutReportData();
 
   const rows = [
-    ["Section","Group","Guest","Guest Type","Total Allowed","Checked In","Remaining","Late Add","Approved By","Reason/Notes","Added By","Added At"],
+    ["Section","Group","Guest","Plus Ones","Guest Type","Total Allowed","Checked In","Remaining","Late Add","Approved By","Reason/Notes","Added By","Added At"],
     ...report.groups.flatMap(group => group.guests.map(guest => [
       "Guest",
       group.group_name,
-      `${guest.first_name} ${guest.last_name}`,
+      guest.display_name || `${guest.first_name} ${guest.last_name}`,
+      guest.plus_ones,
       guest.guest_type,
       guest.total_allowed,
       guest.checked_in_count,
@@ -4286,6 +4434,7 @@ function downloadCloseOutReportCsv() {
     ])),
     ...report.shift_notes.map(note => [
       "Shift Note",
+      "",
       "",
       "",
       note.category,
@@ -4388,7 +4537,7 @@ function renderCloseOutReportModal() {
             <tbody>
               ${lateAdds.length ? lateAdds.map(guest => `
                 <tr>
-                  <td>${esc(guest.first_name)} ${esc(guest.last_name)}</td>
+                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
                   <td>${esc(guest.group_name)}</td>
                   <td>${esc(guest.guest_type)}</td>
                   <td>${esc(guest.approved_by || "")}</td>
@@ -4417,7 +4566,7 @@ function renderCloseOutReportModal() {
             <tbody>
               ${noShows.length ? noShows.map(guest => `
                 <tr>
-                  <td>${esc(guest.first_name)} ${esc(guest.last_name)}</td>
+                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
                   <td>${esc(guest.group_name)}</td>
                   <td>${esc(guest.guest_type)}</td>
                   <td>${guest.checked_in_count}/${guest.total_allowed}</td>
@@ -4504,6 +4653,25 @@ function openGuestModal(id = null) {
   render();
 }
 
+function openPlusOnesModal(id) {
+  if (!requirePerm("manage")) return;
+  state.editingPlusGuestId = id;
+  state.modal = "plusOnes";
+  render();
+}
+
+function openMobilePlusOnesModal() {
+  if (!requirePerm("manage")) return;
+
+  const id = String(document.getElementById("mobilePlusGuestSelect")?.value || "");
+  if (!id) {
+    showMobileManagerNotice("Select an existing guest before editing plus ones.", "error");
+    return;
+  }
+
+  openPlusOnesModal(id);
+}
+
 function openBulkPasteModal() {
   if (!requirePerm("manage")) return;
   state.modal = "bulk";
@@ -4514,6 +4682,7 @@ function closeModal() {
   state.modal = null;
   state.editingGroupId = null;
   state.editingGuestId = null;
+  state.editingPlusGuestId = null;
   state.editingShiftNoteId = null;
   render();
 
@@ -4811,7 +4980,7 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
 
             <div>
               <div class="name-line">
-                <p class="guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
+                <p class="guest-name">${esc(guestDisplayName(guest))}</p>
                 <span class="count-pill">${checked}/${total}</span>
                 ${fullyIn ? `<span class="badge in">Fully In</span>` : remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
                 ${lateAddBadge(guest)}
@@ -4830,6 +4999,7 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
               ${checked > 0 ? `<button type="button" class="btn secondary small" onclick="undoOneGuest('${guest.id}')" ${undoBusy ? "disabled" : ""}>${undoBusy ? "Undoing..." : "Undo 1"}</button>` : ""}
               ${showActions ? `
                 <button type="button" class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
+                <button type="button" class="btn secondary small" onclick="openPlusOnesModal('${guest.id}')">Edit Plus Ones</button>
                 <button type="button" class="btn danger small" onclick="deleteGuest('${guest.id}')">Delete</button>
               ` : ""}
             </div>
@@ -5203,7 +5373,7 @@ function renderTabletGuestCards(guests) {
       <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
         <div class="tablet-guest-top">
           <div>
-            <p class="tablet-guest-name">${esc(guest.first_name)} ${esc(guest.last_name)}</p>
+            <p class="tablet-guest-name">${esc(guestDisplayName(guest))}</p>
             <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(group.name)}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
             ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
           </div>
@@ -5498,7 +5668,7 @@ function renderReports() {
 
                     return `
                       <tr>
-                        <td><strong>${esc(guest.first_name)} ${esc(guest.last_name)}</strong></td>
+                        <td><strong>${esc(guestDisplayName(guest))}</strong></td>
                         <td>${esc(group?.name || "")}</td>
                         <td>${esc(guest.guest_type || "")}</td>
                         <td>${guestChecked(guest)} / ${guestTotal(guest)}</td>
@@ -5679,6 +5849,79 @@ function renderGuestModal() {
   `;
 }
 
+function renderPlusOnesModal() {
+  const guest = state.editingPlusGuestId ? state.guests.find(item => item.id === state.editingPlusGuestId) : null;
+
+  if (!guest) {
+    return `
+      <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+        <div class="modal">
+          <h2>Adjust Plus Ones</h2>
+          <div class="notice redbox">DoorFlow could not find that guest on the selected service date. Tap Refresh Data, then try again.</div>
+          <div class="row-actions">
+            <button class="btn secondary" type="button" onclick="closeModal()">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const group = state.groups.find(item => item.id === guest.group_id);
+  const currentPlus = guestPlusCount(guest);
+  const checked = guestChecked(guest);
+  const busy = isActionBusy(`plus:${guest.id}`);
+
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal">
+        <h2>Adjust Plus Ones</h2>
+        <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong>${group ? ` &bull; ${esc(group.name)}` : ""}</p>
+
+        <div class="notice greenbox">
+          This updates the allowed plus-one count on the existing host record only. No unnamed guest rows will be created.
+        </div>
+
+        <form onsubmit="savePlusOnes(event)" class="form two">
+          <div style="grid-column:1/-1;">
+            <label>Host Name</label>
+            <input value="${esc(guestBaseName(guest))}" readonly />
+          </div>
+
+          <div>
+            <label>Current Plus Ones</label>
+            <input value="+${currentPlus}" readonly />
+          </div>
+
+          <div>
+            <label>Current Checked In</label>
+            <input value="${checked} / ${guestTotal(guest)}" readonly />
+          </div>
+
+          <div>
+            <label>New Plus Ones</label>
+            <input name="plus_count" type="number" min="0" max="20" step="1" value="${currentPlus}" required />
+          </div>
+
+          <div>
+            <label>Approved By</label>
+            <input name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" required />
+          </div>
+
+          <div style="grid-column:1/-1;">
+            <label>Notes / Reason</label>
+            <textarea name="reason" rows="3" placeholder="Example: Host approved two additional guests"></textarea>
+          </div>
+
+          <div style="grid-column:1/-1;" class="row-actions">
+            <button class="btn" type="submit" ${busy ? "disabled" : ""}>${busy ? "Saving..." : "Save Plus Ones"}</button>
+            <button class="btn secondary" type="button" onclick="closeModal()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
 function renderBulkModal() {
   return `
     <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
@@ -5776,6 +6019,7 @@ function renderShiftNoteModal() {
 function renderModal() {
   if (state.modal === "group") return renderGroupModal();
   if (state.modal === "guest") return renderGuestModal();
+  if (state.modal === "plusOnes") return renderPlusOnesModal();
   if (state.modal === "bulk") return renderBulkModal();
   if (state.modal === "shiftNote") return renderShiftNoteModal();
   if (state.modal === "closeoutReport") return renderCloseOutReportModal();
@@ -5830,6 +6074,7 @@ Object.assign(window, {
   mobileQuickAddGuest,
   mobileQuickCreateGroup,
   mobileAddShiftNote,
+  savePlusOnes,
   insertEmojiIntoField,
   scrollToMobileCreateGroup,
   manualRefreshData,
@@ -5843,6 +6088,8 @@ Object.assign(window, {
   exportCsv,
   openGroupModal,
   openGuestModal,
+  openPlusOnesModal,
+  openMobilePlusOnesModal,
   openBulkPasteModal,
   closeModal,
   render,
