@@ -1360,6 +1360,7 @@ const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
 const DOORFLOW_ACTION_SESSION_CHECK_MS = 15000;
 const DOORFLOW_WAKE_ACTION_WINDOW_MS = 10000;
 const DOORFLOW_STUCK_ACTION_RESET_MS = 25000;
+const DEFAULT_VENUE_NAME = "EVE";
 const BOB_BRAND = {
   appName:"The B.O.B. DoorFlow",
   shortName:"DoorFlow",
@@ -2677,32 +2678,44 @@ function canManageData() {
   return Boolean(perms()?.manage);
 }
 
-async function ensureVenue() {
-  let result = await db
+async function findVenueByName(name) {
+  const result = await db
     .from("venues")
     .select("*")
-    .eq("name","EVE")
+    .eq("name", name)
     .order("created_at", { ascending:true })
     .limit(1);
 
   if (result.error) throw result.error;
-  if (firstRow(result.data)) return firstRow(result.data);
+  return firstRow(result.data);
+}
+
+async function findFallbackVenue() {
+  const result = await db
+    .from("venues")
+    .select("*")
+    .order("created_at", { ascending:true })
+    .limit(1);
+
+  if (result.error) throw result.error;
+  return firstRow(result.data);
+}
+
+async function ensureVenue() {
+  const defaultVenue = await findVenueByName(DEFAULT_VENUE_NAME);
+  if (defaultVenue) return defaultVenue;
+
+  const fallbackVenue = await findFallbackVenue();
+  if (fallbackVenue) return fallbackVenue;
 
   if (!canManageData()) {
     throw new Error("Venue has not been created yet. Log in as admin/manager first.");
   }
 
-  result = await db.from("venues").insert({ name:"EVE" });
+  let result = await db.from("venues").insert({ name:DEFAULT_VENUE_NAME });
   if (result.error) throw result.error;
 
-  result = await db
-    .from("venues")
-    .select("*")
-    .eq("name","EVE")
-    .order("created_at", { ascending:true })
-    .limit(1);
-
-  return must(firstRow(result.data), result.error);
+  return must(await findVenueByName(DEFAULT_VENUE_NAME), null);
 }
 
 async function ensureServiceDay(dateString) {
@@ -5829,7 +5842,7 @@ function buildCloseOutReportData() {
   }));
 
   return {
-    venue:state.venue?.name || "EVE",
+    venue:state.venue?.name || DEFAULT_VENUE_NAME,
     service_date:state.activeDate,
     day_name:state.activeDay,
     generated_at:new Date().toISOString(),
