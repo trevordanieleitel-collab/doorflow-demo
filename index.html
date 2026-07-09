@@ -1935,6 +1935,34 @@ function isActionBusy(key) {
   return Boolean(key && state.actionBusy?.[key]);
 }
 
+function isGuestCheckActionBusy(guestId) {
+  return Boolean(isActionBusy(`checkin:${guestId}`) || isActionBusy(`undo:${guestId}`));
+}
+
+function refreshCheckActionSurfaces(forceRender = false) {
+  resetDerivedListCaches();
+  if (forceRender || !refreshLiveSurfaces()) render();
+}
+
+function guestCheckStatePayload(guest) {
+  return {
+    checked_in_count:guestChecked(guest),
+    last_checked_in_at:guest.last_checked_in_at || null,
+    last_checked_in_by_name:guest.last_checked_in_by_name || null,
+    last_door_location:guest.last_door_location || null
+  };
+}
+
+async function restoreGuestCheckState(id, guest) {
+  const result = await withDoorFlowTimeout(
+    db.from("guests").update(guestCheckStatePayload(guest)).eq("id", id),
+    "Restoring guest check-in state",
+    8000
+  );
+
+  must(result.data, result.error);
+}
+
 
 /* AUTO REFRESH / LIVE SYNC */
 
@@ -3689,6 +3717,7 @@ function switchView(view) {
 
 async function checkInOneGuest(id) {
   if (!requirePerm("door")) return;
+  if (isGuestCheckActionBusy(id)) return;
 
   const guest = state.guests.find(item => item.id === id);
   if (!guest) return;
@@ -3703,8 +3732,29 @@ async function checkInOneGuest(id) {
   const newCount = guestChecked(guest) + 1;
   const user = currentUser();
   const nowIso = new Date().toISOString();
+  const previousGuest = normalizeGuest({ ...guest });
+  const actionKey = `checkin:${id}`;
+  let guestWriteSaved = false;
+  const optimisticGuest = normalizeGuest({
+    ...guest,
+    checked_in_count:newCount,
+    last_checked_in_at:nowIso,
+    last_checked_in_by_name:user.name,
+    last_door_location:state.doorLocation
+  });
 
-  await runDb("Check in", async () => runCriticalAction("Checking in guest...", async () => {
+  try {
+    state.error = "";
+    activeDoorFlowAction = true;
+    lastDoorFlowActionAt = Date.now();
+    setActionBusy(actionKey, true);
+    updateSyncStatus("Saving", "Checking in guest...");
+
+    Object.assign(guest, optimisticGuest);
+    refreshCheckActionSurfaces();
+
+    await prepareDatabaseAction("Check in");
+
     const updateResult = await withDoorFlowTimeout(
       db
         .from("guests")
@@ -3720,8 +3770,9 @@ async function checkInOneGuest(id) {
     );
 
     must(updateResult.data, updateResult.error);
+    guestWriteSaved = true;
 
-    const logResult = await withDoorFlowTimeout(db.from("check_in_logs").insert({
+    const logPayload = {
       guest_id:guest.id,
       group_id:guest.group_id,
       action:"Check In 1",
@@ -3729,27 +3780,43 @@ async function checkInOneGuest(id) {
       door_location:state.doorLocation,
       staff_user_id:null,
       staff_name:user.name
-    }), "Saving check-in log", 12000);
+    };
+
+    const logResult = await withDoorFlowTimeout(
+      db.from("check_in_logs").insert(logPayload),
+      "Saving check-in log",
+      12000
+    );
 
     must(logResult.data, logResult.error);
 
-    Object.assign(guest, normalizeGuest({
-      ...guest,
-      checked_in_count:newCount,
-      last_checked_in_at:nowIso,
-      last_checked_in_by_name:user.name,
-      last_door_location:state.doorLocation
-    }));
     state.lastSyncAt = new Date();
-    resetDerivedListCaches();
-
-    if (!refreshLiveSurfaces()) render();
+    updateSyncStatus("Saved", "Check-in saved. Syncing devices.");
     queueBackgroundRefreshAfterWrite();
-  }, `checkin:${id}`));
+  } catch (error) {
+    console.error(error);
+    if (guestWriteSaved) {
+      try {
+        await restoreGuestCheckState(id, previousGuest);
+      } catch (rollbackError) {
+        console.warn("DoorFlow check-in rollback failed:", rollbackError);
+      }
+    }
+    Object.assign(guest, previousGuest);
+    state.loading = false;
+    state.error = "Check in failed: " + (error.message || error);
+    updateSyncStatus("Action failed", error.message || String(error));
+  } finally {
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
+    setActionBusy(actionKey, false);
+    refreshCheckActionSurfaces(Boolean(state.error));
+  }
 }
 
 async function undoOneGuest(id) {
   if (!requirePerm("door")) return;
+  if (isGuestCheckActionBusy(id)) return;
 
   const guest = state.guests.find(item => item.id === id);
   if (!guest) return;
@@ -3759,8 +3826,29 @@ async function undoOneGuest(id) {
 
   const newCount = checked - 1;
   const user = currentUser();
+  const previousGuest = normalizeGuest({ ...guest });
+  const actionKey = `undo:${id}`;
+  let guestWriteSaved = false;
+  const optimisticGuest = normalizeGuest({
+    ...guest,
+    checked_in_count:newCount,
+    last_checked_in_at:newCount > 0 ? guest.last_checked_in_at : null,
+    last_checked_in_by_name:newCount > 0 ? guest.last_checked_in_by_name : null,
+    last_door_location:newCount > 0 ? guest.last_door_location : null
+  });
 
-  await runDb("Undo check-in", async () => runCriticalAction("Undoing check-in...", async () => {
+  try {
+    state.error = "";
+    activeDoorFlowAction = true;
+    lastDoorFlowActionAt = Date.now();
+    setActionBusy(actionKey, true);
+    updateSyncStatus("Saving", "Undoing check-in...");
+
+    Object.assign(guest, optimisticGuest);
+    refreshCheckActionSurfaces();
+
+    await prepareDatabaseAction("Undo check-in");
+
     const updateResult = await withDoorFlowTimeout(
       db
         .from("guests")
@@ -3776,8 +3864,9 @@ async function undoOneGuest(id) {
     );
 
     must(updateResult.data, updateResult.error);
+    guestWriteSaved = true;
 
-    const logResult = await withDoorFlowTimeout(db.from("check_in_logs").insert({
+    const logPayload = {
       guest_id:guest.id,
       group_id:guest.group_id,
       action:"Undo 1",
@@ -3785,20 +3874,43 @@ async function undoOneGuest(id) {
       door_location:state.doorLocation,
       staff_user_id:null,
       staff_name:user.name
-    }), "Saving undo log", 12000);
+    };
+
+    const logResult = await withDoorFlowTimeout(
+      db.from("check_in_logs").insert(logPayload),
+      "Saving undo log",
+      12000
+    );
 
     must(logResult.data, logResult.error);
 
-    Object.assign(guest, normalizeGuest({ ...guest, checked_in_count:newCount }));
     state.lastSyncAt = new Date();
-    resetDerivedListCaches();
-
-    if (!refreshLiveSurfaces()) render();
+    updateSyncStatus("Saved", "Undo saved. Syncing devices.");
     queueBackgroundRefreshAfterWrite();
-  }, `undo:${id}`));
+  } catch (error) {
+    console.error(error);
+    if (guestWriteSaved) {
+      try {
+        await restoreGuestCheckState(id, previousGuest);
+      } catch (rollbackError) {
+        console.warn("DoorFlow undo rollback failed:", rollbackError);
+      }
+    }
+    Object.assign(guest, previousGuest);
+    state.loading = false;
+    state.error = "Undo check-in failed: " + (error.message || error);
+    updateSyncStatus("Action failed", error.message || String(error));
+  } finally {
+    activeDoorFlowAction = false;
+    lastDoorFlowActionAt = Date.now();
+    setActionBusy(actionKey, false);
+    refreshCheckActionSurfaces(Boolean(state.error));
+  }
 }
 
 function toggleGuest(id) {
+  if (isGuestCheckActionBusy(id)) return;
+
   const guest = state.guests.find(item => item.id === id);
   if (!guest) return;
 
@@ -6562,10 +6674,11 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
         const showLast = checked > 0 && guest.last_checked_in_by_name;
         const checkInBusy = isActionBusy(`checkin:${guest.id}`);
         const undoBusy = isActionBusy(`undo:${guest.id}`);
+        const guestBusy = checkInBusy || undoBusy;
 
         return `
           <div class="guest-row ${fullyIn ? "checked" : ""}">
-            <button type="button" class="guest-check" onclick="toggleGuest('${guest.id}')">${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
+            <button type="button" class="guest-check" onclick="toggleGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
 
             <div>
               <div class="name-line">
@@ -6584,8 +6697,8 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
             </div>
 
             <div class="row-actions">
-              ${remaining > 0 ? `<button type="button" class="btn green small" onclick="checkInOneGuest('${guest.id}')" ${checkInBusy ? "disabled" : ""}>${checkInBusy ? "Checking..." : "Check In 1"}</button>` : `<span class="badge in">Fully In</span>`}
-              ${checked > 0 ? `<button type="button" class="btn secondary small" onclick="undoOneGuest('${guest.id}')" ${undoBusy ? "disabled" : ""}>${undoBusy ? "Undoing..." : "Undo 1"}</button>` : ""}
+              ${checkInBusy ? `<button type="button" class="btn green small" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green small" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<span class="badge in">Fully In</span>`}
+              ${undoBusy ? `<button type="button" class="btn secondary small" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary small" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : ""}
               ${showActions ? `
                 <button type="button" class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
                 <button type="button" class="btn secondary small" onclick="openPlusOnesModal('${guest.id}')">Edit Plus Ones</button>
@@ -6604,7 +6717,7 @@ function renderSelectedGroupPanel() {
 
   if (!group) {
     return `
-      <div class="card">
+      <div id="selectedGroupPanel" class="card">
         <h2>Selected Group</h2>
         <p class="subtle">No party or bottle service group selected.</p>
       </div>
@@ -6616,7 +6729,7 @@ function renderSelectedGroupPanel() {
   const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
 
   return `
-    <div class="card">
+    <div id="selectedGroupPanel" class="card">
       <h2>${esc(group.name)}</h2>
       <p class="subtle">${esc(group.group_type)} · Host: ${esc(hostLabel)}</p>
 
@@ -6879,12 +6992,17 @@ function refreshGroupListSurface() {
   return true;
 }
 
+function refreshSelectedGroupPanelSurface() {
+  return replaceRenderedElement("selectedGroupPanel", renderSelectedGroupPanel());
+}
+
 function refreshLiveSurfaces() {
   const touchedSync = refreshSyncStatusSurface();
   const touchedStats = refreshStatsSurface();
   const touchedGuests = refreshVisibleGuestSurface();
   const touchedGroups = refreshGroupListSurface();
-  return touchedSync || touchedStats || touchedGuests || touchedGroups;
+  const touchedSelectedGroup = refreshSelectedGroupPanelSurface();
+  return touchedSync || touchedStats || touchedGuests || touchedGroups || touchedSelectedGroup;
 }
 
 function shouldPatchLiveRefresh() {
@@ -6959,6 +7077,7 @@ function renderTabletGuestCards(guests) {
     const fullyIn = isGuestFullyIn(guest);
     const checkInBusy = isActionBusy(`checkin:${guest.id}`);
     const undoBusy = isActionBusy(`undo:${guest.id}`);
+    const guestBusy = checkInBusy || undoBusy;
 
     return `
       <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
@@ -6974,8 +7093,8 @@ function renderTabletGuestCards(guests) {
         <p class="tablet-note">${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</p>
 
         <div class="tablet-actions">
-          ${remaining > 0 ? `<button type="button" class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')" ${checkInBusy ? "disabled" : ""}>${checkInBusy ? "Checking..." : "Check In 1"}</button>` : `<button type="button" class="btn green tablet-check-btn" disabled>Fully In</button>`}
-          ${checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')" ${undoBusy ? "disabled" : ""}>${undoBusy ? "Undoing..." : "Undo 1"}</button>` : `<button type="button" class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
+          ${checkInBusy ? `<button type="button" class="btn green tablet-check-btn" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<button type="button" class="btn green tablet-check-btn" disabled>Fully In</button>`}
+          ${undoBusy ? `<button type="button" class="btn secondary tablet-undo-btn" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : `<button type="button" class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
         </div>
       </div>
     `;
