@@ -1,0 +1,47 @@
+schemaname,tablename,policyname,permissive,roles,cmd,using_expression,with_check_expression,drop_policy_sql,recreate_policy_sql
+public,check_in_logs,doorflow admins managers can delete check in logs,PERMISSIVE,{authenticated},DELETE,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])",null,"drop policy if exists ""doorflow admins managers can delete check in logs"" on public.check_in_logs;","create policy ""doorflow admins managers can delete check in logs"" on public.check_in_logs as permissive for delete to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,check_in_logs,doorflow admins managers door can insert check in logs,PERMISSIVE,{authenticated},INSERT,null,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text])","drop policy if exists ""doorflow admins managers door can insert check in logs"" on public.check_in_logs;","create policy ""doorflow admins managers door can insert check in logs"" on public.check_in_logs as permissive for insert to authenticated
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text]));"
+public,check_in_logs,doorflow staff can read check in logs,PERMISSIVE,{authenticated},SELECT,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text])",null,"drop policy if exists ""doorflow staff can read check in logs"" on public.check_in_logs;","create policy ""doorflow staff can read check in logs"" on public.check_in_logs as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text]));"
+public,groups,doorflow admins managers can manage groups,PERMISSIVE,{authenticated},ALL,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","drop policy if exists ""doorflow admins managers can manage groups"" on public.groups;","create policy ""doorflow admins managers can manage groups"" on public.groups as permissive for all to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]))
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,groups,doorflow staff can read groups,PERMISSIVE,{authenticated},SELECT,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text])",null,"drop policy if exists ""doorflow staff can read groups"" on public.groups;","create policy ""doorflow staff can read groups"" on public.groups as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text]));"
+public,guests,doorflow admins managers can delete guests,PERMISSIVE,{authenticated},DELETE,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])",null,"drop policy if exists ""doorflow admins managers can delete guests"" on public.guests;","create policy ""doorflow admins managers can delete guests"" on public.guests as permissive for delete to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,guests,doorflow admins managers can insert guests,PERMISSIVE,{authenticated},INSERT,null,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","drop policy if exists ""doorflow admins managers can insert guests"" on public.guests;","create policy ""doorflow admins managers can insert guests"" on public.guests as permissive for insert to authenticated
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,guests,doorflow staff can read guests,PERMISSIVE,{authenticated},SELECT,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text])",null,"drop policy if exists ""doorflow staff can read guests"" on public.guests;","create policy ""doorflow staff can read guests"" on public.guests as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text]));"
+public,guests,doorflow admins managers door can update guests,PERMISSIVE,{authenticated},UPDATE,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text])","doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text])","drop policy if exists ""doorflow admins managers door can update guests"" on public.guests;","create policy ""doorflow admins managers door can update guests"" on public.guests as permissive for update to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text]))
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text]));"
+public,service_days,doorflow admins managers can manage service days,PERMISSIVE,{authenticated},ALL,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","drop policy if exists ""doorflow admins managers can manage service days"" on public.service_days;","create policy ""doorflow admins managers can manage service days"" on public.service_days as permissive for all to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]))
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,service_days,doorflow staff can read service days,PERMISSIVE,{authenticated},SELECT,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text])",null,"drop policy if exists ""doorflow staff can read service days"" on public.service_days;","create policy ""doorflow staff can read service days"" on public.service_days as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text]));"
+public,shift_notes,Authenticated users can delete shift notes,PERMISSIVE,{authenticated},DELETE,true,null,"drop policy if exists ""Authenticated users can delete shift notes"" on public.shift_notes;","create policy ""Authenticated users can delete shift notes"" on public.shift_notes as permissive for delete to authenticated
+using (true);"
+public,shift_notes,Authenticated users can insert shift notes,PERMISSIVE,{authenticated},INSERT,null,true,"drop policy if exists ""Authenticated users can insert shift notes"" on public.shift_notes;","create policy ""Authenticated users can insert shift notes"" on public.shift_notes as permissive for insert to authenticated
+with check (true);"
+public,shift_notes,Authenticated users can read shift notes,PERMISSIVE,{authenticated},SELECT,true,null,"drop policy if exists ""Authenticated users can read shift notes"" on public.shift_notes;","create policy ""Authenticated users can read shift notes"" on public.shift_notes as permissive for select to authenticated
+using (true);"
+public,shift_notes,Authenticated users can update shift notes,PERMISSIVE,{authenticated},UPDATE,true,true,"drop policy if exists ""Authenticated users can update shift notes"" on public.shift_notes;","create policy ""Authenticated users can update shift notes"" on public.shift_notes as permissive for update to authenticated
+using (true)
+with check (true);"
+public,staff_profiles,doorflow admins can manage profiles,PERMISSIVE,{authenticated},ALL,doorflow_has_role(ARRAY['admin'::text]),doorflow_has_role(ARRAY['admin'::text]),"drop policy if exists ""doorflow admins can manage profiles"" on public.staff_profiles;","create policy ""doorflow admins can manage profiles"" on public.staff_profiles as permissive for all to authenticated
+using (doorflow_has_role(ARRAY['admin'::text]))
+with check (doorflow_has_role(ARRAY['admin'::text]));"
+public,staff_profiles,doorflow admins can read all profiles,PERMISSIVE,{authenticated},SELECT,doorflow_has_role(ARRAY['admin'::text]),null,"drop policy if exists ""doorflow admins can read all profiles"" on public.staff_profiles;","create policy ""doorflow admins can read all profiles"" on public.staff_profiles as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text]));"
+public,staff_profiles,doorflow staff can read own profile,PERMISSIVE,{authenticated},SELECT,(id = auth.uid()),null,"drop policy if exists ""doorflow staff can read own profile"" on public.staff_profiles;","create policy ""doorflow staff can read own profile"" on public.staff_profiles as permissive for select to authenticated
+using ((id = auth.uid()));"
+public,venues,doorflow admins managers can manage venues,PERMISSIVE,{authenticated},ALL,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","doorflow_has_role(ARRAY['admin'::text, 'manager'::text])","drop policy if exists ""doorflow admins managers can manage venues"" on public.venues;","create policy ""doorflow admins managers can manage venues"" on public.venues as permissive for all to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]))
+with check (doorflow_has_role(ARRAY['admin'::text, 'manager'::text]));"
+public,venues,doorflow staff can read venues,PERMISSIVE,{authenticated},SELECT,"doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text])",null,"drop policy if exists ""doorflow staff can read venues"" on public.venues;","create policy ""doorflow staff can read venues"" on public.venues as permissive for select to authenticated
+using (doorflow_has_role(ARRAY['admin'::text, 'manager'::text, 'door'::text, 'viewer'::text]));"
