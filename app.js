@@ -95,6 +95,7 @@ let state = {
   shiftNotes:[],
   staffProfiles:[],
   view:"door",
+  shellNavOpen:false,
   activeDate:initialActiveDate,
   activeDay:dayNameFromDate(initialActiveDate),
   selectedGroupId:null,
@@ -5038,35 +5039,110 @@ function closeModal() {
 
 /* RENDER */
 
-function renderLogin() {
+function renderDoorFlowLockup() {
   return `
-    <div class="auth">
-      <div class="card">
-        <div style="margin-bottom:18px;">
-          ${renderBrandBlock({ title:`${BOB_BRAND.appName} Login`, subtitle:"Supabase email/password account" })}
+    <span class="df-doorflow-lockup" aria-label="DoorFlow">
+      <span class="df-doorflow-mark" aria-hidden="true"></span>
+      <span class="df-doorflow-wordmark">Door<span>Flow</span></span>
+    </span>
+  `;
+}
+
+function shellInitials(value, fallback = "DF") {
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return fallback;
+  return words.slice(0, 2).map(word => word[0]).join("").toUpperCase();
+}
+
+function shellUsesDrawer() {
+  return window.matchMedia("(max-width: 1080px)").matches;
+}
+
+function setShellNavOpen(open, restoreFocus = false) {
+  const shouldOpen = Boolean(open && shellUsesDrawer());
+  state.shellNavOpen = shouldOpen;
+
+  const sidebar = document.getElementById("df-primary-sidebar");
+  const backdrop = document.getElementById("df-nav-backdrop");
+  const menuButton = document.getElementById("df-shell-menu");
+
+  sidebar?.classList.toggle("is-open", shouldOpen);
+  if (sidebar) {
+    if (!shouldOpen && shellUsesDrawer()) sidebar.setAttribute("inert", "");
+    else sidebar.removeAttribute("inert");
+  }
+  if (backdrop) backdrop.hidden = !shouldOpen;
+  if (menuButton) {
+    menuButton.setAttribute("aria-expanded", String(shouldOpen));
+    menuButton.setAttribute("aria-label", shouldOpen ? "Close navigation menu" : "Open navigation menu");
+    menuButton.title = shouldOpen ? "Close navigation menu" : "Open navigation menu";
+    const symbol = menuButton.querySelector("[data-shell-menu-symbol]");
+    if (symbol) symbol.textContent = shouldOpen ? "\u00d7" : "\u2630";
+  }
+
+  document.body.classList.toggle("df-shell-nav-open", shouldOpen);
+  if (restoreFocus) menuButton?.focus();
+}
+
+function toggleShellNav() {
+  setShellNavOpen(!state.shellNavOpen);
+}
+
+function closeShellNav(restoreFocus = false) {
+  setShellNavOpen(false, restoreFocus);
+}
+
+function shellNavigate(view) {
+  closeShellNav(false);
+  switchView(view);
+}
+
+function handleShellKeydown(event) {
+  if (event.key === "Escape" && state.shellNavOpen) {
+    event.preventDefault();
+    closeShellNav(true);
+  }
+}
+
+function renderLogin() {
+  state.shellNavOpen = false;
+  document.body.classList.remove("df-shell-nav-open");
+
+  return `
+    <div class="df-login-screen">
+      <section class="df-login-brand-panel" aria-label="DoorFlow hospitality operations">
+        ${renderDoorFlowLockup()}
+        <div class="df-login-brand-copy">
+          <p class="df-login-eyebrow">Hospitality operations</p>
+          <h1>Welcome to DoorFlow.</h1>
+          <p>Guest list, arrival, and closeout tools for your venue team.</p>
         </div>
+        <p class="df-login-brand-foot">Secure staff access for authorized venue teams.</p>
+      </section>
 
-        <div class="notice greenbox">
-          <strong>Real account mode:</strong> sign in with the email/password account created in Supabase Authentication.
+      <main class="df-login-form-panel">
+        <div class="df-login-card">
+          <p class="df-login-eyebrow">Staff access</p>
+          <h2>Sign in</h2>
+          <p>Use your authorized DoorFlow staff account.</p>
+
+          ${state.error ? `<div class="notice redbox" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+
+          <form onsubmit="login(event)" class="form">
+            <div>
+              <label for="df-login-email">Email</label>
+              <input id="df-login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div>
+              <label for="df-login-password">Password</label>
+              <input id="df-login-password" name="password" type="password" autocomplete="current-password" />
+            </div>
+            <button class="btn" type="submit">Log In</button>
+          </form>
+
+          <p class="df-login-help">Access and available tools are determined by your active staff profile.</p>
         </div>
-
-        ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-
-        <form onsubmit="login(event)" class="form">
-          <div>
-            <label>Email</label>
-            <input name="email" type="email" autocomplete="email" placeholder="you@example.com" />
-          </div>
-          <div>
-            <label>Password</label>
-            <input name="password" type="password" autocomplete="current-password" />
-          </div>
-          <button class="btn" type="submit">Log In</button>
-        </form>
-
-        <div class="divider"></div>
-        <p class="subtle" style="margin:0;">Staff access is controlled by the <strong>staff_profiles</strong> table in Supabase.</p>
-      </div>
+      </main>
     </div>
   `;
 }
@@ -5121,17 +5197,52 @@ function renderBrandBlock(options = {}) {
 
 function renderTopbar() {
   const user = currentUser();
+  const venueName = state.venue?.name || "Venue";
+  const venueInitials = shellInitials(venueName, "V");
+  const userInitials = shellInitials(user.name, "U");
 
   return `
-    <header class="topbar">
-      <div class="topbar-inner">
-        ${renderBrandBlock({ subtitle:`${state.activeDay} · ${state.activeDate} · Live Database` })}
+    <header class="df-utility-bar">
+      <div class="df-utility-inner">
+        <button id="df-shell-menu" class="df-shell-menu" type="button" aria-controls="df-primary-sidebar" aria-expanded="${state.shellNavOpen ? "true" : "false"}" aria-label="${state.shellNavOpen ? "Close" : "Open"} navigation menu" title="${state.shellNavOpen ? "Close" : "Open"} navigation menu" onclick="toggleShellNav()">
+          <span data-shell-menu-symbol aria-hidden="true">${state.shellNavOpen ? "&times;" : "&#9776;"}</span>
+        </button>
 
-        <div class="top-actions">
+        <div class="df-shell-venue">
+          <span class="df-venue-monogram" aria-hidden="true">${esc(venueInitials)}</span>
+          <div class="df-venue-copy">
+            <span class="df-utility-label">Venue</span>
+            <strong title="${esc(venueName)}">${esc(venueName)}</strong>
+          </div>
+        </div>
+
+        <div class="df-shell-service" aria-label="Service context">
+          <label class="df-service-field">
+            <span class="df-utility-label">Day</span>
+            <select onchange="setActiveDay(this.value)">
+              ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
+            </select>
+          </label>
+          <label class="df-service-field">
+            <span class="df-utility-label">Service date</span>
+            <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+          </label>
           ${renderSyncPill()}
-          <button type="button" class="btn secondary small" onclick="manualRefreshData()">Refresh Data</button>
-          <span class="pill">${esc(user.name)} · ${roleLabel(user.role)}</span>
-          <button type="button" class="btn secondary small" onclick="logout()">Log Out</button>
+          <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span></button>
+        </div>
+
+        <div class="df-utility-user">
+          <div class="df-user-context" aria-label="${esc(user.name)}; ${esc(roleLabel(user.role))}">
+            <div class="df-user-copy">
+              <strong title="${esc(user.name)}">${esc(user.name)}</strong>
+              <span>${esc(roleLabel(user.role))}</span>
+            </div>
+            <span class="df-user-avatar" aria-hidden="true">${esc(userInitials)}</span>
+          </div>
+          <button type="button" class="btn secondary small df-logout-button" onclick="closeShellNav(false);logout()" aria-label="Log out ${esc(user.name)}">
+            <span class="df-logout-icon" aria-hidden="true">OUT</span>
+            <span class="df-logout-label">Log Out</span>
+          </button>
         </div>
       </div>
     </header>
@@ -5140,15 +5251,22 @@ function renderTopbar() {
 
 function renderTabs() {
   const p = perms();
+  const navItem = (view, label, symbol, allowed) => {
+    if (!allowed) return "";
+    const current = state.view === view ? ` aria-current="page"` : "";
+    return `<li><button type="button" class="df-nav-item"${current} onclick="shellNavigate('${view}')"><span class="df-nav-symbol" aria-hidden="true">${symbol}</span><span>${label}</span></button></li>`;
+  };
 
   return `
-    <div class="tabs">
-      ${p.door ? `<button type="button" class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
-      ${p.door ? `<button type="button" class="tab ${state.view === "tabletDoor" ? "active" : ""}" onclick="switchView('tabletDoor')">Tablet Door Mode</button>` : ""}
-      ${p.manage ? `<button type="button" class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
-      ${p.users ? `<button type="button" class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Staff</button>` : ""}
-      ${p.reports ? `<button type="button" class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
-    </div>
+    <nav class="df-primary-nav" aria-label="Primary navigation">
+      <ul>
+        ${navItem("door", "Door Check-In", "DC", p.door)}
+        ${navItem("tabletDoor", "Tablet Door Mode", "TD", p.door)}
+        ${navItem("manage", "Management", "MG", p.manage)}
+        ${navItem("users", "Staff", "ST", p.users)}
+        ${navItem("reports", "Reports", "RP", p.reports)}
+      </ul>
+    </nav>
   `;
 }
 
@@ -5156,20 +5274,8 @@ function renderDateBar() {
   const group = selectedGroup();
 
   return `
-    <div class="card tight">
+    <div class="card tight df-operational-context-card">
       <div class="datebar">
-        <div>
-          <label>Day</label>
-          <select onchange="setActiveDay(this.value)">
-            ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
-          </select>
-        </div>
-
-        <div>
-          <label>Calendar Date</label>
-          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-        </div>
-
         <div>
           <label>Selected Party / Group</label>
           <select onchange="selectGroup(this.value)">
@@ -5412,7 +5518,7 @@ function renderMainWorkspace(showManagement = false) {
     ${renderDateBar()}
     ${renderStats()}
 
-    <div class="grid">
+    <div class="grid df-door-workspace">
       <main class="stack">
         <div class="card tight">
           <div class="toolbar">
@@ -5866,7 +5972,7 @@ function renderStaffManagement() {
   }
 
   return `
-    <div class="grid">
+    <div class="grid df-staff-workspace">
       <main class="stack">
         <div class="card">
           <h2>Staff Management</h2>
@@ -6404,21 +6510,42 @@ function renderApp() {
   if (state.view === "users") content = renderStaffManagement();
   if (state.view === "reports") content = renderReports();
 
+  const isLiveServiceView = state.view === "door" || state.view === "tabletDoor";
+  const sidebarClass = state.shellNavOpen ? "df-sidebar is-open" : "df-sidebar";
+  const drawerInert = !state.shellNavOpen && shellUsesDrawer() ? ` inert` : "";
+
   return `
-    ${renderTopbar()}
-    <div class="page">
-      ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-      <div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
-      ${renderTabs()}
-      ${content}
+    <a class="df-skip-link" href="#main-content">Skip to main content</a>
+    <div class="df-app-shell ${isLiveServiceView ? "df-shell-live" : "df-shell-admin"}">
+      <aside id="df-primary-sidebar" class="${sidebarClass}" aria-label="DoorFlow navigation"${drawerInert}>
+        <div class="df-sidebar-header">${renderDoorFlowLockup()}</div>
+        ${renderTabs()}
+        <p class="df-sidebar-note">${isLiveServiceView ? "Live-service workspace layout is preserved for the dedicated Door Mode phase." : "Operational navigation"}</p>
+      </aside>
+
+      <button id="df-nav-backdrop" class="df-nav-backdrop" type="button" aria-label="Close navigation menu" onclick="closeShellNav(true)" ${state.shellNavOpen ? "" : "hidden"}></button>
+
+      <div class="df-shell-content">
+        ${renderTopbar()}
+        <main id="main-content" class="df-main-content ${isLiveServiceView ? "df-live-service-content" : "df-admin-theme"}" tabindex="-1">
+          <div class="page">
+            ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+            <div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
+            ${content}
+          </div>
+        </main>
+      </div>
     </div>
-    ${renderModal()}
+    <div class="df-shell-modal-scope">${renderModal()}</div>
   `;
 }
 
 Object.assign(window, {
   login,
   logout,
+  toggleShellNav,
+  closeShellNav,
+  shellNavigate,
   switchView,
   setActiveDay,
   setActiveDate,
@@ -6466,6 +6593,9 @@ Object.assign(window, {
   render,
   isLateAdd
 });
+
+document.addEventListener("keydown", handleShellKeydown);
+window.matchMedia("(min-width: 1081px)").addEventListener("change", () => closeShellNav(false));
 
 render();
 initAuth();

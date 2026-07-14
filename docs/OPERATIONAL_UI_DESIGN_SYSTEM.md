@@ -6,7 +6,7 @@ DoorFlow operational interfaces should feel like the same product family as the 
 
 The principle is **brand-aligned, operation-first**.
 
-Phase P2 demonstrates this direction in the isolated Reports / Closeout prototype. It does not change the production application or establish final behavior for live Door Operations.
+Phase P2 demonstrates this direction in the isolated Reports / Closeout prototype. Phase P3 begins real application integration with a shared login treatment, authenticated shell, venue utility bar, and base administrative theme. It does not establish final behavior or internal presentation for live Door Operations.
 
 ## Relationship to DoorFlow Marketing
 
@@ -170,7 +170,7 @@ Each badge includes readable text and a compact visible symbol. Colors distingui
 
 Desktop administration uses a persistent deep-navy sidebar as the sole primary navigation. The sidebar contains the DoorFlow brand lockup and one navigation tree. It does not repeat venue or user context.
 
-Below `1100px`, the same sidebar and navigation markup becomes an off-canvas drawer opened from the utility bar. Do not create a second horizontal or hidden duplicate navigation tree for responsive layouts.
+At `1080px` and below, the same sidebar and navigation markup becomes an off-canvas drawer opened from the utility bar. Do not create a second horizontal or hidden duplicate navigation tree for responsive layouts.
 
 Navigation requirements:
 
@@ -186,16 +186,16 @@ Navigation requirements:
 
 ### Venue utility bar
 
-The compact utility bar sits above the content column and remains distinct from primary navigation. It is the primary home for operational context:
+The compact utility bar sits above the content column and remains distinct from primary navigation. In the real application it is the primary home for actual operational context:
 
-- original `SV` sample-venue monogram and `Sample Venue` identity
-- fictional service-date selector and concise `Service review` state
-- fictional `Sample Manager` and `Manager` role context
-- accessible account-preview control
+- the loaded venue name and a derived venue monogram
+- the existing day and service-date controls
+- the existing sync state and refresh action
+- the authenticated staff name, role, initials fallback, and logout action
 
-The utility bar uses an opaque near-white canvas, restrained border, and low shadow. It stays sticky beneath the prototype disclosure without covering content or focus targets. Venue identity must not be repeated in the sidebar, page header, or footer without a specific contextual need.
+The utility bar uses an opaque near-white canvas, restrained border, and low shadow. It remains sticky without covering content or focus targets. If venue state is not loaded, it displays the neutral `Venue` fallback; it never substitutes prototype sample content.
 
-At tablet widths, the bar adds the menu button while keeping venue, service, and user context compact. At phone widths, it presents `[Menu] [Venue Logo + Venue Name] [User]`; the service date becomes a secondary venue line and the account control becomes an initials button. Venue text truncates rather than forcing horizontal page scrolling.
+At tablet widths, the bar adds the menu button while keeping venue, service, and user context compact. At phone widths, the service controls move to a compact second row, user text reduces to initials, and venue text truncates rather than forcing horizontal page scrolling. The P2 prototype keeps its fictional context for isolated design review only.
 
 ## Modals
 
@@ -267,11 +267,64 @@ Test in a dim environment with actual target hardware. Confirm that touch target
 6. Test each integrated screen with its actual data states before proceeding to the next workflow.
 7. Keep the isolated prototype until owner review is complete; do not use it as production code by substitution.
 
+## Real application shell integration (P3)
+
+### Runtime architecture
+
+`index.html` remains the production runtime authority and contains the inline application JavaScript. It links `../doorflow-operational-theme.css` from the repository root. `app.js` remains a maintained mirror/reference and carries the same shell renderers, but `index.html` does not load it.
+
+The authenticated shell has one semantic structure:
+
+- a skip-to-content link
+- a single `aside` navigation landmark
+- one primary role-gated navigation tree
+- a sticky venue utility bar
+- a semantic `main` content region
+- a backdrop for the responsive navigation drawer
+- a shell-level modal styling boundary
+
+### Role-gated navigation
+
+The real shell reuses the existing `perms()` results and existing tab state. It does not add routes or permissions. The current item uses `aria-current="page"`, and selecting an item calls the existing `switchView()` contract after closing the drawer.
+
+- Admin retains Door Check-In, Tablet Door Mode, Management, Staff, and Reports.
+- Manager retains Door Check-In, Tablet Door Mode, Management, and Reports.
+- Door retains Door Check-In and Tablet Door Mode.
+- Viewer retains Reports.
+
+These statements document the existing application permission map; authorization must continue to be enforced by application logic and database policy rather than CSS.
+
+### Venue, service, and user context
+
+Venue identity comes from `state.venue.name`, with `Venue` as the loading fallback. The monogram is derived from the loaded name. Day and service date keep the existing `setActiveDay()` and `setActiveDate()` handlers. Party/group selection and door location remain in their existing operational context card.
+
+The user area uses the current staff display name and role label, derives initials locally, and calls the existing `logout()` action. It does not add an account menu, profile settings, or new authentication behavior. Sync text and refresh continue to use `renderSyncPill()` and `manualRefreshData()`.
+
+### Responsive drawer
+
+The desktop sidebar becomes an off-canvas drawer at `1080px` and below without duplicating navigation. The menu button exposes `aria-controls` and `aria-expanded`. Escape and backdrop activation close the drawer and restore focus; selecting a destination closes it before navigation. The closed drawer is inert, body scroll is held while open, safe-area padding is applied, and short-landscape and reduced-motion rules are included.
+
+### Administrative style boundary
+
+Base card, button, form, notice, badge, table, and modal treatments are scoped through `.df-admin-theme`, `.df-app-shell`, and `.df-shell-modal-scope`. P3 does not change page-specific information architecture. Reports, Management, Staff, Shift Notes, lists, party details, and guest details remain candidates for P4 or P5.
+
+### Live-service exception
+
+Door Check-In and Tablet Door Mode receive the outer shell but not the `.df-admin-theme` component overrides. Their internal rendering, controls, typography, check-in/undo actions, pending states, and event handlers remain unchanged. This is an intentional temporary P3 exception so the dedicated P5 workflow review can address live-service width, low-light, and touch behavior without incidental redesign.
+
+### P3 manual validation requirements
+
+Before release consideration, test the real app manually with approved non-production accounts for admin, manager, door, and viewer. Verify login success/error behavior, focus order, exact tab visibility, active state, venue/date/user/sync context, logout, drawer keyboard behavior, and all authorized destinations. Review desktop, tablet, phone, short landscape, 200% zoom, and reduced motion. Confirm Door Check-In and Tablet Door Mode have no shell-induced clipping and perform their dedicated operational regression checklist.
+
+### Service-worker caveat
+
+P3 does not modify `sw.js` or `manifest.webmanifest`. The new stylesheet is therefore not yet covered by a reviewed cache-version rollout. Service-worker integration, update behavior, offline/stale-cache testing, and owner-approved authenticated role testing remain required before deployment.
+
 ## Future migration phases
 
 ### P3: Application shell and shared primitives
 
-Integrate approved tokens, focus styles, navigation shell, buttons, fields, status badges, modal styling, and responsive foundations while preserving current page logic.
+The real login, navigation shell, utility context, base administrative primitives, focus styles, and responsive drawer are integrated as an uncommitted review change. Page logic and live-service internals remain outside this phase.
 
 ### P4: Administrative workflows
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This folder contains an isolated visual prototype for a future DoorFlow operational Reports / Closeout screen. It demonstrates the Phase P2 design-system direction without changing the current operational application.
+This folder contains the isolated visual prototype for a future DoorFlow operational Reports / Closeout screen. It remains the Phase P2 design reference while Phase P3 begins integrating the approved shell and tokens into the real operational application.
 
 Every venue, person, date, count, note, status, and activity entry shown in the prototype is fictional sample content.
 
@@ -14,6 +14,17 @@ Every venue, person, date, count, note, status, and activity entry shown in the 
 - `doorflow-operational-tokens.css`: reusable administrative and Door Mode foundations
 
 The companion design-system guidance is in `../docs/OPERATIONAL_UI_DESIGN_SYSTEM.md`.
+
+## Real application integration status
+
+The standalone prototype remains isolated and continues to use fictional local-only content. Phase P3 translates its shell direction into the real application through:
+
+- `../doorflow-operational-theme.css`
+- the inline runtime shell in `../index.html`
+- matching shell renderers in the maintained `../app.js` mirror
+- `../scripts/p3-shell-smoke.mjs`
+
+The integration covers login presentation, the authenticated sidebar and utility bar, role-gated navigation presentation, responsive drawer behavior, and base administrative styling. It does not copy prototype data or interactions into the application, and it does not redesign Reports content or live Door/check-in workflows.
 
 ## Run locally
 
