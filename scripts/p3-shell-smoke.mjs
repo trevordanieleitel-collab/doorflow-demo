@@ -12,7 +12,6 @@ const protectedFunctions = [
   "renderGroupList",
   "renderSelectedGroupPanel",
   "renderShiftNotesForDoorStaff",
-  "renderStaffManagement",
   "checkInOneGuest",
   "undoOneGuest",
   "toggleGuest",
@@ -224,12 +223,14 @@ for (const name of protectedFunctions) {
   const baselineAppBlock = extractFunction(baselineApp, name);
   const present = currentIndexBlock && baselineIndexBlock && currentAppBlock && baselineAppBlock;
   const normalizedCurrentIndex = normalizeProtectedPresentation(name, currentIndexBlock);
+  const normalizedBaselineIndex = normalizeProtectedPresentation(name, baselineIndexBlock);
   const normalizedCurrentApp = normalizeProtectedPresentation(name, currentAppBlock);
+  const normalizedBaselineApp = normalizeProtectedPresentation(name, baselineAppBlock);
   const matched = present
-    && hash(normalizedCurrentIndex) === hash(baselineIndexBlock)
-    && hash(normalizedCurrentApp) === hash(baselineAppBlock)
+    && hash(normalizedCurrentIndex) === hash(normalizedBaselineIndex)
+    && hash(normalizedCurrentApp) === hash(normalizedBaselineApp)
     && hash(currentIndexBlock) === hash(currentAppBlock);
-  const qualifier = ["renderMainWorkspace", "renderStaffManagement"].includes(name) ? " (presentation class only)" : "";
+  const qualifier = name === "renderMainWorkspace" ? " (presentation class only)" : "";
   check(Boolean(matched), `protected function ${name}${qualifier}`);
 }
 
@@ -253,14 +254,15 @@ const allowedChanges = new Set([
   "index.html",
   "doorflow-operational-theme.css",
   "scripts/p3-shell-smoke.mjs",
+  "scripts/p4-admin-smoke.mjs",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
   "ui-redesign/README.md"
 ]);
-check(changedPaths.every(path => allowedChanges.has(path)), "working changes stay inside the approved P3 file set");
+check(changedPaths.every(path => allowedChanges.has(path)), "working changes stay inside the approved UI redesign file set");
 
 if (failures) {
   console.error(`P3 shell smoke failed: ${failures} check(s).`);
   process.exit(1);
 }
 
-console.log(`P3 shell smoke passed: ${protectedFunctions.length - 2} protected functions matched exactly; renderMainWorkspace and renderStaffManagement matched after normalizing presentation-only classes.`);
+console.log(`P3 shell smoke passed: ${protectedFunctions.length - 1} protected functions matched exactly; renderMainWorkspace matched after normalizing its presentation-only class. Staff presentation is covered by the P4 smoke suite.`);

@@ -320,6 +320,67 @@ Before release consideration, test the real app manually with approved non-produ
 
 P3 does not modify `sw.js` or `manifest.webmanifest`. The new stylesheet is therefore not yet covered by a reviewed cache-version rollout. Service-worker integration, update behavior, offline/stale-cache testing, and owner-approved authenticated role testing remain required before deployment.
 
+## Real administrative workflow integration (P4)
+
+P4 applies the approved administrative system to the real inline runtime and its `app.js` mirror. It changes presentation and accessibility structure only; existing authentication, permission checks, Supabase queries, calculations, exports, mutations, validation, and confirmation behavior remain the operational authority.
+
+### Administrative page architecture
+
+Reports, Management, and Staff use `.df-admin-page` with one page-level `h1`, a concise operational description, and a compact venue/service-date context definition list. Section headings remain system sans-serif and use restrained kicker text for scanability. Administrative sections use full-width flow or genuinely bounded tool cards; repeated summary records remain cards.
+
+### Reports and closeout
+
+The real Reports page uses only current application state. Its summary includes the existing group, completed-group, allowed, checked-in, remaining, late-add, and activity-log values. Attendance, activity, guest-status, and shift-note sections reuse existing state and calculation helpers. Existing CSV, refresh, closeout preview, print, and report export handlers are unchanged.
+
+The closeout dialog keeps the existing report builder and export behavior. Presentation adds a viewport-safe administrative dialog surface, readable table regions, and a visible close control. It does not introduce finalize state, revenue, POS, payment, wait-time, or cover metrics.
+
+P4.1 refines the Close Out Report as a dedicated `.df-closeout-report` document surface. The header contains one venue/date context, generated-by metadata, Export CSV, Print, and one accessible X close action. Each of the five existing report tables remains in its original section and column order, with horizontal overflow contained by its own table region at medium widths and labeled record rows on phones. Empty report areas render as calm status records instead of fake table rows.
+
+Closeout printing uses the named landscape `@page doorflow-closeout` rule because the preserved Group Breakdown and Late Adds tables contain seven required columns. Only a rendered closeout report opts into that page and suppresses its sibling application shell; the report's `#app` ancestor remains printable. Print removes backdrop treatment, actions, internal scrolling, shadows, and rounded modal styling; table headers repeat where supported and rows avoid page breaks where practical. No print column is omitted, and the existing `printCloseOutReport()` and CSV export behavior remain unchanged.
+
+### Management and Shift Notes
+
+Management retains the dedicated mobile manager renderer and the existing desktop CRUD workspace. The page header and command band organize existing Create Party, Add Guest, Bulk Paste, clear, report-preview, and export actions without changing handler contracts. The embedded live guest workspace remains structurally unchanged.
+
+Shift Notes are presented as a dated administrative record. Category, priority, time, author, note text, and authorized edit/delete actions remain visible. Long note text uses normal wrapping and content-driven height. Composer and edit fields retain their existing names and submit handlers while adding explicit label associations.
+
+### Staff
+
+Staff preserves the P3.1 responsive table-to-record behavior and the existing `staff-*` forms, `form=` associations, role values, status values, and `updateStaffProfile(event)` submission. Desktop remains tabular; narrower layouts expose labeled records. Editable names, roles, statuses, created dates, and Save actions remain fully readable and reachable.
+
+### Forms and modals
+
+Administrative forms keep existing field names, required states, validation, and submit handlers. Labels are explicitly associated with the group, guest, plus-one, bulk-paste, and shift-note fields. Two-column forms collapse to one column before controls become narrow.
+
+Administrative dialogs use `role="dialog"`, `aria-modal="true"`, accessible names, visible close controls, focus containment, Escape close, and restoration to the matching opening control when it remains available. Dialogs use dynamic viewport maximum heights and internal scrolling. Backdrop-close behavior remains unchanged per dialog.
+
+### Status and state mapping
+
+- Green is reserved for confirmed live/success or complete attendance states.
+- Amber identifies remaining attendance, empty records, or review attention.
+- Red identifies errors and destructive commands.
+- Neutral status treatment identifies counts and non-evaluative context.
+- Loading text states that records are being refreshed and does not claim completion.
+- Empty states state what is absent and reference only actions already available to the current workflow.
+
+Underlying database values are not remapped. Status text remains visible so meaning never depends on color alone.
+
+### Responsive records and accessibility
+
+Reports tables become labeled records below the narrow-layout threshold; Staff retains its dedicated labeled record conversion. Wider tables stay inside explicit horizontal scroll regions rather than widening the page. Page headers, context, summary cards, actions, and forms collapse by available width, including short landscape and 200% zoom conditions.
+
+P4 retains the shell skip link and logical DOM order, adds one `h1` per administrative page, table captions and scoped headers, explicit field labels, alert/status semantics, touch-friendly controls, and modal keyboard focus handling. Static checks cannot prove visual layout, authenticated role behavior, or database behavior; those remain owner-run manual tests.
+
+### Door Mode exclusion and remaining P5 work
+
+P4 does not change Door Check-In guest rows, Tablet Door Mode, check-in/undo controls, party arrival controls, Door search/filter/sort controls, or live-service status presentation. The P3.1 responsive workspace and check-in reliability safeguards remain protected by source-hash smoke checks.
+
+P5 remains responsible for the dedicated live-service redesign, low-light treatment, guest-row density, touch workflow review, rapid-action behavior, and authenticated check-in regression testing.
+
+### PWA/service-worker caveat
+
+P4 does not modify `sw.js` or `manifest.webmanifest`. The administrative CSS and runtime changes still require an owner-approved cache-version rollout plus stale-cache, update, offline, and installed-PWA testing before deployment.
+
 ## Future migration phases
 
 ### P3: Application shell and shared primitives
@@ -328,7 +389,7 @@ The real login, navigation shell, utility context, base administrative primitive
 
 ### P4: Administrative workflows
 
-Migrate Reports / Closeout, Management, Staff, and Shift Notes. Validate existing calculations, role visibility, empty states, errors, and exports.
+Reports / Closeout, Management, Staff, Shift Notes, and administrative dialogs are integrated as uncommitted review work. Existing calculations and mutation contracts are statically protected; authenticated role, empty/error state, export-content, and responsive visual review remain required.
 
 ### P5: Guest-list and Door Operations
 

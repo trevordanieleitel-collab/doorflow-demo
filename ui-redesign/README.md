@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This folder contains the isolated visual prototype for a future DoorFlow operational Reports / Closeout screen. It remains the Phase P2 design reference while Phase P3 begins integrating the approved shell and tokens into the real operational application.
+This folder contains the isolated visual prototype for a future DoorFlow operational Reports / Closeout screen. It remains the Phase P2 visual reference while real Reports and administrative integration is underway in Phase P4.
 
 Every venue, person, date, count, note, status, and activity entry shown in the prototype is fictional sample content.
 
@@ -17,14 +17,16 @@ The companion design-system guidance is in `../docs/OPERATIONAL_UI_DESIGN_SYSTEM
 
 ## Real application integration status
 
-The standalone prototype remains isolated and continues to use fictional local-only content. Phase P3 translates its shell direction into the real application through:
+The standalone prototype remains isolated and continues to use fictional local-only content. Phase P3 translated its shell direction into the real application through:
 
 - `../doorflow-operational-theme.css`
 - the inline runtime shell in `../index.html`
 - matching shell renderers in the maintained `../app.js` mirror
 - `../scripts/p3-shell-smoke.mjs`
 
-The integration covers login presentation, the authenticated sidebar and utility bar, role-gated navigation presentation, responsive drawer behavior, and base administrative styling. It does not copy prototype data or interactions into the application, and it does not redesign Reports content or live Door/check-in workflows.
+Phase P4 administrative integration is now underway in the uncommitted real application review work. It applies the approved direction to Reports / Closeout, Management, Shift Notes, Staff, administrative forms, modal surfaces, and administrative states while preserving the existing runtime logic and real application data contracts. It does not copy fictional prototype values or prototype interactions into the application.
+
+Door Check-In, Tablet Door Mode, guest rows, check-in/undo controls, party arrival actions, and live-service presentation remain deferred to the dedicated P5 workflow. The prototype remains a reference and is not substituted for production runtime code.
 
 ## Run locally
 

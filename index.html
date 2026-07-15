@@ -1496,6 +1496,8 @@ let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
 let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
+let modalFocusOpen = false;
+let modalReturnFocus = null;
 
 function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -1710,18 +1712,105 @@ function restoreTransientUiState(ui) {
   restoreScrollPositions(ui?.scroll);
 }
 
+function captureModalReturnFocus() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return null;
+  return {
+    id:active.id || "",
+    onclick:active.getAttribute?.("onclick") || "",
+    text:String(active.textContent || "").trim()
+  };
+}
+
+function restoreModalReturnFocus(target) {
+  let element = target?.id ? document.getElementById(target.id) : null;
+
+  if (!element && target?.onclick) {
+    element = [...document.querySelectorAll("button, [role='button']")].find(candidate => {
+      return candidate.getAttribute("onclick") === target.onclick
+        && String(candidate.textContent || "").trim() === target.text;
+    }) || null;
+  }
+
+  (element || document.getElementById("main-content"))?.focus();
+}
+
+function syncModalFocus(opening) {
+  const dialog = document.querySelector(".df-shell-modal-scope [role='dialog']");
+
+  if (dialog) {
+    modalFocusOpen = true;
+    if (opening) {
+      requestAnimationFrame(() => {
+        (dialog.querySelector(".df-modal-close") || dialog)?.focus();
+      });
+    }
+    return;
+  }
+
+  if (modalFocusOpen) {
+    const target = modalReturnFocus;
+    modalFocusOpen = false;
+    modalReturnFocus = null;
+    requestAnimationFrame(() => restoreModalReturnFocus(target));
+  }
+}
+
+function handleModalKeydown(event) {
+  if (!state.modal) return;
+
+  const dialog = document.querySelector(".df-shell-modal-scope [role='dialog']");
+  if (!dialog) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closeModal();
+    return;
+  }
+
+  if (event.key !== "Tab") return;
+
+  const focusable = [...dialog.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+    .filter(element => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+
+  if (!focusable.length) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  if (!dialog.contains(document.activeElement)) {
+    event.preventDefault();
+    first.focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function render() {
   const ui = captureTransientUiState();
   const root = document.getElementById("app");
+  const modalOpening = Boolean(state.modal) && !modalFocusOpen;
+  if (modalOpening) modalReturnFocus = captureModalReturnFocus();
 
   if (!auth.currentUser) {
     root.innerHTML = renderLogin();
     restoreTransientUiState(ui);
+    syncModalFocus(false);
     return;
   }
 
   root.innerHTML = renderApp();
   restoreTransientUiState(ui);
+  syncModalFocus(modalOpening);
 }
 
 async function runDb(label, fn) {
@@ -5786,29 +5875,35 @@ function renderShiftNotesPanel(showComposer = true) {
   const notes = state.shiftNotes || [];
 
   return `
-    <div class="card">
-      <h2>Manager / Shift Notes</h2>
-      <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Use this for live notes that door staff and managers need for the night.</p>
+    <section class="card df-admin-card df-shift-notes-panel" aria-labelledby="shift-notes-title">
+      <header class="df-admin-section-header">
+        <div>
+          <p class="df-admin-kicker">Service-day record</p>
+          <h2 id="shift-notes-title">Manager / Shift Notes</h2>
+          <p>Adding to <strong>${esc(state.activeDate)}</strong>. Use this for live notes that door staff and managers need for the night.</p>
+        </div>
+        <span class="df-status-badge df-status-badge--neutral">${notes.length} ${notes.length === 1 ? "note" : "notes"}</span>
+      </header>
 
       ${showComposer && perms()?.manage ? `
-        <form onsubmit="createShiftNote(event)" class="form" style="margin-bottom:16px;">
+        <form onsubmit="createShiftNote(event)" class="form df-admin-form df-shift-note-composer">
           <div class="two">
             <div>
-              <label>Category</label>
-              <select name="category">
+              <label for="shiftNoteCategory">Category</label>
+              <select id="shiftNoteCategory" name="category">
                 ${noteCategories.map(item => `<option>${esc(item)}</option>`).join("")}
               </select>
             </div>
             <div>
-              <label>Priority</label>
-              <select name="priority">
+              <label for="shiftNotePriority">Priority</label>
+              <select id="shiftNotePriority" name="priority">
                 ${notePriorities.map(item => `<option>${esc(item)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Note</label>
+            <label for="shiftNoteComposerText">Note</label>
             <textarea id="shiftNoteComposerText" name="note_text" rows="4" placeholder="Example: VIP table arriving around 10:30 PM. Approved by manager."></textarea>
             ${renderEmojiKeyboard("shiftNoteComposerText")}
           </div>
@@ -5822,7 +5917,7 @@ function renderShiftNotesPanel(showComposer = true) {
       ${notes.length ? `
         <div class="shift-note-list">
           ${notes.map(note => `
-            <div class="shift-note-card">
+            <article class="shift-note-card df-shift-note-record">
               <div class="party-meta">
                 <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
                 <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
@@ -5838,13 +5933,13 @@ function renderShiftNotesPanel(showComposer = true) {
                   <button type="button" class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
                 </div>
               ` : ""}
-            </div>
+            </article>
           `).join("")}
         </div>
       ` : `
-        <div class="notice warn">No manager or shift notes have been added for this date yet.</div>
+        ${renderAdminState("empty", "No shift notes", "No manager or shift notes have been added for this date yet.")}
       `}
-    </div>
+    </section>
   `;
 }
 
@@ -6155,173 +6250,162 @@ function renderCloseOutReportModal() {
   const noShows = report.no_shows || [];
   const shiftNotes = report.shift_notes || [];
   const activityLogs = report.activity_logs || [];
+  const generatedAt = new Date(report.generated_at).toLocaleString();
 
   return `
-    <div class="modal-backdrop">
-      <div class="modal" style="max-width:1100px;">
-        <div class="closeout-print-header">
-          <div>
-            ${renderBrandBlock({ title:"Close Out Report", subtitle:`${report.venue} · ${report.day_name} · ${report.service_date}`, compact:true })}
-            <p class="subtle" style="margin:0;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
-            <p class="subtle" style="margin:4px 0 0;">Generated by ${esc(report.generated_by)} · ${new Date(report.generated_at).toLocaleString()}</p>
+    <div class="modal-backdrop df-admin-modal-backdrop df-closeout-report-backdrop">
+      <article class="modal df-admin-modal df-closeout-modal df-closeout-report" role="dialog" aria-modal="true" aria-labelledby="closeout-report-title" aria-describedby="closeout-report-context" tabindex="-1">
+        <header class="df-closeout-report__header">
+          <div class="df-closeout-report__identity">
+            <span class="df-closeout-report__monogram" aria-hidden="true">${esc(shellInitials(report.venue, "V"))}</span>
+            <div class="df-closeout-report__heading">
+              <p class="df-closeout-report__eyebrow">DoorFlow operational report</p>
+              <h2 id="closeout-report-title">Close Out Report</h2>
+              <p id="closeout-report-context" class="df-closeout-report__context"><strong>${esc(report.venue)}</strong><span aria-hidden="true">&middot;</span><span>${esc(report.day_name)} ${esc(report.service_date)}</span></p>
+              <p class="df-closeout-report__generated">Generated by ${esc(report.generated_by)} on ${esc(generatedAt)}</p>
+            </div>
           </div>
 
-          <div class="row-actions">
+          <div class="df-closeout-report__actions" aria-label="Report actions">
             <button type="button" class="btn secondary" onclick="downloadCloseOutReportCsv()">Export Report CSV</button>
             <button type="button" class="btn secondary" onclick="printCloseOutReport()">Print</button>
-            <button type="button" class="btn" onclick="closeModal()">Close</button>
+            <button class="df-modal-close df-closeout-report__close" type="button" onclick="closeModal()" aria-label="Close report" title="Close report">&times;</button>
           </div>
+        </header>
+
+        <section class="df-closeout-report__summary" aria-label="Closeout summary">
+          <article class="df-closeout-report__metric"><span>Total Allowed</span><strong>${report.summary.total_allowed}</strong></article>
+          <article class="df-closeout-report__metric df-closeout-report__metric--success"><span>Checked In</span><strong>${report.summary.checked_in}</strong></article>
+          <article class="df-closeout-report__metric df-closeout-report__metric--warning"><span>Remaining / No-Shows</span><strong>${report.summary.remaining}</strong></article>
+          <article class="df-closeout-report__metric"><span>Late Adds</span><strong>${lateAdds.length}</strong></article>
+        </section>
+
+        <div class="df-closeout-report__body">
+
+          <section class="df-closeout-report__section" aria-labelledby="closeout-groups-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Attendance</p><h3 id="closeout-groups-title">Group Breakdown</h3><p>Attendance totals by group for the selected service date.</p></div></header>
+            ${report.groups.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Group Breakdown table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Group attendance breakdown</caption>
+                  <thead><tr><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Host</th><th scope="col">Table</th><th scope="col">Allowed</th><th scope="col">Checked In</th><th scope="col">Remaining</th></tr></thead>
+                  <tbody>
+                    ${report.groups.map(group => `
+                      <tr>
+                        <td data-label="Group"><strong>${esc(group.group_name)}</strong></td>
+                        <td data-label="Type">${esc(group.group_type)}</td>
+                        <td data-label="Host">${esc(group.host_name || "")}</td>
+                        <td data-label="Table">${esc(group.table_location || "")}</td>
+                        <td class="df-closeout-report__number" data-label="Allowed">${group.total_allowed}</td>
+                        <td class="df-closeout-report__number" data-label="Checked In">${group.checked_in}</td>
+                        <td class="df-closeout-report__number" data-label="Remaining">${group.remaining}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No groups recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section" aria-labelledby="closeout-late-adds-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Review</p><h3 id="closeout-late-adds-title">Late Adds</h3><p>Manager-approved additions recorded for this service date.</p></div></header>
+            ${lateAdds.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Late Adds table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Late additions for the selected service date</caption>
+                  <thead><tr><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Approved By</th><th scope="col">Reason</th><th scope="col">Added By</th><th scope="col">Added At</th></tr></thead>
+                  <tbody>
+                    ${lateAdds.map(guest => `
+                      <tr>
+                        <td data-label="Guest"><strong>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</strong></td>
+                        <td data-label="Group">${esc(guest.group_name)}</td>
+                        <td data-label="Type">${esc(guest.guest_type)}</td>
+                        <td data-label="Approved By">${esc(guest.approved_by || "")}</td>
+                        <td data-label="Reason">${esc(guest.reason || "")}</td>
+                        <td data-label="Added By">${esc(guest.added_by || "")}</td>
+                        <td data-label="Added At">${guest.added_at ? esc(new Date(guest.added_at).toLocaleString()) : ""}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No late adds recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section" aria-labelledby="closeout-no-shows-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Remaining attendance</p><h3 id="closeout-no-shows-title">No-Shows / Remaining Guests</h3><p>Guests with attendance still remaining at the time of this report.</p></div></header>
+            ${noShows.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="No-Shows and Remaining Guests table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">No-shows and guests remaining</caption>
+                  <thead><tr><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Checked In</th><th scope="col">Remaining</th><th scope="col">Notes</th></tr></thead>
+                  <tbody>
+                    ${noShows.map(guest => `
+                      <tr>
+                        <td data-label="Guest"><strong>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</strong></td>
+                        <td data-label="Group">${esc(guest.group_name)}</td>
+                        <td data-label="Type">${esc(guest.guest_type)}</td>
+                        <td class="df-closeout-report__number" data-label="Checked In">${guest.checked_in_count}/${guest.total_allowed}</td>
+                        <td class="df-closeout-report__number" data-label="Remaining">${guest.remaining}</td>
+                        <td data-label="Notes">${esc(guest.notes || "")}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No no-shows / remaining guests.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section" aria-labelledby="closeout-notes-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Shift record</p><h3 id="closeout-notes-title">Manager / Shift Notes</h3><p>Operational notes recorded by management for this service date.</p></div></header>
+            ${shiftNotes.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Manager and Shift Notes table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Manager and shift notes</caption>
+                  <thead><tr><th scope="col">Category</th><th scope="col">Priority</th><th scope="col">Note</th><th scope="col">By</th><th scope="col">Time</th></tr></thead>
+                  <tbody>
+                    ${shiftNotes.map(note => `
+                      <tr>
+                        <td data-label="Category">${esc(note.category || "")}</td>
+                        <td data-label="Priority">${esc(note.priority || "")}</td>
+                        <td data-label="Note">${esc(note.note_text || "")}</td>
+                        <td data-label="By">${esc(note.created_by_name || "")}</td>
+                        <td data-label="Time">${note.created_at ? esc(new Date(note.created_at).toLocaleString()) : ""}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No shift notes recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section" aria-labelledby="closeout-activity-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Door record</p><h3 id="closeout-activity-title">Recent Door Activity</h3><p>The most recent recorded check-in activity for this service date.</p></div></header>
+            ${activityLogs.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Recent Door Activity table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Recent door activity</caption>
+                  <thead><tr><th scope="col">Time</th><th scope="col">Action</th><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Staff</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${activityLogs.slice(0,60).map(log => `
+                      <tr>
+                        <td data-label="Time">${log.time ? esc(new Date(log.time).toLocaleString()) : ""}</td>
+                        <td data-label="Action">${esc(log.action || "")}</td>
+                        <td data-label="Guest"><strong>${esc(log.guest_name || "")}</strong></td>
+                        <td data-label="Group">${esc(log.group_name || "")}</td>
+                        <td data-label="Staff">${esc(log.staff_name || "")}</td>
+                        <td data-label="Door">${esc(log.door_location || "")}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No recent activity logs recorded.</p></div>`}
+          </section>
         </div>
 
-        <div class="closeout-summary-grid">
-          <div class="stat"><span>Total Allowed</span><strong>${report.summary.total_allowed}</strong></div>
-          <div class="stat"><span>Checked In</span><strong>${report.summary.checked_in}</strong></div>
-          <div class="stat"><span>Remaining / No-Shows</span><strong>${report.summary.remaining}</strong></div>
-          <div class="stat"><span>Late Adds</span><strong>${lateAdds.length}</strong></div>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Group Breakdown</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Host</th>
-                <th>Table</th>
-                <th>Allowed</th>
-                <th>Checked In</th>
-                <th>Remaining</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${report.groups.map(group => `
-                <tr>
-                  <td>${esc(group.group_name)}</td>
-                  <td>${esc(group.group_type)}</td>
-                  <td>${esc(group.host_name || "")}</td>
-                  <td>${esc(group.table_location || "")}</td>
-                  <td>${group.total_allowed}</td>
-                  <td>${group.checked_in}</td>
-                  <td>${group.remaining}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Late Adds</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Approved By</th>
-                <th>Reason</th>
-                <th>Added By</th>
-                <th>Added At</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lateAdds.length ? lateAdds.map(guest => `
-                <tr>
-                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
-                  <td>${esc(guest.group_name)}</td>
-                  <td>${esc(guest.guest_type)}</td>
-                  <td>${esc(guest.approved_by || "")}</td>
-                  <td>${esc(guest.reason || "")}</td>
-                  <td>${esc(guest.added_by || "")}</td>
-                  <td>${guest.added_at ? esc(new Date(guest.added_at).toLocaleString()) : ""}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="7">No late adds recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>No-Shows / Remaining Guests</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Checked In</th>
-                <th>Remaining</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${noShows.length ? noShows.map(guest => `
-                <tr>
-                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
-                  <td>${esc(guest.group_name)}</td>
-                  <td>${esc(guest.guest_type)}</td>
-                  <td>${guest.checked_in_count}/${guest.total_allowed}</td>
-                  <td>${guest.remaining}</td>
-                  <td>${esc(guest.notes || "")}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="6">No no-shows / remaining guests.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Manager / Shift Notes</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Priority</th>
-                <th>Note</th>
-                <th>By</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${shiftNotes.length ? shiftNotes.map(note => `
-                <tr>
-                  <td>${esc(note.category || "")}</td>
-                  <td>${esc(note.priority || "")}</td>
-                  <td>${esc(note.note_text || "")}</td>
-                  <td>${esc(note.created_by_name || "")}</td>
-                  <td>${note.created_at ? esc(new Date(note.created_at).toLocaleString()) : ""}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="5">No shift notes recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Recent Door Activity</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Action</th>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Staff</th>
-                <th>Door</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${activityLogs.length ? activityLogs.slice(0,60).map(log => `
-                <tr>
-                  <td>${log.time ? esc(new Date(log.time).toLocaleString()) : ""}</td>
-                  <td>${esc(log.action || "")}</td>
-                  <td>${esc(log.guest_name || "")}</td>
-                  <td>${esc(log.group_name || "")}</td>
-                  <td>${esc(log.staff_name || "")}</td>
-                  <td>${esc(log.door_location || "")}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="6">No recent activity logs recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <footer class="df-closeout-report__footer"><span>DoorFlow operational closeout report</span><span>End of report</span></footer>
+      </article>
     </div>
   `;
 }
@@ -7294,19 +7378,63 @@ function renderTabletDoorMode() {
   `;
 }
 
+function renderAdminPageHeader({ eyebrow, title, description, meta = [] }) {
+  return `
+    <header class="df-admin-page-header">
+      <div class="df-admin-page-heading">
+        <p class="df-admin-eyebrow">${esc(eyebrow)}</p>
+        <h1>${esc(title)}</h1>
+        <p class="df-admin-lede">${esc(description)}</p>
+      </div>
+      ${meta.length ? `
+        <dl class="df-admin-context" aria-label="Current operational context">
+          ${meta.map(item => `
+            <div>
+              <dt>${esc(item.label)}</dt>
+              <dd>${esc(item.value)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      ` : ""}
+    </header>
+  `;
+}
+
+function renderAdminState(tone, title, message) {
+  return `
+    <div class="df-admin-state df-admin-state--${esc(tone)}" ${tone === "error" ? 'role="alert"' : 'role="status"'}>
+      <strong>${esc(title)}</strong>
+      <p>${esc(message)}</p>
+    </div>
+  `;
+}
+
 function renderManagement() {
   return `
     ${renderMobileManagerView()}
-    <div class="stack manage-desktop-view">
+    <div class="stack manage-desktop-view df-admin-page df-management-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Guest list administration",
+        title:"Management",
+        description:"Build the service-day guest list, manage parties, and keep operational notes in one workspace.",
+        meta:[
+          { label:"Venue", value:state.venue?.name || "Venue" },
+          { label:"Service date", value:`${state.activeDay} ${state.activeDate}` }
+        ]
+      })}
+
       ${renderManagerServiceDateCard()}
 
-      <div class="card">
-        ${renderBrandBlock({ title:"Manager Portal", subtitle:`Adding to ${state.activeDay} ${state.activeDate}`, compact:true })}
-        <div class="brand-spacer"></div>
-        <h2>Management Controls</h2>
-        <p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p>
+      <section class="card df-admin-card df-management-actions" aria-labelledby="management-controls-title">
+        <header class="df-admin-section-header">
+          <div>
+            <p class="df-admin-kicker">Administrative actions</p>
+            <h2 id="management-controls-title">Management Controls</h2>
+            <p>Create groups, add names, import lists, clear the master list, and export the current service day.</p>
+          </div>
+        </header>
 
-        <div class="row-actions">
+        <div class="row-actions df-admin-action-bar">
           <button type="button" class="btn" onclick="openGroupModal()">Create Party</button>
           <button type="button" class="btn secondary" onclick="openGuestModal()">Add Individual Guest</button>
           <button type="button" class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
@@ -7315,8 +7443,9 @@ function renderManagement() {
           <button type="button" class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
           <button type="button" class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
-      </div>
+      </section>
 
+      ${state.loading ? renderAdminState("loading", "Loading management records", "DoorFlow is refreshing the selected service day.") : ""}
       ${renderShiftNotesPanel(true)}${renderMainWorkspace(true)}
     </div>
   `;
@@ -7324,187 +7453,282 @@ function renderManagement() {
 
 function renderStaffManagement() {
   if (!perms().users) {
-    return `<div class="card"><h2>No Access</h2><p class="subtle">This account cannot manage staff.</p></div>`;
+    return `
+      <div class="df-admin-page">
+        ${renderAdminPageHeader({ eyebrow:"Access control", title:"Staff", description:"Manage staff access and operational roles." })}
+        ${renderAdminState("error", "No access", "This account cannot manage staff.")}
+      </div>
+    `;
   }
 
   return `
-    <div class="grid df-staff-workspace">
-      <main class="stack">
-        <div class="card">
-          <h2>Staff Management</h2>
-          <p class="subtle">Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
-          <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
-        </div>
+    <div class="df-admin-page df-staff-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Access control",
+        title:"Staff",
+        description:"Review the active DoorFlow team and maintain role and access assignments.",
+        meta:[
+          { label:"Venue", value:state.venue?.name || "Venue" },
+          { label:"Profiles", value:String(state.staffProfiles.length) }
+        ]
+      })}
 
-        <div class="card">
-          <h2>Current Staff</h2>
-          <p class="subtle">Change a staff member's role or deactivate access. New email/password users still need to be created in Supabase Authentication first.</p>
+      ${state.loading ? renderAdminState("loading", "Loading staff", "DoorFlow is refreshing staff profiles.") : ""}
 
-          <div class="scroll-panel">
-            ${state.staffProfiles.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Save</th>
-                  </tr>
-                </thead>
+      <div class="grid df-staff-workspace">
+        <main class="stack">
+          <section class="card df-admin-card" aria-labelledby="staff-management-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Directory controls</p>
+                <h2 id="staff-management-title">Staff Management</h2>
+                <p>Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
+              </div>
+              <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+            </header>
+          </section>
 
-                <tbody>
-                  ${state.staffProfiles.map(profile => `
+          <section class="card df-admin-card" aria-labelledby="current-staff-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Authorized profiles</p>
+                <h2 id="current-staff-title">Current Staff</h2>
+                <p>Change a staff member's role or active access. New email/password users must be created in Supabase Authentication first.</p>
+              </div>
+            </header>
+
+            <div class="scroll-panel df-data-table-region">
+              ${state.staffProfiles.length ? `
+                <table class="df-data-table df-staff-table">
+                  <caption class="sr-only">Current DoorFlow staff profiles and editable access settings</caption>
+                  <thead>
                     <tr>
-                      <td>
-                        <form id="staff-${profile.id}" onsubmit="updateStaffProfile(event)">
-                          <input type="hidden" name="id" value="${profile.id}" />
-                          <input name="full_name" value="${esc(profile.full_name)}" />
-                        </form>
-                      </td>
-                      <td>
-                        <select form="staff-${profile.id}" name="role">
-                          ${["admin","manager","door","viewer"].map(role => `<option value="${role}" ${role === profile.role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
-                        </select>
-                      </td>
-                      <td>
-                        <select form="staff-${profile.id}" name="active">
-                          <option value="true" ${profile.active ? "selected" : ""}>Active</option>
-                          <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
-                        </select>
-                      </td>
-                      <td>${profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}</td>
-                      <td><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                      <th scope="col">Name</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Action</th>
                     </tr>
-                  `).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No staff profiles loaded. Click Refresh Staff List.</p>`}
-          </div>
-        </div>
-      </main>
+                  </thead>
 
-      <aside class="stack">
-        <div class="card">
-          <h2>How to Add Staff</h2>
-          <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
-        </div>
+                  <tbody>
+                    ${state.staffProfiles.map(profile => `
+                      <tr>
+                        <td data-label="Name">
+                          <form id="staff-${profile.id}" onsubmit="updateStaffProfile(event)">
+                            <input type="hidden" name="id" value="${profile.id}" />
+                            <input name="full_name" value="${esc(profile.full_name)}" aria-label="Full name for ${esc(profile.full_name || "staff profile")}" />
+                          </form>
+                        </td>
+                        <td data-label="Role">
+                          <select form="staff-${profile.id}" name="role" aria-label="Role for ${esc(profile.full_name || "staff profile")}">
+                            ${["admin","manager","door","viewer"].map(role => `<option value="${role}" ${role === profile.role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
+                          </select>
+                        </td>
+                        <td data-label="Status">
+                          <select class="df-status-control" form="staff-${profile.id}" name="active" aria-label="Status for ${esc(profile.full_name || "staff profile")}">
+                            <option value="true" ${profile.active ? "selected" : ""}>Active</option>
+                            <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
+                          </select>
+                        </td>
+                        <td data-label="Created">${profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}</td>
+                        <td data-label="Action"><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No staff profiles loaded", "Use Refresh Staff List to load the current staff directory.")}
+            </div>
+          </section>
+        </main>
 
-        <div class="card">
-          <h2>Role Guide</h2>
-          <p class="subtle"><strong>Admin:</strong> full app access and staff management.</p>
-          <p class="subtle"><strong>Manager:</strong> manage guest lists, groups, reports, and check-ins.</p>
-          <p class="subtle"><strong>Door Staff:</strong> door check-in only.</p>
-          <p class="subtle" style="margin-bottom:0;"><strong>Viewer:</strong> reports only.</p>
-        </div>
-      </aside>
+        <aside class="stack" aria-label="Staff administration guidance">
+          <section class="card df-admin-card">
+            <p class="df-admin-kicker">Provisioning</p>
+            <h2>How to Add Staff</h2>
+            <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
+          </section>
+
+          <section class="card df-admin-card df-role-guide">
+            <p class="df-admin-kicker">Permission reference</p>
+            <h2>Role Guide</h2>
+            <dl>
+              <div><dt>Admin</dt><dd>Full app access and staff management.</dd></div>
+              <div><dt>Manager</dt><dd>Manage guest lists, groups, reports, and check-ins.</dd></div>
+              <div><dt>Door Staff</dt><dd>Door check-in only.</dd></div>
+              <div><dt>Viewer</dt><dd>Reports only.</dd></div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </div>
   `;
 }
 
 function renderReports() {
   const stats = dayStats();
+  const lateAdds = state.guests.filter(guest => isLateAdd(guest));
 
   return `
-    ${renderDateBar()}
-    ${renderStats()}
+    <div class="stack df-admin-page df-reports-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Operations review",
+        title:"Reports & Closeout",
+        description:"Review attendance, service activity, shift notes, and the current closeout record for the selected date.",
+        meta:[
+          { label:"Venue", value:state.venue?.name || "Venue" },
+          { label:"Service date", value:`${state.activeDay} ${state.activeDate}` }
+        ]
+      })}
 
-    <div class="grid">
-      <main class="stack">
-        <div class="card">
-          <h2>Reports</h2>\n        <p class="subtle">Late Adds This Date: <strong>${state.guests.filter(guest => isLateAdd(guest)).length}</strong></p>
-          <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
-          <div class="row-actions">
-            <button type="button" class="btn" onclick="exportCsv()">Export Current Day CSV</button>
-            <button type="button" class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
-          </div>
+      <section class="df-admin-toolbar" aria-label="Report controls">
+        <div class="df-admin-toolbar-context">${renderDateBar()}</div>
+        <div class="row-actions df-admin-toolbar-actions">
+          <button type="button" class="btn" onclick="exportCsv()">Export Current Day CSV</button>
+          <button type="button" class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
+          <button type="button" class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out</button>
         </div>
+      </section>
 
-        <div class="card">
-          <h2>Daily Summary</h2>
-          <div class="stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;">
-            <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
-            <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
-            <div class="stat"><span>Remaining</span><strong>${stats.remaining}</strong></div>
-            <div class="stat"><span>Activity Logs</span><strong>${state.logs.length}</strong></div>
-          </div>
-        </div>
+      ${state.loading ? renderAdminState("loading", "Loading report", "DoorFlow is refreshing attendance and activity for this service date.") : ""}
 
-        <div class="card">
-          <h2>Check-In Activity Log</h2>
-          <p class="subtle">Shows who was checked in, which group they were under, who checked them in, where, and when.</p>
-          <div id="reportScrollPanel" class="scroll-panel">
-            ${state.logs.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Guest</th>
-                    <th>Group</th>
-                    <th>Action</th>
-                    <th>Staff</th>
-                    <th>Door</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${state.logs.map(log => `
-                    <tr>
-                      <td>${esc(logTime(log))}</td>
-                      <td><strong>${esc(guestNameFromLog(log))}</strong></td>
-                      <td>${esc(groupNameFromLog(log))}</td>
-                      <td>${esc(log.action || "")}</td>
-                      <td>${esc(log.staff_name || "")}</td>
-                      <td>${esc(log.door_location || "")}</td>
-                    </tr>
-                  `).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No check-in activity yet for this date.</p>`}
-          </div>
-        </div>
+      <section class="df-admin-summary-grid" aria-label="Service-day summary">
+        <article class="df-summary-card"><span>Groups</span><strong>${stats.groups}</strong><small>${stats.completeGroups} complete</small></article>
+        <article class="df-summary-card"><span>Total Allowed</span><strong>${stats.total}</strong><small>Across all listed guests</small></article>
+        <article class="df-summary-card df-summary-card--success"><span>Checked In</span><strong>${stats.checked}</strong><small>Recorded arrivals</small></article>
+        <article class="df-summary-card ${stats.remaining ? "df-summary-card--warning" : "df-summary-card--success"}"><span>Remaining</span><strong>${stats.remaining}</strong><small>${stats.remaining ? "Still expected" : "Complete"}</small></article>
+        <article class="df-summary-card"><span>Late Adds</span><strong>${lateAdds.length}</strong><small>For this service date</small></article>
+        <article class="df-summary-card"><span>Activity Logs</span><strong>${state.logs.length}</strong><small>Recorded door actions</small></article>
+      </section>
 
-        <div class="card">
-          <h2>Current Guest Status</h2>
-          <p class="subtle">Quick operational view of all names for this date.</p>
-          <div class="scroll-panel">
-            ${state.guests.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Group</th>
-                    <th>Type</th>
-                    <th>Checked In</th>
-                    <th>Remaining</th>
-                    <th>Door</th>
-                  </tr>
-                </thead>
+      <div class="df-report-grid">
+        <main class="stack">
+          <section class="card df-admin-card" aria-labelledby="attendance-breakdown-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Attendance</p>
+                <h2 id="attendance-breakdown-title">Group Breakdown</h2>
+                <p>Current attendance totals for every group on the selected service date.</p>
+              </div>
+            </header>
+            <div class="df-data-table-region">
+              ${state.groups.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Attendance totals by group</caption>
+                  <thead><tr><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Allowed</th><th scope="col">Checked In</th><th scope="col">Remaining</th></tr></thead>
+                  <tbody>
+                    ${state.groups.map(group => {
+                      const groupStat = groupStats(group.id);
+                      return `<tr><td data-label="Group"><strong>${esc(group.name)}</strong></td><td data-label="Type">${esc(group.group_type || "")}</td><td data-label="Allowed">${groupStat.total}</td><td data-label="Checked In">${groupStat.checked}</td><td data-label="Remaining">${groupStat.remaining}</td></tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No groups for this date", "Attendance totals will appear after groups or guests are added.")}
+            </div>
+          </section>
 
-                <tbody>
-                  ${sortGuests([...state.guests]).map(guest => {
-                    const group = state.groups.find(item => item.id === guest.group_id);
-
-                    return `
+          <section class="card df-admin-card" aria-labelledby="activity-log-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Operational record</p>
+                <h2 id="activity-log-title">Check-In Activity Log</h2>
+                <p>Shows who was checked in, their group, the staff member, door location, and recorded time.</p>
+              </div>
+            </header>
+            <div id="reportScrollPanel" class="scroll-panel df-data-table-region">
+              ${state.logs.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Check-in activity for the selected service date</caption>
+                  <thead><tr><th scope="col">Time</th><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Action</th><th scope="col">Staff</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${state.logs.map(log => `
                       <tr>
-                        <td><strong>${esc(guestDisplayName(guest))}</strong></td>
-                        <td>${esc(group?.name || "")}</td>
-                        <td>${esc(guest.guest_type || "")}</td>
-                        <td>${guestChecked(guest)} / ${guestTotal(guest)}</td>
-                        <td>${guestRemaining(guest)}</td>
-                        <td>${esc(guest.last_door_location || "")}</td>
+                        <td data-label="Time">${esc(logTime(log))}</td>
+                        <td data-label="Guest"><strong>${esc(guestNameFromLog(log))}</strong></td>
+                        <td data-label="Group">${esc(groupNameFromLog(log))}</td>
+                        <td data-label="Action">${esc(log.action || "")}</td>
+                        <td data-label="Staff">${esc(log.staff_name || "")}</td>
+                        <td data-label="Door">${esc(log.door_location || "")}</td>
                       </tr>
-                    `;
-                  }).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No guests are listed for this date.</p>`}
-          </div>
-        </div>
-      </main>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No check-in activity", "Door activity will appear here after the first recorded action for this date.")}
+            </div>
+          </section>
 
-      <aside class="stack">
-        ${renderSelectedGroupPanel()}
-      </aside>
+          <section class="card df-admin-card" aria-labelledby="guest-status-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Guest status</p>
+                <h2 id="guest-status-title">Current Guest Status</h2>
+                <p>Quick operational view of all names for this date.</p>
+              </div>
+            </header>
+            <div class="scroll-panel df-data-table-region">
+              ${state.guests.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Current guest attendance status</caption>
+                  <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Checked In</th><th scope="col">Remaining</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${sortGuests([...state.guests]).map(guest => {
+                      const group = state.groups.find(item => item.id === guest.group_id);
+                      return `
+                        <tr>
+                          <td data-label="Name"><strong>${esc(guestDisplayName(guest))}</strong></td>
+                          <td data-label="Group">${esc(group?.name || "")}</td>
+                          <td data-label="Type">${esc(guest.guest_type || "")}</td>
+                          <td data-label="Checked In">${guestChecked(guest)} / ${guestTotal(guest)}</td>
+                          <td data-label="Remaining">${guestRemaining(guest)}</td>
+                          <td data-label="Door">${esc(guest.last_door_location || "")}</td>
+                        </tr>
+                      `;
+                    }).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No guests listed", "Guest status will appear after names are added to this service date.")}
+            </div>
+          </section>
+        </main>
+
+        <aside class="stack" aria-label="Closeout review">
+          <section class="card df-admin-card df-closeout-actions" aria-labelledby="closeout-actions-title">
+            <p class="df-admin-kicker">Closeout</p>
+            <h2 id="closeout-actions-title">Service-Day Record</h2>
+            <p class="subtle">Preview the existing closeout report before printing or exporting its current data.</p>
+            <div class="row-actions">
+              <button type="button" class="btn" onclick="previewCloseOutReport()">Preview Close Out Report</button>
+              <button type="button" class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
+            </div>
+          </section>
+
+          <section class="card df-admin-card" aria-labelledby="report-shift-notes-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Shift record</p>
+                <h2 id="report-shift-notes-title">Shift Notes</h2>
+                <p>Manager notes attached to this service date.</p>
+              </div>
+            </header>
+            ${state.shiftNotes.length ? `
+              <div class="df-report-note-list">
+                ${state.shiftNotes.map(note => `
+                  <article class="df-report-note">
+                    <div class="party-meta">
+                      <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
+                      <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
+                    </div>
+                    <p>${esc(note.note_text || "")}</p>
+                    <small>By ${esc(note.created_by_name || "Unknown")} &middot; ${esc(noteTime(note))}</small>
+                  </article>
+                `).join("")}
+              </div>
+            ` : renderAdminState("empty", "No shift notes", "No manager or shift notes have been added for this date.")}
+          </section>
+
+          ${renderSelectedGroupPanel()}
+        </aside>
+      </div>
     </div>
   `;
 }
@@ -7517,48 +7741,49 @@ function renderGroupModal() {
   const hostPlusOnes = hostGuest ? guestPlusCount(hostGuest) : 0;
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="${isEdit ? "Edit Party or Group" : "Create Party or Group"}" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close party form" title="Close">&times;</button>
         <h2>${isEdit ? "Edit Party / Group" : "Create Party / Group"}</h2>
         <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong></p>
 
-        <form onsubmit="${isEdit ? "updateGroup(event)" : "createGroup(event)"}" class="form two">
+        <form onsubmit="${isEdit ? "updateGroup(event)" : "createGroup(event)"}" class="form two df-admin-form">
           <div>
-            <label>Party / Group Name</label>
-            <input name="name" value="${esc(group?.name || "")}" placeholder="Smith Bottle Service" />
+            <label for="groupName">Party / Group Name</label>
+            <input id="groupName" name="name" value="${esc(group?.name || "")}" placeholder="Smith Bottle Service" />
           </div>
 
           <div>
-            <label>Type</label>
-            <select name="group_type">
+            <label for="groupType">Type</label>
+            <select id="groupType" name="group_type">
               ${groupTypes.map(type => `<option ${type === (group?.group_type || "Bottle Service") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
 
           <div>
-            <label>Service Date</label>
-            <input name="date" type="date" value="${esc(state.activeDate)}" readonly />
+            <label for="groupDate">Service Date</label>
+            <input id="groupDate" name="date" type="date" value="${esc(state.activeDate)}" readonly />
           </div>
 
           <div>
-            <label>Host Name</label>
-            <input name="host_name" value="${esc(group?.host_name || "")}" placeholder="John Smith" />
+            <label for="groupHostName">Host Name</label>
+            <input id="groupHostName" name="host_name" value="${esc(group?.host_name || "")}" placeholder="John Smith" />
           </div>
 
           <div>
-            <label>Host Plus Ones</label>
-            <input name="host_plus_ones" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="${hostPlusOnes}" oninput="updateHostPlusTotal(this,'groupHostTotalAllowed')" />
+            <label for="groupHostPlusOnes">Host Plus Ones</label>
+            <input id="groupHostPlusOnes" name="host_plus_ones" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="${hostPlusOnes}" oninput="updateHostPlusTotal(this,'groupHostTotalAllowed')" />
             <p class="subtle" style="margin:6px 0 0;">Additional unnamed guests allowed under the host's name.</p>
           </div>
 
           <div>
-            <label>Total Allowed</label>
+            <label for="groupHostTotalAllowed">Total Allowed</label>
             <input id="groupHostTotalAllowed" value="${1 + hostPlusOnes}" readonly />
           </div>
 
           <div>
-            <label>Booth / Location</label>
-            <select name="table_location">
+            <label for="groupTableLocation">Booth / Location</label>
+            <select id="groupTableLocation" name="table_location">
               <option value="" ${!(group?.table_location) ? "selected" : ""}>Select booth/location</option>
               ${group?.table_location && !boothOptions.includes(group.table_location) ? `<option selected value="${esc(group.table_location)}">${esc(group.table_location)}</option>` : ""}
               ${boothOptions.map(booth => `<option value="${esc(booth)}" ${booth === (group?.table_location || "") ? "selected" : ""}>${esc(booth)}</option>`).join("")}
@@ -7566,20 +7791,20 @@ function renderGroupModal() {
           </div>
 
           <div>
-            <label>Approved By</label>
-            <input name="approved_by" value="${esc(group?.approved_by || "Management")}" />
+            <label for="groupApprovedBy">Approved By</label>
+            <input id="groupApprovedBy" name="approved_by" value="${esc(group?.approved_by || "Management")}" />
           </div>
 
           <div>
-            <label>Status</label>
-            <select name="status">
+            <label for="groupStatus">Status</label>
+            <select id="groupStatus" name="status">
               ${["Active","Draft","Closed"].map(status => `<option ${status === (group?.status || "Active") ? "selected" : ""}>${status}</option>`).join("")}
             </select>
           </div>
 
           <div style="grid-column:1/-1;">
-            <label>Notes</label>
-            <textarea name="notes" rows="3">${esc(group?.notes || "")}</textarea>
+            <label for="groupNotes">Notes</label>
+            <textarea id="groupNotes" name="notes" rows="3">${esc(group?.notes || "")}</textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="row-actions">
@@ -7598,16 +7823,17 @@ function renderGuestModal() {
   const guest = isEdit ? normalizeGuest(existingGuest) : emptyGuestForm();
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="${isEdit ? "Edit guest name" : "Add guest name"}" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close guest form" title="Close">&times;</button>
         <h2>${isEdit ? "Edit Name" : "Add Name"}</h2>
         <p class="subtle">${isEdit ? "Editing this name on" : "Adding to"}: <strong>${esc(state.activeDate)}</strong></p>
 
-        <form onsubmit="${isEdit ? "updateGuest(event)" : "createGuest(event)"}" class="form two">
+        <form onsubmit="${isEdit ? "updateGuest(event)" : "createGuest(event)"}" class="form two df-admin-form">
           ${!isEdit ? `
             <div style="grid-column:1/-1;">
-              <label>Add To</label>
-              <select name="target">
+              <label for="guestTarget">Add To</label>
+              <select id="guestTarget" name="target">
                 <option value="general">General Guest List / Individual Guest</option>
                 ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
@@ -7615,55 +7841,55 @@ function renderGuestModal() {
           ` : ""}
 
           <div>
-            <label>First Name</label>
-            <input name="first_name" value="${esc(guest?.first_name || "")}" />
+            <label for="guestFirstName">First Name</label>
+            <input id="guestFirstName" name="first_name" value="${esc(guest?.first_name || "")}" />
           </div>
 
           <div>
-            <label>Last Name</label>
-            <input name="last_name" value="${esc(guest?.last_name || "")}" />
+            <label for="guestLastName">Last Name</label>
+            <input id="guestLastName" name="last_name" value="${esc(guest?.last_name || "")}" />
           </div>
 
           <div>
-            <label>Guest Type</label>
-            <select name="guest_type">
+            <label for="guestType">Guest Type</label>
+            <select id="guestType" name="guest_type">
               ${guestTypes.map(type => `<option ${type === (guest?.guest_type || "Guest") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
 
           <div>
-            <label>Total Allowed / Party Size</label>
-            <input name="total_allowed" type="number" min="1" value="${guestTotal(guest || { total_allowed:1 })}" />
+            <label for="guestTotalAllowed">Total Allowed / Party Size</label>
+            <input id="guestTotalAllowed" name="total_allowed" type="number" min="1" value="${guestTotal(guest || { total_allowed:1 })}" />
           </div>
 
           ${!isEdit ? `
             <div>
               <label style="display:flex;align-items:center;gap:8px;margin-top:30px;">
-                <input style="width:auto;" type="checkbox" name="checked_in" />
+                <input id="guestAlreadyCheckedIn" style="width:auto;" type="checkbox" name="checked_in" />
                 Already checked in
               </label>
             </div>
           ` : `<div></div>`}
 
           <div style="grid-column:1/-1;">
-            <label>Notes</label>
-            <textarea name="notes" rows="3">${esc(guest?.notes || "")}</textarea>
+            <label for="guestNotes">Notes</label>
+            <textarea id="guestNotes" name="notes" rows="3">${esc(guest?.notes || "")}</textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="card tight">
             <div class="name-line" style="margin-bottom:10px;">
-              <input type="checkbox" name="is_late_add" ${guest && isLateAdd(guest) ? "checked" : ""} style="width:auto;" />
-              <label style="margin:0;">Late Add / Manager Approved Entry</label>
+              <input id="guestLateAdd" type="checkbox" name="is_late_add" ${guest && isLateAdd(guest) ? "checked" : ""} style="width:auto;" />
+              <label for="guestLateAdd" style="margin:0;">Late Add / Manager Approved Entry</label>
             </div>
 
             <div class="two">
               <div>
-                <label>Approved By</label>
-                <input name="late_add_approved_by" placeholder="Manager name" value="${esc(guest?.late_add_approved_by || "")}" />
+                <label for="guestLateAddApprovedBy">Approved By</label>
+                <input id="guestLateAddApprovedBy" name="late_add_approved_by" placeholder="Manager name" value="${esc(guest?.late_add_approved_by || "")}" />
               </div>
               <div>
-                <label>Reason / Approval Note</label>
-                <input name="late_add_reason" placeholder="Example: Late VIP approval" value="${esc(guest?.late_add_reason || "")}" />
+                <label for="guestLateAddReason">Reason / Approval Note</label>
+                <input id="guestLateAddReason" name="late_add_reason" placeholder="Example: Late VIP approval" value="${esc(guest?.late_add_reason || "")}" />
               </div>
             </div>
 
@@ -7685,8 +7911,9 @@ function renderPlusOnesModal() {
 
   if (!guest) {
     return `
-      <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-        <div class="modal">
+      <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+        <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Adjust Plus Ones" tabindex="-1">
+          <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close plus ones form" title="Close">&times;</button>
           <h2>Adjust Plus Ones</h2>
           <div class="notice redbox">DoorFlow could not find that guest on the selected service date. Tap Refresh Data, then try again.</div>
           <div class="row-actions">
@@ -7703,8 +7930,9 @@ function renderPlusOnesModal() {
   const busy = isActionBusy(`plus:${guest.id}`);
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Adjust Plus Ones" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close plus ones form" title="Close">&times;</button>
         <h2>Adjust Plus Ones</h2>
         <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong>${group ? ` &bull; ${esc(group.name)}` : ""}</p>
 
@@ -7712,35 +7940,35 @@ function renderPlusOnesModal() {
           This updates the allowed plus-one count on the existing host record only. No unnamed guest rows will be created.
         </div>
 
-        <form onsubmit="savePlusOnes(event)" class="form two">
+        <form onsubmit="savePlusOnes(event)" class="form two df-admin-form">
           <div style="grid-column:1/-1;">
-            <label>Host Name</label>
-            <input value="${esc(guestBaseName(guest))}" readonly />
+            <label for="plusHostName">Host Name</label>
+            <input id="plusHostName" value="${esc(guestBaseName(guest))}" readonly />
           </div>
 
           <div>
-            <label>Current Plus Ones</label>
-            <input value="+${currentPlus}" readonly />
+            <label for="plusCurrentCount">Current Plus Ones</label>
+            <input id="plusCurrentCount" value="+${currentPlus}" readonly />
           </div>
 
           <div>
-            <label>Current Checked In</label>
-            <input value="${checked} / ${guestTotal(guest)}" readonly />
+            <label for="plusCurrentChecked">Current Checked In</label>
+            <input id="plusCurrentChecked" value="${checked} / ${guestTotal(guest)}" readonly />
           </div>
 
           <div>
-            <label>New Plus Ones</label>
-            <input name="plus_count" type="number" min="0" max="20" step="1" value="${currentPlus}" required />
+            <label for="plusNewCount">New Plus Ones</label>
+            <input id="plusNewCount" name="plus_count" type="number" min="0" max="20" step="1" value="${currentPlus}" required />
           </div>
 
           <div>
-            <label>Approved By</label>
-            <input name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" required />
+            <label for="plusApprovedBy">Approved By</label>
+            <input id="plusApprovedBy" name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" required />
           </div>
 
           <div style="grid-column:1/-1;">
-            <label>Notes / Reason</label>
-            <textarea name="reason" rows="3" placeholder="Example: Host approved two additional guests"></textarea>
+            <label for="plusReason">Notes / Reason</label>
+            <textarea id="plusReason" name="reason" rows="3" placeholder="Example: Host approved two additional guests"></textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="row-actions">
@@ -7755,8 +7983,9 @@ function renderPlusOnesModal() {
 
 function renderBulkModal() {
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Bulk Paste Names" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close bulk paste form" title="Close">&times;</button>
         <h2>Bulk Paste Names</h2>
         <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Paste one name per line. Supports plus counts like Sarah Johnson +2.</p>
 
@@ -7767,27 +7996,27 @@ function renderBulkModal() {
           David Miller - VIP - Owner approved
         </div>
 
-        <form onsubmit="bulkAddNames(event)" class="form">
+        <form onsubmit="bulkAddNames(event)" class="form df-admin-form">
           <div class="form two">
             <div>
-              <label>Add To</label>
-              <select name="target">
+              <label for="bulkTarget">Add To</label>
+              <select id="bulkTarget" name="target">
                 <option value="general">General Guest List / Individual Guest</option>
                 ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
 
             <div>
-              <label>Default Guest Type</label>
-              <select name="defaultType">
+              <label for="bulkDefaultType">Default Guest Type</label>
+              <select id="bulkDefaultType" name="defaultType">
                 ${guestTypes.map(type => `<option ${type === "Guest" ? "selected" : ""}>${esc(type)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Paste Names</label>
-            <textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea>
+            <label for="bulkNames">Paste Names</label>
+            <textarea id="bulkNames" name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea>
           </div>
 
           <div class="row-actions">
@@ -7808,30 +8037,31 @@ function renderShiftNoteModal() {
   }
 
   return `
-    <div class="modal-backdrop">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Edit Shift Note" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close shift note form" title="Close">&times;</button>
         <h2>Edit Shift Note</h2>
         <p class="subtle">Update the category, priority, or note text for this service day.</p>
 
-        <form onsubmit="updateShiftNote(event)" class="form">
+        <form onsubmit="updateShiftNote(event)" class="form df-admin-form">
           <div class="two">
             <div>
-              <label>Category</label>
-              <select name="category">
+              <label for="shiftNoteEditCategory">Category</label>
+              <select id="shiftNoteEditCategory" name="category">
                 ${noteCategories.map(item => `<option ${item === note.category ? "selected" : ""}>${esc(item)}</option>`).join("")}
               </select>
             </div>
 
             <div>
-              <label>Priority</label>
-              <select name="priority">
+              <label for="shiftNoteEditPriority">Priority</label>
+              <select id="shiftNoteEditPriority" name="priority">
                 ${notePriorities.map(item => `<option ${item === note.priority ? "selected" : ""}>${esc(item)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Note</label>
+            <label for="shiftNoteEditText">Note</label>
             <textarea id="shiftNoteEditText" name="note_text" rows="6">${esc(note.note_text || "")}</textarea>
             ${renderEmojiKeyboard("shiftNoteEditText")}
           </div>
@@ -7885,8 +8115,8 @@ function renderApp() {
         ${renderTopbar()}
         <main id="main-content" class="df-main-content ${isLiveServiceView ? "df-live-service-content" : "df-admin-theme"}" tabindex="-1">
           <div class="page">
-            ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-            <div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
+            ${state.error ? `<div class="notice redbox df-admin-state-inline" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+            <div class="notice greenbox df-admin-state-inline" role="status"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
             ${content}
           </div>
         </main>
@@ -7950,6 +8180,7 @@ Object.assign(window, {
   isLateAdd
 });
 
+document.addEventListener("keydown", handleModalKeydown);
 document.addEventListener("keydown", handleShellKeydown);
 window.matchMedia("(min-width: 1081px)").addEventListener("change", () => closeShellNav(false));
 
