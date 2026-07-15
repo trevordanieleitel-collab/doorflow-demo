@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This folder contains the isolated visual prototype for a future DoorFlow operational Reports / Closeout screen. It remains the Phase P2 visual reference while real Reports and administrative integration is underway in Phase P4.
+This folder contains the isolated visual prototype for DoorFlow operational Reports / Closeout. It remains the Phase P2 design reference while the real application uses the committed P4 administrative presentation and the uncommitted P5 Door Check-In and Tablet Door Mode presentation.
 
 Every venue, person, date, count, note, status, and activity entry shown in the prototype is fictional sample content.
 
@@ -24,9 +24,19 @@ The standalone prototype remains isolated and continues to use fictional local-o
 - matching shell renderers in the maintained `../app.js` mirror
 - `../scripts/p3-shell-smoke.mjs`
 
-Phase P4 administrative integration is now underway in the uncommitted real application review work. It applies the approved direction to Reports / Closeout, Management, Shift Notes, Staff, administrative forms, modal surfaces, and administrative states while preserving the existing runtime logic and real application data contracts. It does not copy fictional prototype values or prototype interactions into the application.
+Phase P4 administrative integration is present in the committed real application baseline. It applies the approved direction to Reports / Closeout, Management, Shift Notes, Staff, administrative forms, modal surfaces, and administrative states while preserving the existing runtime logic and real application data contracts. It does not copy fictional prototype values or prototype interactions into the application.
 
-Door Check-In, Tablet Door Mode, guest rows, check-in/undo controls, party arrival actions, and live-service presentation remain deferred to the dedicated P5 workflow. The prototype remains a reference and is not substituted for production runtime code.
+Phase P5 integrates the real Door Check-In and Tablet Door Mode presentation in `../index.html`, the synchronized `../app.js` mirror, `../doorflow-operational-theme.css`, and `../scripts/p5-door-smoke.mjs`. It introduces a scoped dark live-service theme, responsive guest and party presentation, text-backed status treatment, and larger touch targets without changing existing check-in, undo, query, permission, or realtime behavior. The standalone reports prototype remains a reference and is not substituted for operational runtime code.
+
+Phase P5.1 refines that uncommitted presentation for operational density. Door Check-In aligns its roster with a dedicated right-side group browser, integrates selected counts into the selected group card, and enables a content-driven two-column roster when space permits. Tablet Door Mode removes the standalone Party Context card, uses the full width for denser guest results, and compacts controls and cards at tablet and phone widths. Existing handlers, IDs, role behavior, and data values remain unchanged.
+
+Phase P5.2 removes presentation-only `+N` suffixes and historical late-add audit detail from live Door and Tablet guest cards. Checked/allowed badges remain visible, approved late additions retain a concise label, and legacy missing-approval records remain text-backed as `Needs Approval`. Detailed late-add fields remain unchanged in closeout and CSV output. A future administrative `Things to Review` workflow is documented but not implemented.
+
+Phase P5.3 adds a live-service-only compact density layer at 430px and below plus short landscape. Door and Tablet guest cards remove fixed narrow-phone height, use tighter spacing, preserve normal name wrapping and count alignment, and keep primary actions at 44px. Wider Door layouts and administrative screens are unchanged.
+
+The current database context still exposes only the `EVE` venue row. An isolated presentation configuration identifies The B.O.B. as the parent property, EVE as the operating nightclub, and the list as `Shared Guest List`; unknown venues fall back to their stored names. This does not alter venue IDs, service-day or guest-list queries, report calculations, CSV output, RLS, or door-location behavior. Explicit hierarchy fields remain a future data-model requirement.
+
+Phase P6 authenticated validation, PWA cache/version work, controlled release review, and operational sign-off remain outstanding.
 
 ## Run locally
 
@@ -67,11 +77,16 @@ Before integration, the owner should approve:
 - summary-card density and report section hierarchy
 - the status vocabulary and colors
 - the mobile table-to-record transformation
-- the Door Mode dark token foundation
+- the integrated P5 Door Check-In and Tablet Door Mode presentation
+- low-light readability and the desktop, tablet, phone, zoom, and reduced-motion matrix
+- authenticated role, check-in, undo, duplicate-prevention, error-recovery, and realtime regression results
+- the P6 service-worker/cache-version and controlled release plan
 - whether sanitized screenshots are needed for future design reviews
 
 ## Live-service boundary
 
-Do not copy this prototype wholesale into critical live-service screens. Door Operations and guest check-in require separate workflow analysis, low-light testing, touch-target review, pending/error-state coverage, and regression testing against the existing check-in reliability safeguards.
+The P5 live-service presentation is implemented directly in the real runtime and mirror; it was not copied wholesale from this prototype. Before release, Door Operations and guest check-in still require owner-run low-light testing, touch review, pending/error-state coverage, authenticated role validation, and regression testing against the existing check-in reliability safeguards.
 
 Do not replace operational calculations, query behavior, authentication, authorization, or state management with prototype values or interactions.
+
+P5 does not modify `../sw.js` or `../manifest.webmanifest`. Installed or previously cached application copies may remain stale until P6 completes an owner-approved cache-version update and installed-PWA validation.

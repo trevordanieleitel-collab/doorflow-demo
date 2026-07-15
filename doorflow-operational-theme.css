@@ -2515,3 +2515,2142 @@ body.df-shell-nav-open {
     padding: 0;
   }
 }
+
+/* Phase P5: immersive Door Check-In and Tablet Door Mode. */
+:root {
+  --df-door-bg: #071321;
+  --df-door-bg-deep: #04101d;
+  --df-door-surface: #0d1d2e;
+  --df-door-surface-raised: #12263a;
+  --df-door-surface-active: #153454;
+  --df-door-border: #29435e;
+  --df-door-border-strong: #3e6387;
+  --df-door-text: #f4f8fc;
+  --df-door-muted: #a9bdd0;
+  --df-door-muted-strong: #c8d6e4;
+  --df-door-blue: #2478ff;
+  --df-door-blue-hover: #408aff;
+  --df-door-cyan: #31c7db;
+  --df-door-success: #35c989;
+  --df-door-warning: #efb85a;
+  --df-door-danger: #ff6b72;
+  --df-door-focus: #79d9ff;
+  --df-door-shadow: 0 14px 34px rgb(0 5 14 / 26%);
+}
+
+.df-shell-live {
+  background: var(--df-door-bg-deep);
+}
+
+.df-shell-live .df-sidebar {
+  border-right-color: #17304a;
+  background: #06172a;
+  color: var(--df-door-text);
+}
+
+.df-shell-live .df-sidebar-note {
+  color: #7894ae;
+}
+
+.df-shell-live .df-nav-item {
+  color: #c2d2e1;
+}
+
+.df-shell-live .df-nav-item:hover,
+.df-shell-live .df-nav-item:focus-visible {
+  border-color: #315879;
+  background: #102942;
+  color: #fff;
+}
+
+.df-shell-live .df-nav-item[aria-current="page"] {
+  border-color: #3f83c5;
+  background: #123b69;
+  color: #fff;
+  box-shadow: inset 3px 0 0 var(--df-door-cyan);
+}
+
+.df-shell-live .df-nav-symbol {
+  border-color: #315879;
+  background: #0a2138;
+  color: #8dcfff;
+}
+
+.df-shell-live .df-nav-item[aria-current="page"] .df-nav-symbol {
+  border-color: var(--df-door-blue);
+  background: var(--df-door-blue);
+  color: #fff;
+}
+
+.df-shell-live .df-utility-bar {
+  border-bottom-color: #20384f;
+  background: #0a1928;
+  color: var(--df-door-text);
+  box-shadow: 0 10px 28px rgb(0 7 18 / 20%);
+}
+
+.df-shell-live .df-utility-label,
+.df-shell-live .df-user-copy span {
+  color: #8fa8bf;
+}
+
+.df-shell-live .df-venue-copy strong,
+.df-shell-live .df-user-copy strong {
+  color: #f4f8fc;
+}
+
+.df-shell-live .df-venue-monogram,
+.df-shell-live .df-user-avatar {
+  border-color: #3a6488;
+  background: #102d4a;
+  color: #fff;
+}
+
+.df-shell-live .df-service-field select,
+.df-shell-live .df-service-field input,
+.df-shell-live .df-refresh-button,
+.df-shell-live .df-logout-button,
+.df-shell-live .df-shell-menu {
+  border-color: #35516c;
+  background: #102438;
+  color: #edf6ff;
+  color-scheme: dark;
+}
+
+.df-shell-live .sync-pill {
+  border-color: #2e526e;
+  background: #0e2436;
+  color: #b8cce0;
+}
+
+.df-door-theme {
+  min-width: 0;
+  background: var(--df-door-bg);
+  color: var(--df-door-text);
+  color-scheme: dark;
+}
+
+.df-door-theme,
+.df-door-theme * {
+  letter-spacing: 0;
+}
+
+.df-door-theme :where(h1, h2, h3, p, span, strong, label, button, input, select) {
+  min-width: 0;
+  max-width: 100%;
+  word-break: normal;
+}
+
+.df-door-theme :focus-visible {
+  outline-color: var(--df-door-focus);
+  outline-offset: 3px;
+}
+
+.df-door-theme .df-door-page {
+  width: 100%;
+  padding: 24px clamp(14px, 2.2vw, 34px) 48px;
+  background: var(--df-door-bg);
+}
+
+.df-door-theme .stack {
+  gap: 16px;
+}
+
+.df-door-theme .card {
+  border: 1px solid var(--df-door-border);
+  border-radius: 8px;
+  background: var(--df-door-surface);
+  color: var(--df-door-text);
+  box-shadow: var(--df-door-shadow);
+}
+
+.df-door-theme .card.tight {
+  padding: 14px;
+}
+
+.df-door-theme h1,
+.df-door-theme h2,
+.df-door-theme h3,
+.df-door-theme .guest-name,
+.df-door-theme .party-title,
+.df-door-theme .tablet-guest-name {
+  color: var(--df-door-text);
+  font-family: var(--df-font-sans);
+  letter-spacing: 0;
+}
+
+.df-door-theme .subtle,
+.df-door-theme .guest-detail,
+.df-door-theme .tablet-guest-meta,
+.df-door-theme .tablet-note {
+  color: var(--df-door-muted);
+}
+
+.df-door-theme label,
+.df-door-theme .df-tablet-control-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--df-door-muted-strong);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.df-door-theme input,
+.df-door-theme select {
+  min-height: 48px;
+  border: 1px solid var(--df-door-border-strong);
+  border-radius: 7px;
+  background: #0a1928;
+  color: var(--df-door-text);
+  box-shadow: none;
+  color-scheme: dark;
+}
+
+.df-door-theme input::placeholder {
+  color: #7791aa;
+  opacity: 1;
+}
+
+.df-door-theme input:hover,
+.df-door-theme select:hover {
+  border-color: #5b80a3;
+}
+
+.df-door-theme input:focus,
+.df-door-theme select:focus {
+  border-color: var(--df-door-cyan);
+  box-shadow: 0 0 0 3px rgb(49 199 219 / 18%);
+}
+
+.df-door-theme option {
+  background: #0a1928;
+  color: var(--df-door-text);
+}
+
+.df-door-theme .btn {
+  min-height: 48px;
+  border-color: #3d6080;
+  border-radius: 7px;
+  background: #16324c;
+  color: #eef7ff;
+  box-shadow: none;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 120ms ease;
+}
+
+.df-door-theme .btn:hover:not(:disabled) {
+  border-color: #5b83a7;
+  background: #1b4162;
+}
+
+.df-door-theme .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.df-door-theme .btn.secondary {
+  border-color: #3b5872;
+  background: #102438;
+  color: #d9e8f5;
+}
+
+.df-door-theme .btn.green,
+.df-door-theme .df-door-checkin-action {
+  border-color: #3d8dff;
+  background: linear-gradient(180deg, #2d82ff 0%, #1464dc 100%);
+  color: #fff;
+}
+
+.df-door-theme .btn.green:hover:not(:disabled),
+.df-door-theme .df-door-checkin-action:hover:not(:disabled) {
+  border-color: #71abff;
+  background: linear-gradient(180deg, #438fff 0%, #1d70ea 100%);
+}
+
+.df-door-theme .btn.danger {
+  border-color: #8e424a;
+  background: #3b2029;
+  color: #ffd9dc;
+}
+
+.df-door-theme .btn:disabled {
+  border-color: #2c4256;
+  background: #132536;
+  color: #748ba1;
+  opacity: 1;
+}
+
+.df-door-theme .df-door-system-state {
+  display: flex;
+  min-height: 48px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+  border-radius: 7px;
+  background: #0d2133;
+  color: #c7d8e7;
+}
+
+.df-door-theme .df-door-system-state span {
+  color: var(--df-door-muted);
+}
+
+.df-door-theme .df-door-system-state--live {
+  border-color: #2c745a;
+  background: #0c2a24;
+  color: #9ce7c4;
+}
+
+.df-door-theme .df-door-system-state--loading {
+  border: 1px solid #3e6d94;
+  color: #a9d7ff;
+}
+
+.df-door-theme .df-door-system-state--error {
+  border-color: #91444d;
+  background: #331b25;
+  color: #ffc2c7;
+}
+
+.df-door-operating-workspace,
+.df-tablet-door-mode {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.df-door-theme .df-door-checkin-view {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.df-door-theme .df-door-view-header,
+.df-door-theme .df-tablet-mode-header {
+  display: flex;
+  min-width: 0;
+  gap: 20px;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 10px 2px 4px;
+}
+
+.df-door-theme .df-door-view-header h1,
+.df-door-theme .df-tablet-mode-header h1 {
+  margin: 4px 0 0;
+  font-size: 2rem;
+  font-weight: 780;
+  line-height: 1.05;
+}
+
+.df-door-theme .df-door-view-header p:not(.df-door-kicker) {
+  max-width: 43rem;
+  margin: 9px 0 0;
+  color: var(--df-door-muted);
+  line-height: 1.5;
+}
+
+.df-door-kicker {
+  margin: 0 0 4px;
+  color: var(--df-door-cyan);
+  font-size: 0.67rem;
+  font-weight: 850;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.df-door-theme .df-door-view-header__context,
+.df-door-theme .df-tablet-mode-header__context {
+  display: flex;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.df-door-theme .df-door-view-header__context span,
+.df-door-theme .df-door-view-header__context strong,
+.df-door-theme .df-tablet-mode-header__context span,
+.df-door-theme .df-tablet-mode-header__context strong {
+  padding: 7px 10px;
+  border: 1px solid var(--df-door-border);
+  border-radius: 999px;
+  background: #0b1c2c;
+  color: var(--df-door-muted-strong);
+  font-size: 0.75rem;
+  white-space: normal;
+}
+
+.df-door-theme .df-door-view-header__context strong,
+.df-door-theme .df-tablet-mode-header__context strong {
+  border-color: #3c78a1;
+  color: #9fdcff;
+}
+
+.df-door-theme .df-door-context {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.72fr) minmax(0, 1.28fr);
+  gap: 18px;
+  align-items: end;
+  padding: 16px 18px;
+  border-color: #31506c;
+  background: #0b1c2b;
+}
+
+.df-door-theme .df-door-context__heading {
+  display: flex;
+  min-width: 0;
+  gap: 14px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.df-door-theme .df-door-context__heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.25;
+}
+
+.df-door-theme .df-door-context__heading > p {
+  margin: 0;
+  color: var(--df-door-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.df-door-theme .df-door-context__controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.4fr);
+  gap: 10px;
+  margin: 0;
+}
+
+.df-door-theme .df-door-context__controls select {
+  width: 100%;
+}
+
+.df-door-theme .df-door-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+}
+
+.df-door-theme .df-door-metric,
+.df-door-theme .df-door-selected-metrics .stat,
+.df-door-theme .df-tablet-stats .stat {
+  min-height: 92px;
+  padding: 13px 14px;
+  border: 1px solid var(--df-door-border);
+  border-top: 3px solid #466582;
+  border-radius: 7px;
+  background: var(--df-door-surface);
+  box-shadow: none;
+}
+
+.df-door-theme .df-door-metric--complete,
+.df-door-theme .df-door-metric--checked {
+  border-top-color: var(--df-door-success);
+}
+
+.df-door-theme .df-door-metric--remaining {
+  border-top-color: var(--df-door-warning);
+}
+
+.df-door-theme .stat span {
+  color: var(--df-door-muted);
+  font-size: 0.7rem;
+  font-weight: 760;
+  line-height: 1.3;
+}
+
+.df-door-theme .stat strong {
+  color: var(--df-door-text);
+  font-size: 1.65rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.df-door-theme .df-door-workspace {
+  gap: 18px;
+  align-items: start;
+}
+
+.df-door-theme .df-door-workspace > main,
+.df-door-theme .df-door-workspace > aside {
+  gap: 14px;
+}
+
+.df-door-theme .df-door-filter-panel {
+  padding: 12px;
+  border-color: #31526f;
+  background: #0c2032;
+}
+
+.df-door-theme .df-door-filter-toolbar {
+  gap: 8px;
+  margin: 0;
+}
+
+.df-door-theme .df-door-filter-toolbar > * {
+  min-width: min(100%, 10rem);
+  min-height: 50px;
+  flex: 1 1 10rem;
+}
+
+.df-door-theme .df-door-filter-toolbar > #mainSearchInput {
+  min-width: min(100%, 17rem);
+  min-height: 54px;
+  flex: 2.2 1 20rem;
+  padding-left: 46px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%237da1bf' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+  background-position: 16px center;
+  background-repeat: no-repeat;
+}
+
+.df-door-theme .df-door-clear-action {
+  min-height: 50px;
+}
+
+.df-door-theme .df-door-guest-panel,
+.df-door-theme .df-door-party-panel,
+.df-door-theme .df-door-selected-group,
+.df-door-theme .df-door-shift-notes,
+.df-door-theme .df-tablet-overview,
+.df-door-theme .df-tablet-party-context {
+  padding: 18px;
+}
+
+.df-door-theme .df-door-section-heading {
+  display: flex;
+  min-width: 0;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.df-door-theme .df-door-section-heading h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.df-door-theme .df-door-section-heading p:not(.df-door-kicker) {
+  margin: 5px 0 0;
+  color: var(--df-door-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.df-door-theme .df-door-list-meta {
+  margin: 0 0 12px;
+}
+
+.df-door-theme .badge,
+.df-door-theme .count-pill {
+  border-color: #38546e;
+  background: #102438;
+  color: #c8d8e7;
+}
+
+.df-door-theme .badge.in,
+.df-door-theme .df-door-status--complete {
+  border-color: #2f8061;
+  background: #10352b;
+  color: #9ae4bf;
+}
+
+.df-door-theme .badge.remaining,
+.df-door-theme .df-door-status--remaining {
+  border-color: #8c6d35;
+  background: #392d19;
+  color: #f5ca78;
+}
+
+.df-door-theme .badge.blocked {
+  border-color: #944750;
+  background: #3a1f27;
+  color: #ffb7bd;
+}
+
+.df-door-theme .badge.vip,
+.df-door-theme .badge.bottle,
+.df-door-theme .badge.private {
+  border-color: #3c6588;
+  background: #112b43;
+  color: #a9d8ff;
+}
+
+.df-door-theme .scroll-panel {
+  scrollbar-color: #426580 #0b1927;
+  scrollbar-width: thin;
+}
+
+.df-door-theme #guestScrollPanel {
+  max-height: min(56vh, 46rem);
+  padding-right: 5px;
+}
+
+.df-door-theme #groupScrollPanel {
+  max-height: min(46vh, 34rem);
+  margin-top: 12px;
+  padding-right: 5px;
+}
+
+.df-door-theme .guest-list,
+.df-door-theme .party-list {
+  gap: 8px;
+}
+
+.df-door-theme .df-door-guest-row {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 84px;
+  padding: 12px 13px;
+  border: 1px solid var(--df-door-border);
+  border-left: 3px solid #42617d;
+  border-radius: 7px;
+  background: #0b1a29;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.df-door-theme .df-door-guest-row.is-partial {
+  border-left-color: var(--df-door-warning);
+  background: #161f25;
+}
+
+.df-door-theme .df-door-guest-row.checked,
+.df-door-theme .df-door-guest-row.is-complete {
+  border-color: #2f7359;
+  border-left-color: var(--df-door-success);
+  background: #0c2722;
+}
+
+.df-door-theme .df-door-guest-check {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 2px solid #55718c;
+  border-radius: 7px;
+  background: #0d2031;
+  color: #d6e6f5;
+  cursor: pointer;
+}
+
+.df-door-theme .df-door-guest-row.checked .df-door-guest-check {
+  border-color: var(--df-door-success);
+  background: var(--df-door-success);
+  color: #032116;
+}
+
+.df-door-theme .df-door-guest-copy {
+  min-width: 0;
+}
+
+.df-door-theme .df-door-guest-name-line {
+  gap: 6px;
+}
+
+.df-door-theme .guest-name {
+  font-size: 1.05rem;
+  font-weight: 780;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .guest-detail,
+.df-door-theme .late-add-detail {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .late-add-detail {
+  color: #efc77c;
+}
+
+.df-door-theme .df-door-guest-actions {
+  display: grid;
+  width: min(100%, 13rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.df-door-theme .df-door-guest-actions .btn,
+.df-door-theme .df-door-guest-actions .df-door-status {
+  min-height: 50px;
+  width: 100%;
+}
+
+.df-door-theme .df-door-guest-actions .df-door-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: normal;
+}
+
+.df-door-theme .df-door-undo-action {
+  border-color: #415d76;
+  background: #102438;
+  color: #c2d3e3;
+}
+
+.df-door-theme .df-door-party-card {
+  padding: 13px;
+  border: 1px solid var(--df-door-border);
+  border-left: 3px solid #3c5a75;
+  border-radius: 7px;
+  background: #0b1a29;
+  box-shadow: none;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 120ms ease;
+}
+
+.df-door-theme .df-door-party-card:hover,
+.df-door-theme .df-door-party-card:focus-visible {
+  border-color: #5481a7;
+  background: #10263a;
+  transform: translateY(-1px);
+}
+
+.df-door-theme .df-door-party-card.selected {
+  border-color: #398ad1;
+  border-left-color: var(--df-door-cyan);
+  background: var(--df-door-surface-active);
+  box-shadow: inset 0 0 0 1px rgb(49 199 219 / 16%);
+}
+
+.df-door-theme .df-door-party-card.complete {
+  border-color: #2f7459;
+  border-left-color: var(--df-door-success);
+  background: #0d2923;
+}
+
+.df-door-theme .df-door-party-card.started {
+  border-color: #826534;
+  border-left-color: var(--df-door-warning);
+  background: #282316;
+}
+
+.df-door-theme .df-door-party-card__top,
+.df-door-theme .df-door-selected-group__header {
+  display: flex;
+  min-width: 0;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.df-door-theme .party-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 780;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-door-party-state {
+  flex: 0 1 auto;
+  padding: 5px 8px;
+  border: 1px solid #43617b;
+  border-radius: 999px;
+  background: #102438;
+  color: #c3d5e4;
+  font-size: 0.66rem;
+  font-weight: 820;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+}
+
+.df-door-theme .df-door-party-card.complete .df-door-party-state,
+.df-door-theme .df-door-selected-group.is-complete .df-door-party-state {
+  border-color: #348066;
+  background: #12392e;
+  color: #9ae4bf;
+}
+
+.df-door-theme .df-door-party-card.started .df-door-party-state,
+.df-door-theme .df-door-selected-group.is-partial .df-door-party-state {
+  border-color: #8d6d36;
+  background: #3a2e19;
+  color: #f5ca78;
+}
+
+.df-door-theme .df-door-party-card .subtle {
+  margin: 8px 0 0 !important;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-door-selected-group {
+  border-top: 3px solid #46708f;
+}
+
+.df-door-theme .df-door-selected-group.is-complete {
+  border-top-color: var(--df-door-success);
+}
+
+.df-door-theme .df-door-selected-group.is-partial {
+  border-top-color: var(--df-door-warning);
+}
+
+.df-door-theme .df-door-selected-metrics {
+  gap: 7px;
+}
+
+.df-door-theme .df-door-selected-metrics .stat {
+  min-height: 78px;
+  padding: 10px;
+}
+
+.df-door-theme .df-door-selected-group .divider {
+  border-color: var(--df-door-border);
+}
+
+.df-door-theme .df-door-selected-group__details {
+  display: grid;
+  gap: 8px;
+}
+
+.df-door-theme .df-door-selected-group__details p {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-door-group-actions {
+  margin-top: 14px;
+}
+
+.df-door-theme .df-door-shift-notes {
+  display: grid;
+  gap: 12px;
+  padding-block: 14px;
+  border-left: 3px solid var(--df-door-warning);
+  background: #151f27;
+  box-shadow: none;
+}
+
+.df-door-theme .df-door-shift-notes .df-door-section-heading {
+  margin: 0;
+}
+
+.df-door-theme .df-door-note-actions {
+  margin: 0;
+}
+
+.df-door-theme .df-door-note-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 8px;
+}
+
+.df-door-theme .df-door-note-card {
+  padding: 12px;
+  border-color: #604f32;
+  border-radius: 7px;
+  background: #201f1a;
+}
+
+.df-door-theme .df-door-note-card .shift-note-text {
+  color: #e7dcc7;
+}
+
+.df-door-theme .df-door-empty-state {
+  display: grid;
+  min-height: 68px;
+  gap: 4px;
+  align-content: center;
+  padding: 14px 15px;
+  border: 1px dashed #45627b;
+  border-radius: 7px;
+  background: #0a1a29;
+  color: var(--df-door-muted);
+}
+
+.df-door-theme .df-door-empty-state strong {
+  color: var(--df-door-muted-strong);
+  font-size: 0.9rem;
+}
+
+.df-door-theme .df-door-empty-state span {
+  color: var(--df-door-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.df-door-theme .df-tablet-mode-header {
+  padding: 6px 2px;
+}
+
+.df-door-theme .df-tablet-mode-header__brand {
+  display: flex;
+  min-width: 0;
+  gap: 16px;
+  align-items: center;
+}
+
+.df-door-theme .df-tablet-mode-header__brand .df-doorflow-lockup {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid #355776;
+  border-radius: 7px;
+  background: #0c2237;
+}
+
+.df-door-theme .df-tablet-mode-header__brand .df-doorflow-wordmark {
+  color: #fff;
+}
+
+.df-door-theme .tablet-door-shell {
+  gap: 14px;
+}
+
+.df-door-theme .df-tablet-overview {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.df-door-theme .df-tablet-overview .df-door-section-heading {
+  margin: 0;
+}
+
+.df-door-theme .df-tablet-stats {
+  gap: 8px;
+}
+
+.df-door-theme .df-tablet-command-bar {
+  position: static;
+  z-index: auto;
+  padding: 14px;
+  border: 1px solid #315777;
+  border-radius: 8px;
+  background: #0c2032;
+  box-shadow: var(--df-door-shadow);
+  backdrop-filter: none;
+}
+
+.df-door-theme .tablet-action-grid {
+  grid-template-columns: minmax(18rem, 1.6fr) minmax(14rem, 0.8fr) minmax(10rem, 0.5fr);
+  gap: 10px;
+}
+
+.df-door-theme .tablet-filter-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.df-door-theme .tablet-search {
+  min-height: 58px;
+  padding: 14px 16px;
+  font-size: 1.08rem;
+  font-weight: 720;
+}
+
+.df-door-theme .df-tablet-command-bar .btn,
+.df-door-theme .df-tablet-command-bar select {
+  width: 100%;
+}
+
+.df-door-theme .df-tablet-result-meta {
+  border-color: #294a66;
+  background: #0a1c2b;
+  box-shadow: none;
+}
+
+.df-door-theme .df-tablet-content-layout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.df-door-theme .df-tablet-results {
+  min-width: 0;
+}
+
+.df-door-theme .df-tablet-results > .df-door-section-heading {
+  margin-bottom: 12px;
+  padding-inline: 2px;
+}
+
+.df-door-theme .tablet-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
+  gap: 10px;
+}
+
+.df-door-theme .df-tablet-guest-card {
+  min-height: 238px;
+  gap: 12px;
+  padding: 17px;
+  border: 1px solid var(--df-door-border);
+  border-top: 3px solid #446580;
+  border-radius: 8px;
+  background: #0b1a29;
+  box-shadow: 0 10px 24px rgb(0 5 14 / 18%);
+}
+
+.df-door-theme .df-tablet-guest-card.is-partial {
+  border-top-color: var(--df-door-warning);
+  background: #181f24;
+}
+
+.df-door-theme .df-tablet-guest-card.checked,
+.df-door-theme .df-tablet-guest-card.is-complete {
+  border-color: #2f7359;
+  border-top-color: var(--df-door-success);
+  background: #0c2822;
+}
+
+.df-door-theme .df-tablet-guest-copy {
+  min-width: 0;
+}
+
+.df-door-theme .tablet-guest-name {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .tablet-guest-meta {
+  margin-top: 6px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-tablet-guest-count {
+  border-color: #43647f;
+  border-radius: 7px;
+  background: #102438;
+  color: #eef7ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.df-door-theme .df-tablet-guest-status {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.df-door-theme .df-tablet-guest-status strong {
+  color: #dce8f3;
+  font-size: 0.76rem;
+}
+
+.df-door-theme .df-tablet-guest-status span {
+  color: var(--df-door-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.df-door-theme .df-tablet-guest-actions {
+  margin-top: auto;
+}
+
+.df-door-theme .tablet-check-btn,
+.df-door-theme .tablet-undo-btn {
+  min-height: 60px;
+  border-radius: 7px;
+  font-size: 1rem;
+}
+
+.df-door-theme .df-tablet-party-context {
+  position: static;
+  align-self: start;
+}
+
+.df-door-theme .df-tablet-party-context .df-door-section-heading {
+  flex-direction: column;
+}
+
+.df-door-theme .df-tablet-mobile-summary {
+  border-color: var(--df-door-border);
+  background: #081725;
+  backdrop-filter: none;
+}
+
+.df-door-theme .mobile-summary-item {
+  border-color: var(--df-door-border);
+  border-radius: 7px;
+  background: var(--df-door-surface);
+}
+
+.df-door-theme .mobile-summary-item span {
+  color: var(--df-door-muted);
+}
+
+.df-door-theme .mobile-summary-item strong {
+  color: var(--df-door-text);
+}
+
+@container df-main-content (min-width: 58rem) {
+  .df-door-theme .df-tablet-content-layout {
+    grid-template-columns: minmax(0, 1.65fr) minmax(19rem, 0.72fr);
+  }
+}
+
+@container df-main-content (max-width: 64rem) {
+  .df-door-theme .df-door-view-header,
+  .df-door-theme .df-tablet-mode-header,
+  .df-door-theme .df-door-context,
+  .df-door-theme .df-tablet-overview {
+    grid-template-columns: minmax(0, 1fr);
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .df-door-theme .df-door-view-header__context,
+  .df-door-theme .df-tablet-mode-header__context {
+    justify-content: flex-start;
+  }
+
+  .df-door-theme .df-door-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container df-main-content (max-width: 52rem) {
+  .df-door-theme .df-door-context__controls,
+  .df-door-theme .tablet-action-grid,
+  .df-door-theme .tablet-filter-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-door-theme .df-door-guest-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .df-door-theme .df-door-guest-actions {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  .df-door-theme .df-tablet-overview {
+    display: grid;
+  }
+}
+
+@container df-main-content (max-width: 40rem) {
+  .df-door-theme .df-door-page {
+    padding-inline: 10px;
+  }
+
+  .df-door-theme .df-door-view-header h1,
+  .df-door-theme .df-tablet-mode-header h1 {
+    font-size: 1.65rem;
+  }
+
+  .df-door-theme .df-door-context,
+  .df-door-theme .df-door-guest-panel,
+  .df-door-theme .df-door-party-panel,
+  .df-door-theme .df-door-selected-group,
+  .df-door-theme .df-door-shift-notes,
+  .df-door-theme .df-tablet-overview,
+  .df-door-theme .df-tablet-party-context {
+    padding: 14px;
+  }
+
+  .df-door-theme .df-door-context__heading,
+  .df-door-theme .df-door-section-heading,
+  .df-door-theme .df-door-selected-group__header,
+  .df-door-theme .df-door-party-card__top,
+  .df-door-theme .tablet-guest-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .df-door-theme .df-door-context__heading > p {
+    text-align: left;
+  }
+
+  .df-door-theme .df-door-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .df-door-theme .df-door-filter-toolbar > *,
+  .df-door-theme .df-door-filter-toolbar > #mainSearchInput {
+    width: 100%;
+    min-width: 100%;
+    flex-basis: 100%;
+  }
+
+  .df-door-theme .df-door-guest-actions,
+  .df-door-theme .tablet-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-door-theme .df-tablet-mode-header__brand {
+    align-items: flex-start;
+  }
+
+  .df-door-theme .df-tablet-mode-header__brand .df-doorflow-lockup {
+    display: none;
+  }
+
+  .df-door-theme .tablet-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .df-door-theme .df-door-page {
+    padding-top: 12px;
+  }
+
+  .df-door-theme .df-door-view-header,
+  .df-door-theme .df-tablet-mode-header {
+    padding-top: 0;
+  }
+
+  .df-door-theme #guestScrollPanel,
+  .df-door-theme #groupScrollPanel {
+    max-height: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .df-door-theme .btn,
+  .df-door-theme .df-door-guest-row,
+  .df-door-theme .df-door-party-card {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Phase P5.1: Door density and Tablet compaction refinement. */
+.df-door-theme .df-door-checkin-view,
+.df-door-theme .df-door-operating-workspace,
+.df-door-theme .df-tablet-door-mode {
+  gap: 12px;
+}
+
+.df-door-theme .df-door-view-header,
+.df-door-theme .df-tablet-mode-header {
+  gap: 14px;
+  padding-block: 4px 2px;
+}
+
+.df-door-theme .df-door-view-header h1,
+.df-door-theme .df-tablet-mode-header h1 {
+  font-size: 1.72rem;
+}
+
+.df-door-theme .df-door-view-header p:not(.df-door-kicker) {
+  margin-top: 5px;
+  line-height: 1.35;
+}
+
+.df-door-theme .df-door-context {
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.df-door-theme .df-door-context__controls {
+  gap: 8px;
+}
+
+.df-door-theme .df-door-metrics {
+  gap: 7px;
+}
+
+.df-door-theme .df-door-metric,
+.df-door-theme .df-tablet-stats .stat {
+  min-height: 74px;
+  padding: 9px 11px;
+}
+
+.df-door-theme .stat strong {
+  font-size: 1.45rem;
+}
+
+.df-door-theme .df-door-filter-panel {
+  padding: 9px;
+}
+
+.df-door-theme .df-door-filter-toolbar > *,
+.df-door-theme .df-door-filter-toolbar > #mainSearchInput,
+.df-door-theme .df-door-clear-action {
+  min-height: 48px;
+}
+
+.df-door-theme .df-door-workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
+  gap: 12px;
+  align-items: start;
+}
+
+.df-door-theme .df-door-roster-column,
+.df-door-theme .df-door-support-column {
+  min-width: 0;
+  align-self: start;
+}
+
+.df-door-theme .df-door-support-column {
+  gap: 10px;
+}
+
+.df-door-theme .df-door-guest-panel,
+.df-door-theme .df-door-party-panel {
+  padding: 14px;
+}
+
+.df-door-theme .df-door-guest-panel {
+  container-name: df-door-roster;
+  container-type: inline-size;
+}
+
+.df-door-theme .df-door-section-heading {
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.df-door-theme .df-door-section-heading p:not(.df-door-kicker) {
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.df-door-theme .df-door-list-meta {
+  margin-bottom: 8px;
+}
+
+.df-door-theme #guestScrollPanel {
+  max-height: min(64vh, 54rem);
+}
+
+.df-door-theme #groupScrollPanel {
+  max-height: min(64vh, 54rem);
+  margin-top: 9px;
+}
+
+.df-door-theme .guest-list,
+.df-door-theme .party-list {
+  gap: 6px;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 70px;
+  padding: 8px 9px;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-check {
+  width: 36px;
+  height: 36px;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-name-line {
+  gap: 4px;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .guest-name {
+  font-size: 1rem;
+  line-height: 1.18;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .guest-detail,
+.df-door-theme .df-door-operating-workspace:not(.is-management) .late-add-detail {
+  margin-top: 2px;
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .badge,
+.df-door-theme .df-door-operating-workspace:not(.is-management) .count-pill {
+  padding: 3px 6px;
+  font-size: 0.65rem;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions {
+  width: min(100%, 10.5rem);
+  gap: 5px;
+}
+
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .btn,
+.df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .df-door-status {
+  min-height: 44px;
+  padding-inline: 8px;
+  font-size: 0.72rem;
+}
+
+.df-door-theme .df-door-party-card {
+  padding: 10px;
+}
+
+.df-door-theme .df-door-party-card__top {
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.df-door-theme .df-door-party-card .party-meta {
+  gap: 4px;
+}
+
+.df-door-theme .df-door-party-card .subtle {
+  margin-top: 6px !important;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.df-door-theme .df-door-party-focus {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3e6586;
+}
+
+.df-door-theme .df-door-party-focus > div {
+  display: grid;
+  gap: 1px;
+  padding: 6px;
+  border: 1px solid #3b607f;
+  border-radius: 6px;
+  background: #0d263a;
+}
+
+.df-door-theme .df-door-party-focus span {
+  color: var(--df-door-muted);
+  font-size: 0.62rem;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.df-door-theme .df-door-party-focus strong {
+  color: var(--df-door-text);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.df-door-theme .df-door-party-focus p {
+  grid-column: 1 / -1;
+  margin: 1px 0 0;
+  color: var(--df-door-muted);
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.df-door-theme .df-tablet-mode-header__brand {
+  gap: 10px;
+}
+
+.df-door-theme .df-tablet-mode-header__brand .df-doorflow-lockup {
+  padding: 7px 9px;
+}
+
+.df-door-theme .df-tablet-mode-header__context {
+  min-height: 0;
+  gap: 5px;
+}
+
+.df-door-theme .df-tablet-mode-header__context span,
+.df-door-theme .df-tablet-mode-header__context strong {
+  padding: 5px 8px;
+  font-size: 0.7rem;
+}
+
+.df-door-theme .tablet-door-shell {
+  gap: 9px;
+}
+
+.df-door-theme .df-tablet-overview {
+  grid-template-columns: minmax(12rem, 0.55fr) minmax(0, 1.45fr);
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.df-door-theme .df-tablet-command-bar {
+  padding: 10px;
+}
+
+.df-door-theme .df-tablet-control-grid {
+  grid-template-columns: minmax(16rem, 1.7fr) minmax(12rem, 1.1fr) repeat(3, minmax(8.5rem, 0.7fr));
+  gap: 8px;
+}
+
+.df-door-theme .df-tablet-control-grid label,
+.df-door-theme .df-tablet-control-grid .df-tablet-control-label {
+  margin-bottom: 4px;
+}
+
+.df-door-theme .tablet-search {
+  min-height: 50px;
+  padding: 10px 13px;
+  font-size: 1rem;
+}
+
+.df-door-theme .df-tablet-result-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+}
+
+.df-door-theme .df-tablet-result-meta .party-meta {
+  margin: 0;
+}
+
+.df-door-theme .df-tablet-active-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--df-door-muted);
+  font-size: 0.72rem;
+}
+
+.df-door-theme .df-tablet-active-list strong {
+  color: var(--df-door-text);
+  font-size: 0.82rem;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-tablet-active-list .df-door-party-state {
+  padding: 3px 6px;
+}
+
+.df-door-theme .df-tablet-content-layout.is-roster-only {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.df-door-theme .df-tablet-results > .df-door-section-heading {
+  margin-bottom: 8px;
+}
+
+.df-door-theme .tablet-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 7px;
+}
+
+.df-door-theme .df-tablet-guest-card {
+  min-height: 168px;
+  gap: 7px;
+  padding: 11px;
+  box-shadow: 0 6px 16px rgb(0 5 14 / 16%);
+}
+
+.df-door-theme .tablet-guest-top {
+  gap: 8px;
+}
+
+.df-door-theme .tablet-guest-name {
+  font-size: 1.12rem;
+  line-height: 1.15;
+}
+
+.df-door-theme .tablet-guest-meta {
+  margin-top: 3px;
+  font-size: 0.77rem;
+  line-height: 1.32;
+}
+
+.df-door-theme .df-tablet-guest-count {
+  padding: 5px 8px;
+  font-size: 0.92rem;
+}
+
+.df-door-theme .df-tablet-guest-status {
+  gap: 1px;
+}
+
+.df-door-theme .df-tablet-guest-status strong,
+.df-door-theme .df-tablet-guest-status span {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.df-door-theme .df-tablet-guest-actions {
+  gap: 6px;
+}
+
+.df-door-theme .tablet-check-btn,
+.df-door-theme .tablet-undo-btn {
+  min-height: 52px;
+  padding-inline: 10px;
+  font-size: 0.9rem;
+}
+
+@container df-door-roster (min-width: 46rem) {
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .guest-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    align-content: start;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+}
+
+@container df-main-content (max-width: 64rem) {
+  .df-door-theme .df-tablet-control-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .df-door-theme .df-tablet-search-field,
+  .df-door-theme .df-tablet-list-field {
+    grid-column: span 2;
+  }
+
+  .df-door-theme .df-tablet-clear-field {
+    grid-column: span 2;
+  }
+}
+
+@container df-main-content (max-width: 56rem) {
+  .df-door-theme .df-door-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container df-main-content (max-width: 52rem) {
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions {
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  .df-door-theme .df-tablet-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container df-main-content (max-width: 40rem) {
+  .df-door-theme .df-door-page {
+    padding: 10px 8px 28px;
+  }
+
+  .df-door-theme .df-door-system-state {
+    min-height: 42px;
+    margin-bottom: 9px;
+    padding: 8px 10px;
+    font-size: 0.76rem;
+  }
+
+  .df-door-theme .df-door-view-header,
+  .df-door-theme .df-tablet-mode-header {
+    gap: 7px;
+    padding: 0;
+  }
+
+  .df-door-theme .df-door-view-header h1,
+  .df-door-theme .df-tablet-mode-header h1 {
+    font-size: 1.38rem;
+  }
+
+  .df-door-theme .df-tablet-mode-header__brand {
+    gap: 6px;
+  }
+
+  .df-door-theme .df-tablet-mode-header__context {
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-context {
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .df-door-theme .df-door-context__heading {
+    align-items: center;
+  }
+
+  .df-door-theme .df-door-context__heading h2 {
+    font-size: 0.96rem;
+  }
+
+  .df-door-theme .df-door-context__heading > p {
+    font-size: 0.7rem;
+  }
+
+  .df-door-theme .df-tablet-door-mode .df-door-context__controls {
+    grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.7fr);
+    gap: 6px;
+  }
+
+  .df-door-theme .df-tablet-door-mode .df-door-field label {
+    font-size: 0.62rem;
+  }
+
+  .df-door-theme .df-tablet-overview {
+    display: none;
+  }
+
+  .df-door-theme .df-tablet-control-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .df-door-theme .df-tablet-search-field,
+  .df-door-theme .df-tablet-list-field,
+  .df-door-theme .df-tablet-clear-field {
+    grid-column: 1 / -1;
+  }
+
+  .df-door-theme .df-tablet-command-bar {
+    padding: 8px;
+  }
+
+  .df-door-theme .df-tablet-command-bar select,
+  .df-door-theme .df-tablet-command-bar .btn,
+  .df-door-theme .tablet-search {
+    min-height: 48px;
+  }
+
+  .df-door-theme .df-tablet-result-meta {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .df-door-theme .df-tablet-active-list {
+    justify-content: flex-start;
+  }
+
+  .df-door-theme .df-tablet-results > .df-door-section-heading p {
+    margin-top: 2px;
+  }
+
+  .df-door-theme .df-tablet-guest-card {
+    min-height: 0;
+    padding: 9px;
+  }
+
+  .df-door-theme .tablet-guest-name {
+    font-size: 1.04rem;
+  }
+
+  .df-door-theme .df-tablet-guest-actions,
+  .df-door-theme .df-door-guest-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .df-door-theme .tablet-check-btn,
+  .df-door-theme .tablet-undo-btn {
+    min-height: 48px;
+    font-size: 0.82rem;
+  }
+}
+
+@supports not (container-type: inline-size) {
+  @media (max-width: 1050px) {
+    .df-door-theme .df-door-workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
+@media (min-width: 390px) and (max-width: 540px) {
+  .df-shell-live .df-shell-service {
+    grid-template-columns: minmax(78px, 0.75fr) minmax(120px, 1.2fr) minmax(88px, 0.85fr) 40px;
+    gap: 6px;
+  }
+
+  .df-shell-live .df-shell-service .sync-pill,
+  .df-shell-live .df-shell-service .df-refresh-button {
+    grid-row: auto;
+    grid-column: auto;
+  }
+
+  .df-shell-live .df-shell-service .df-refresh-button {
+    width: 40px;
+  }
+
+  .df-shell-live .df-refresh-icon::after {
+    content: "";
+  }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .df-door-theme .df-tablet-overview {
+    display: none;
+  }
+
+  .df-door-theme .df-door-checkin-view,
+  .df-door-theme .df-tablet-door-mode,
+  .df-door-theme .tablet-door-shell {
+    gap: 8px;
+  }
+}
+
+/* Venue hierarchy presentation: The B.O.B. parent property and EVE operating space. */
+.df-utility-inner {
+  grid-template-columns: minmax(260px, 0.95fr) minmax(430px, 1.65fr) auto;
+}
+
+.df-venue-hierarchy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.df-venue-hierarchy__expanded {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  gap: 14px;
+  align-items: end;
+  justify-content: start;
+}
+
+.df-venue-hierarchy__item {
+  min-width: 0;
+}
+
+.df-venue-hierarchy__item strong,
+.df-venue-hierarchy__compact strong {
+  margin-top: 1px;
+  color: inherit;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.df-venue-hierarchy__compact {
+  display: none;
+  min-width: 0;
+}
+
+.df-venue-scope {
+  display: block;
+  overflow: hidden;
+  color: #668099;
+  font-size: 0.62rem;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.df-shell-live .df-venue-scope {
+  color: #83a1bc;
+}
+
+.df-door-theme .df-tablet-venue-label {
+  border-color: #3f759c;
+  color: #b9e4ff;
+}
+
+.df-door-theme .df-tablet-list-scope {
+  border-color: #33755f;
+  color: #9ce7c4;
+}
+
+@media (max-width: 1450px) {
+  .df-utility-inner {
+    grid-template-columns: minmax(190px, 0.82fr) minmax(430px, 1.65fr) auto;
+  }
+
+  .df-venue-hierarchy__expanded {
+    display: none;
+  }
+
+  .df-venue-hierarchy__compact {
+    display: block;
+  }
+}
+
+@media (max-width: 1080px) {
+  .df-utility-inner {
+    grid-template-columns: 44px minmax(150px, 0.8fr) minmax(430px, 1.6fr) auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .df-utility-inner {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 540px) {
+  .df-venue-hierarchy__compact .df-utility-label {
+    display: none;
+  }
+
+  .df-venue-hierarchy__compact strong {
+    margin-top: 0;
+    font-size: 0.74rem;
+  }
+
+  .df-venue-scope {
+    font-size: 0.58rem;
+  }
+}
+
+/* Phase P5.2: live guest-name and late-add audit simplification. */
+.df-door-theme .df-door-live-name-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: start;
+}
+
+.df-door-theme .df-door-live-name-row .guest-name {
+  min-width: 0;
+  margin: 0;
+}
+
+.df-door-theme .df-door-live-name-row .count-pill {
+  align-self: start;
+  justify-self: end;
+}
+
+.df-door-theme .df-door-live-status-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.df-door-theme .df-live-approval-state {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 4px;
+  border-color: #8e6725;
+  color: #ffd78c;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.df-door-theme .df-door-live-status-row .df-live-approval-state {
+  margin-top: 0;
+}
+
+/* Phase P5.3: compact narrow-phone live roster density. */
+@media (max-width: 430px) {
+  .df-door-theme .df-door-page {
+    padding: 8px 6px 20px;
+  }
+
+  .df-door-theme .df-door-checkin-view,
+  .df-door-theme .df-tablet-door-mode,
+  .df-door-theme .tablet-door-shell {
+    gap: 6px;
+  }
+
+  .df-door-theme .df-door-system-state {
+    min-height: 0;
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    line-height: 1.25;
+  }
+
+  .df-door-theme .df-door-view-header,
+  .df-door-theme .df-tablet-mode-header {
+    gap: 5px;
+  }
+
+  .df-door-theme .df-door-view-header h1,
+  .df-door-theme .df-tablet-mode-header h1 {
+    font-size: 1.22rem;
+  }
+
+  .df-door-theme .df-door-view-header__context,
+  .df-door-theme .df-tablet-mode-header__context {
+    gap: 3px;
+  }
+
+  .df-door-theme .df-door-view-header__context span,
+  .df-door-theme .df-door-view-header__context strong,
+  .df-door-theme .df-tablet-mode-header__context span,
+  .df-door-theme .df-tablet-mode-header__context strong {
+    padding: 4px 6px;
+  }
+
+  .df-door-theme .df-door-context,
+  .df-door-theme .df-door-filter-panel,
+  .df-door-theme .df-door-guest-panel,
+  .df-door-theme .df-tablet-command-bar,
+  .df-door-theme .df-tablet-result-meta {
+    padding: 7px;
+  }
+
+  .df-door-theme .df-door-metrics,
+  .df-door-theme .df-tablet-mobile-summary {
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-metric,
+  .df-door-theme .mobile-summary-item {
+    min-height: 58px;
+    padding: 6px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .guest-list,
+  .df-door-theme .tablet-card-grid {
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row {
+    min-height: 0;
+    gap: 5px;
+    align-content: start;
+    padding: 5px 6px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-copy {
+    display: grid;
+    gap: 1px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-live-name-row {
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .guest-name {
+    font-size: 0.96rem;
+    line-height: 1.12;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .guest-detail {
+    margin-top: 1px;
+    font-size: 0.7rem;
+    line-height: 1.2;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-live-status-row {
+    gap: 3px;
+    margin-top: 1px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .badge,
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .count-pill {
+    padding: 2px 5px;
+    font-size: 0.62rem;
+    line-height: 1.15;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions {
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .btn,
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .df-door-status {
+    min-height: 44px;
+    padding: 5px 7px;
+    font-size: 0.7rem;
+  }
+
+  .df-door-theme .df-tablet-guest-card {
+    min-height: 0;
+    gap: 4px;
+    padding: 7px;
+  }
+
+  .df-door-theme .tablet-guest-top {
+    gap: 5px;
+  }
+
+  .df-door-theme .tablet-guest-name {
+    font-size: 0.98rem;
+    line-height: 1.12;
+  }
+
+  .df-door-theme .tablet-guest-meta {
+    margin-top: 1px;
+    font-size: 0.7rem;
+    line-height: 1.2;
+  }
+
+  .df-door-theme .df-tablet-guest-copy .df-live-approval-state {
+    margin-top: 2px;
+    padding: 2px 5px;
+    font-size: 0.62rem;
+    line-height: 1.15;
+  }
+
+  .df-door-theme .df-tablet-guest-count {
+    padding: 4px 6px;
+    font-size: 0.82rem;
+  }
+
+  .df-door-theme .df-tablet-guest-status {
+    gap: 0;
+  }
+
+  .df-door-theme .df-tablet-guest-status strong,
+  .df-door-theme .df-tablet-guest-status span {
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .df-door-theme .df-tablet-guest-actions {
+    gap: 4px;
+    margin-top: 2px;
+  }
+
+  .df-door-theme .tablet-check-btn,
+  .df-door-theme .tablet-undo-btn {
+    min-height: 44px;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .df-door-theme .df-door-page {
+    padding: 6px 5px 16px;
+  }
+
+  .df-door-theme .df-door-context,
+  .df-door-theme .df-door-filter-panel,
+  .df-door-theme .df-door-guest-panel,
+  .df-door-theme .df-tablet-command-bar,
+  .df-door-theme .df-tablet-result-meta {
+    padding: 6px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row {
+    padding: 4px 5px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .guest-name,
+  .df-door-theme .tablet-guest-name {
+    font-size: 0.94rem;
+  }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-row,
+  .df-door-theme .df-tablet-guest-card {
+    min-height: 0;
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .btn,
+  .df-door-theme .df-door-operating-workspace:not(.is-management) .df-door-guest-actions .df-door-status,
+  .df-door-theme .tablet-check-btn,
+  .df-door-theme .tablet-undo-btn {
+    min-height: 44px;
+  }
+
+  .df-door-theme .df-tablet-guest-actions {
+    margin-top: 2px;
+  }
+}

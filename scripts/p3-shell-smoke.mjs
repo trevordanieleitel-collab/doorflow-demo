@@ -61,6 +61,9 @@ const protectedFunctions = [
   "downloadCloseOutReportCsv"
 ];
 
+const doorPresentationFunctions = protectedFunctions.slice(0, 7);
+const protectedLogicFunctions = protectedFunctions.slice(7);
+
 const shellFunctions = [
   "renderDoorFlowLockup",
   "shellInitials",
@@ -216,22 +219,23 @@ check(!/@import\b/i.test(themeCss), "no CSS import or remote font loader");
 check(!/url\(\s*["']?https?:/i.test(themeCss), "no remote stylesheet assets");
 check(!/fonts\.(googleapis|gstatic)\.com/i.test(`${indexHtml}\n${themeCss}`), "no external font service");
 
-for (const name of protectedFunctions) {
+for (const name of protectedLogicFunctions) {
   const currentIndexBlock = extractFunction(runtime, name);
   const baselineIndexBlock = extractFunction(baselineRuntime, name);
   const currentAppBlock = extractFunction(appJs, name);
   const baselineAppBlock = extractFunction(baselineApp, name);
   const present = currentIndexBlock && baselineIndexBlock && currentAppBlock && baselineAppBlock;
-  const normalizedCurrentIndex = normalizeProtectedPresentation(name, currentIndexBlock);
-  const normalizedBaselineIndex = normalizeProtectedPresentation(name, baselineIndexBlock);
-  const normalizedCurrentApp = normalizeProtectedPresentation(name, currentAppBlock);
-  const normalizedBaselineApp = normalizeProtectedPresentation(name, baselineAppBlock);
   const matched = present
-    && hash(normalizedCurrentIndex) === hash(normalizedBaselineIndex)
-    && hash(normalizedCurrentApp) === hash(normalizedBaselineApp)
+    && hash(currentIndexBlock) === hash(baselineIndexBlock)
+    && hash(currentAppBlock) === hash(baselineAppBlock)
     && hash(currentIndexBlock) === hash(currentAppBlock);
-  const qualifier = name === "renderMainWorkspace" ? " (presentation class only)" : "";
-  check(Boolean(matched), `protected function ${name}${qualifier}`);
+  check(Boolean(matched), `protected function ${name}`);
+}
+
+for (const name of doorPresentationFunctions) {
+  const runtimeBlock = extractFunction(runtime, name);
+  const mirrorBlock = extractFunction(appJs, name);
+  check(Boolean(runtimeBlock && mirrorBlock && hash(runtimeBlock) === hash(mirrorBlock)), `P5 Door renderer mirror ${name}`);
 }
 
 for (const name of shellFunctions) {
@@ -255,6 +259,7 @@ const allowedChanges = new Set([
   "doorflow-operational-theme.css",
   "scripts/p3-shell-smoke.mjs",
   "scripts/p4-admin-smoke.mjs",
+  "scripts/p5-door-smoke.mjs",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
   "ui-redesign/README.md"
 ]);
@@ -265,4 +270,4 @@ if (failures) {
   process.exit(1);
 }
 
-console.log(`P3 shell smoke passed: ${protectedFunctions.length - 1} protected functions matched exactly; renderMainWorkspace matched after normalizing its presentation-only class. Staff presentation is covered by the P4 smoke suite.`);
+console.log(`P3 shell smoke passed: ${protectedLogicFunctions.length} protected logic functions matched HEAD; ${doorPresentationFunctions.length} P5 Door renderers retain runtime/mirror parity. Door presentation contracts are covered by the P5 smoke suite.`);

@@ -153,7 +153,7 @@ check(Boolean(runtime), "inline operational runtime remains in index.html");
 check(!/<script[^>]+src=["'](?:\.\/)?app\.js["']/i.test(indexHtml), "index.html remains the inline runtime and does not load app.js");
 check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css">/g) === 1, "operational theme remains linked exactly once");
 
-const protectedMismatches = [...protectedFunctions, ...protectedDoorRenderers].filter(name => {
+const protectedMismatches = protectedFunctions.filter(name => {
   const blocks = [
     extractFunction(runtime, name),
     extractFunction(appJs, name),
@@ -162,8 +162,16 @@ const protectedMismatches = [...protectedFunctions, ...protectedDoorRenderers].f
   ];
   return blocks.some(block => !block) || new Set(blocks.map(hash)).size !== 1;
 });
-check(protectedMismatches.length === 0, `protected operational hashes match HEAD (${protectedFunctions.length} logic functions and ${protectedDoorRenderers.length} Door renderers)`);
+check(protectedMismatches.length === 0, `protected operational hashes match HEAD (${protectedFunctions.length} logic functions)`);
 if (protectedMismatches.length) console.error(`  Mismatches: ${protectedMismatches.join(", ")}`);
+
+const doorMirrorMismatches = protectedDoorRenderers.filter(name => {
+  const runtimeBlock = extractFunction(runtime, name);
+  const appBlock = extractFunction(appJs, name);
+  return !runtimeBlock || !appBlock || hash(runtimeBlock) !== hash(appBlock);
+});
+check(doorMirrorMismatches.length === 0, `P5 Door renderer mirror parity (${protectedDoorRenderers.length} functions)`);
+if (doorMirrorMismatches.length) console.error(`  Mismatches: ${doorMirrorMismatches.join(", ")}`);
 
 const mirrorMismatches = administrativeRenderers.filter(name => {
   const runtimeBlock = extractFunction(runtime, name);
@@ -294,7 +302,7 @@ check(!/@import\b/i.test(themeCss), "no CSS import or remote font loader");
 check(!/url\(\s*["']?https?:/i.test(themeCss), "no remote stylesheet assets");
 check(!/fonts\.(googleapis|gstatic)\.com/i.test(`${indexHtml}\n${themeCss}`), "no external font service");
 
-const p4Css = themeCss.split("/* Phase P4 administrative workflow system.")[1] || "";
+const p4Css = (themeCss.split("/* Phase P4 administrative workflow system.")[1] || "").split("/* Phase P5:")[0];
 const preP4Css = themeCss.split("/* Phase P4 administrative workflow system.")[0].trimEnd();
 check(Boolean(p4Css), "P4 CSS boundary marker exists");
 check(!/\.df-(?:door-workspace|live-service-content|tablet-card-grid|guest-row|checkin)/i.test(p4Css), "P4 CSS does not target Door or live-service internals");
@@ -317,6 +325,7 @@ const allowedChanges = new Set([
   "doorflow-operational-theme.css",
   "scripts/p3-shell-smoke.mjs",
   "scripts/p4-admin-smoke.mjs",
+  "scripts/p5-door-smoke.mjs",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
   "ui-redesign/README.md"
 ]);

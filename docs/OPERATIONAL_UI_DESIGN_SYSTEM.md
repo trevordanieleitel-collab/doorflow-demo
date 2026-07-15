@@ -6,7 +6,7 @@ DoorFlow operational interfaces should feel like the same product family as the 
 
 The principle is **brand-aligned, operation-first**.
 
-Phase P2 demonstrates this direction in the isolated Reports / Closeout prototype. Phase P3 begins real application integration with a shared login treatment, authenticated shell, venue utility bar, and base administrative theme. It does not establish final behavior or internal presentation for live Door Operations.
+Phase P2 demonstrates this direction in the isolated Reports / Closeout prototype. Phase P3 integrates the shared login treatment, authenticated shell, venue utility bar, and base administrative theme. Phase P4 applies the system to administrative workflows, and Phase P5 applies a dedicated dark live-service system to the real Door Check-In and Tablet Door Mode presentation.
 
 ## Relationship to DoorFlow Marketing
 
@@ -47,7 +47,7 @@ Administrative screens should feel calm, precise, and scan-friendly. Surface cha
 - Red reserved for errors and destructive actions: `--df-door-error`
 - Light blue visible focus ring: `--df-door-focus`
 
-Door Mode should prioritize high contrast, large touch targets, stable layout, short labels, explicit pending states, and immediate action feedback. Phase P2 defines only the foundation; it does not redesign or simulate check-in.
+Door Mode prioritizes high contrast, large touch targets, stable layout, short labels, explicit pending states, and immediate action feedback. Phase P5 integrates this presentation with the real application while preserving the existing check-in and undo behavior.
 
 ## Color tokens
 
@@ -296,7 +296,9 @@ These statements document the existing application permission map; authorization
 
 ### Venue, service, and user context
 
-Venue identity comes from `state.venue.name`, with `Venue` as the loading fallback. The monogram is derived from the loaded name. Day and service date keep the existing `setActiveDay()` and `setActiveDate()` handlers. Party/group selection and door location remain in their existing operational context card.
+Database venue authority comes from `state.venue`, and the current runtime still resolves the single venue row named `EVE`. Day and service date keep the existing `setActiveDay()` and `setActiveDate()` handlers. Party/group selection and door location remain in their existing operational context card.
+
+For presentation, the known EVE row is mapped through the isolated `DOORFLOW_VENUE_PRESENTATION` configuration: parent venue `The B.O.B.`, operating space `EVE`, and guest-list scope `The B.O.B. + EVE` with the visible label `Shared Guest List`. Unknown future venue names fall back to their database name without inventing a parent relationship. This mapping does not change `state.venue`, venue IDs, service-day authority, queries, permissions, or RLS.
 
 The user area uses the current staff display name and role label, derives initials locally, and calls the existing `logout()` action. It does not add an account menu, profile settings, or new authentication behavior. Sync text and refresh continue to use `renderSyncPill()` and `manualRefreshData()`.
 
@@ -371,29 +373,103 @@ Reports tables become labeled records below the narrow-layout threshold; Staff r
 
 P4 retains the shell skip link and logical DOM order, adds one `h1` per administrative page, table captions and scoped headers, explicit field labels, alert/status semantics, touch-friendly controls, and modal keyboard focus handling. Static checks cannot prove visual layout, authenticated role behavior, or database behavior; those remain owner-run manual tests.
 
-### Door Mode exclusion and remaining P5 work
+### Door Mode handoff to P5
 
-P4 does not change Door Check-In guest rows, Tablet Door Mode, check-in/undo controls, party arrival controls, Door search/filter/sort controls, or live-service status presentation. The P3.1 responsive workspace and check-in reliability safeguards remain protected by source-hash smoke checks.
+The committed P4 baseline does not change Door Check-In guest rows, Tablet Door Mode, check-in/undo controls, party arrival controls, Door search/filter/sort controls, or live-service status presentation. The P3.1 responsive workspace and check-in reliability safeguards remain protected by source-hash smoke checks.
 
-P5 remains responsible for the dedicated live-service redesign, low-light treatment, guest-row density, touch workflow review, rapid-action behavior, and authenticated check-in regression testing.
+P5 provides the dedicated live-service presentation, low-light treatment, guest-row density, and touch-focused layouts. Authenticated check-in regression testing and controlled release review remain owner-run P6 requirements.
 
 ### PWA/service-worker caveat
 
 P4 does not modify `sw.js` or `manifest.webmanifest`. The administrative CSS and runtime changes still require an owner-approved cache-version rollout plus stale-cache, update, offline, and installed-PWA testing before deployment.
 
+## Real Door workflow integration (P5)
+
+### Door Mode philosophy and theme boundary
+
+Light screens prepare and review the night; dark screens run the door. The real Door Check-In and Tablet Door Mode views receive `.df-door-theme`, while Reports, Management, Shift Notes, and Staff remain within `.df-admin-theme`. The boundary is automatic and view-scoped; P5 does not add a user theme toggle or use CSS to grant permissions.
+
+The Door palette extends the existing navy and electric-blue brand system through `--df-door-bg`, `--df-door-surface`, `--df-door-surface-raised`, `--df-door-surface-active`, `--df-door-border`, `--df-door-border-strong`, `--df-door-text`, `--df-door-muted`, `--df-door-blue`, `--df-door-cyan`, `--df-door-success`, `--df-door-warning`, `--df-door-danger`, `--df-door-focus`, and `--df-door-shadow`. The canvas is deep navy rather than pure black. Near-white text carries primary meaning, blue and cyan identify active operations, green identifies completed arrival, amber identifies remaining or review states, and red is reserved for errors.
+
+### Door Check-In anatomy
+
+The desktop and laptop workspace follows this operational order: compact venue/date/door context, summary metrics, search and filters, guest list, party browser, and selected-group detail. Existing values, controls, IDs, native selects, and event handlers remain the source of truth. The content grid uses `minmax(0, 1fr)` tracks and container-driven stacking so the guest list remains primary without forcing a narrow secondary column.
+
+A guest row presents the guest name first, then text-backed arrival state and the existing party/list context, notes, and action. Check In is the dominant high-contrast action and retains the existing pending, duplicate-prevention, optimistic update, rollback, and authorization logic. Undo remains labeled, reachable, visually secondary, and governed by the existing permission and pending rules.
+
+A party card presents the existing group name, list type, arrived count, allowed count, remaining count, and a text-backed Complete, Partially Arrived, or Not Arrived state. Selection uses the existing group handler. In live Door Check-In, the selected card incorporates a compact Total, In, and Left summary instead of rendering a separate selected-group panel. Management retains its existing selected-group panel and authorized actions. Neither treatment invents VIP, payment, booth, or bottle information.
+
+Search is visually prominent and keeps immediate native input behavior. Filters and sort controls retain their current values and handlers, wrap at normal boundaries, and become full-width when the available content width requires it. Summary metrics use only the current Groups, Complete Groups, Total Allowed, Checked In, and Still Remaining calculations.
+
+### Tablet and phone behavior
+
+Tablet Door Mode uses a dedicated dark canvas with a compact mode header, current operating context, search, existing list/filter/sort controls, and a roster-first result grid. Guest cards retain the existing name, party/list context, notes, status, and check-in or undo action. The active list, state, and current counts appear in the compact result summary rather than a separate Party Context card.
+
+Landscape and portrait tablets devote the content width to the roster. Responsive `auto-fill` tracks use compact cards where space permits and one column where required. Phone layouts keep compact context, a two-column filter row, a one-column roster, normal text wrapping, and approximately 44-48px primary controls. Short landscape reduces spacing without hiding required information.
+
+### States, motion, and low-light use
+
+Door states remain text-backed: Not Arrived, Checked In, Partially Arrived, Complete, Saving, Syncing, Updated, warning, and error wording appear only when supported by current application state. Loading, no-guests, no-groups, no-results, no-selected-group, and no-notes states use scoped dark surfaces and existing recovery actions only. P5 does not add connectivity claims, fake progress, records, polling, storage, or timers.
+
+Low-light presentation avoids large bright surfaces, pure black, thin low-contrast text, and color-only meaning. Critical names, counts, statuses, and actions remain bright; secondary context is quieter but readable. Any transitions are short presentation-only state changes and are disabled under `prefers-reduced-motion`. No animation delays a render, check-in, or undo action.
+
+### Touch, performance, and accessibility rules
+
+Door controls retain approximately 48px targets in standard layouts; primary tablet check-in and undo controls use 52px targets and remain at least 44px in the narrow-phone compact mode. Layout and DOM order remain keyboard-readable, focus rings are visible, search and filter controls have accessible names, status meaning includes text, and no required action depends on hover. One page-level heading identifies each Door view, and presentation-only keyboard support on party cards mirrors the existing selection action.
+
+P5 uses scoped CSS variables, existing render flow, static gradients, restrained shadows, native controls, and one small local data-URI search icon. It adds no external assets, dependencies, fonts, fetches, storage, timers, polling, duplicate listeners, or Supabase clients. It does not hide overflow defects with page-level clipping.
+
+### P5.1 density refinement
+
+The guest filter spans the workspace before the main grid so the roster and Party / Bottle Service Groups browser begin at the same vertical edge. At medium-wide widths, the roster remains the primary flexible column and the group browser stays in a bounded 17-21rem secondary column. The layout stacks when the content container reaches 56rem rather than squeezing either side into unreadable tracks.
+
+Live guest rows use reduced padding, tighter status chips, 44px row actions, and compact secondary text while preserving name emphasis. When the roster container reaches 46rem it may use two columns, with each card moving its actions beneath the identity block to preserve readable labels. Group cards are similarly tightened, and the selected group exposes concise counts inside the selected card. The separate live selected-group panel is removed; its Management counterpart is unchanged.
+
+Tablet cards use a 17rem responsive track, approximately 168px default minimum height, tighter metadata, and 52px actions. The former Party Context column is removed so the result grid can use the full width. At phone widths the service summary replaces the larger overview, filters use two compact columns where practical, cards return to one column, and actions remain 48px. The utility controls use one compact row at 390-540px when available and retain the narrower fallback below that range.
+
+### P5.2 live-content simplification
+
+Door Check-In and Tablet Door Mode use the isolated `DOORFLOW_LIVE_GUEST_PRESENTATION` formatter rather than the shared `guestDisplayName()` output. It starts from `guestBaseName()` and removes only a trailing standalone `+N` or `N+` party-size token for live presentation, without changing stored fields. The adjacent checked/allowed badge remains the visible attendance count. Search, sort, group totals, guest totals, administrative editing, closeout data, and CSV output continue using their existing helpers and values.
+
+Historical late-add audit detail is removed from live guest cards. Approved records retain a concise `Late Add` badge, while a legacy late-add record without `late_add_approved_by` displays the text-backed `Needs Approval` warning. No approval, check-in, undo, or authorization behavior changes. The Close Out Report remains the detailed record and retains Late Adds, Approved By, Reason, Added By, and Added At.
+
+### P5.3 narrow-phone compact density
+
+At viewport widths of 430px and below, Door Check-In and phone-sized Tablet Door Mode use a live-service-only compact layer. Guest cards drop fixed minimum height, reduce vertical padding and internal gaps, keep names and checked/allowed badges in a stable two-column title row, tighten metadata and status spacing, and preserve 44px primary and secondary actions. A second refinement at 360px reduces shell and panel padding without reducing ordinary guest names below a practical live-service size.
+
+Short landscape viewports receive the same card-height and 44px action treatment. Long names still wrap at normal word boundaries, card tracks retain `minmax(0, 1fr)`, and the compact layer does not use horizontal clipping or `break-all`. Wider tablet and desktop layouts, the desktop group browser, and all administrative themes remain unchanged.
+
+### Future administrative review queue
+
+A post-redesign administrative `Things to Review` workflow may consolidate late additions, manager approvals, high-priority shift notes, unresolved exceptions, missing closeout notes, and duplicate-name reviews. This is a future data and workflow feature, not part of P5.2 or P5.3; no review queue, new state, query, mutation, or permission is implemented here.
+
+### Venue hierarchy clarification
+
+The current application data model does not expose separate parent-venue and operating-space values. `ensureVenue()` finds the `venues` row named `EVE`, assigns it to `state.venue`, and service days remain associated through that row's `venue_id`. The application cannot derive The B.O.B. as a parent property from current state or current query results.
+
+Until a reviewed data-model phase adds explicit hierarchy, the UI uses the isolated presentation mapping described above. Wide utility-bar layouts show `VENUE / The B.O.B.` and `OPERATING SPACE / EVE`; narrower utility bars and Tablet Door Mode use `The B.O.B. &bull; EVE`. `Shared Guest List` is displayed separately, and physical entry is always labeled `Door`, such as `Door: Front Door`.
+
+Management, Staff, Reports, and the closeout preview show parent venue, operating space, and shared-list scope without changing calculations or stored data. `buildCloseOutReportData()` continues to retain the database venue value `EVE`, and CSV columns and exported values are unchanged. A future hierarchy model should provide explicit parent-property, operating-space, and list-scope relationships rather than relying on presentation configuration.
+
+### Remaining P6 hardening
+
+P6 must complete authenticated owner testing with approved non-production admin, manager, door, and viewer accounts; the full desktop, tablet, phone, short-height, keyboard, reduced-motion, and 200% zoom matrix; rapid check-in/undo and failed-write recovery; duplicate prevention; two-device realtime behavior; role restrictions; and measured low-light review on target hardware. Static smoke checks do not prove these outcomes.
+
+P5 does not modify `sw.js` or `manifest.webmanifest`. Until an owner-approved cache-version update and installed-PWA release test are completed, an installed or previously cached app may serve stale runtime or theme assets. PWA cache/version work belongs to P6 and must not be inferred from successful local HTTP checks.
+
 ## Future migration phases
 
 ### P3: Application shell and shared primitives
 
-The real login, navigation shell, utility context, base administrative primitives, focus styles, and responsive drawer are integrated as an uncommitted review change. Page logic and live-service internals remain outside this phase.
+The real login, navigation shell, utility context, base administrative primitives, focus styles, and responsive drawer are integrated in the committed baseline.
 
 ### P4: Administrative workflows
 
-Reports / Closeout, Management, Staff, Shift Notes, and administrative dialogs are integrated as uncommitted review work. Existing calculations and mutation contracts are statically protected; authenticated role, empty/error state, export-content, and responsive visual review remain required.
+Reports / Closeout, Management, Staff, Shift Notes, and administrative dialogs are integrated in the committed baseline. Existing calculations and mutation contracts remain statically protected.
 
 ### P5: Guest-list and Door Operations
 
-Redesign live-service screens only after dedicated workflow review. Preserve check-in pending guards and rollback behavior. Validate tablet, low-light, rapid repeated actions, offline/realtime behavior, and recovery from failed writes.
+The uncommitted P5 review work integrates the real Door Check-In and Tablet Door Mode presentation while preserving check-in pending guards and rollback behavior. Authenticated tablet, low-light, rapid repeated-action, offline/realtime, and failed-write recovery validation remains outstanding.
 
 ### P6: Hardening and release review
 
