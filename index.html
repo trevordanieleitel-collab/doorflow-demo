@@ -1336,6 +1336,8 @@
 
   </style>
 
+  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p6.10">
+
   <!-- DoorFlow PWA install support -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#111827">
@@ -1368,6 +1370,48 @@ const BOB_BRAND = {
   darkLogoSrc:"/branding/bob-logo-dark.png",
   fallback:"The B.O.B."
 };
+const DOORFLOW_VENUE_PRESENTATION = Object.freeze({
+  mappedVenueName:"EVE",
+  parentVenue:"The B.O.B.",
+  operatingSpace:"EVE",
+  sharedGuestListLabel:"Shared Guest List",
+  guestListScope:"The B.O.B. + EVE",
+  resolve(venueName) {
+    const currentVenue = String(venueName || this.mappedVenueName).trim() || this.mappedVenueName;
+    const isMappedContext = currentVenue.toUpperCase() === this.mappedVenueName;
+
+    if (!isMappedContext) {
+      return {
+        parentVenue:currentVenue,
+        operatingSpace:"",
+        sharedGuestListLabel:"Guest List",
+        guestListScope:currentVenue,
+        desktopLabel:currentVenue,
+        compactLabel:currentVenue,
+        reportLabel:currentVenue
+      };
+    }
+
+    return {
+      parentVenue:this.parentVenue,
+      operatingSpace:this.operatingSpace,
+      sharedGuestListLabel:this.sharedGuestListLabel,
+      guestListScope:this.guestListScope,
+      desktopLabel:`${this.parentVenue} / ${this.operatingSpace}`,
+      compactLabel:`${this.parentVenue} \u2022 ${this.operatingSpace}`,
+      reportLabel:`${this.parentVenue} \u2014 ${this.operatingSpace}`
+    };
+  }
+});
+
+const DOORFLOW_LIVE_GUEST_PRESENTATION = Object.freeze({
+  cleanName(value) {
+    return String(value || "Guest").replace(/\s+(?:\+\d+|\d+\+)\s*$/, "").trim() || "Guest";
+  },
+  displayName(guest) {
+    return this.cleanName(guestBaseName(guest));
+  }
+});
 
 function doorFlowFetch(input, init = {}) {
   const controller = new AbortController();
@@ -1449,6 +1493,7 @@ let state = {
   shiftNotes:[],
   staffProfiles:[],
   view:"door",
+  shellNavOpen:false,
   activeDate:initialActiveDate,
   activeDay:dayNameFromDate(initialActiveDate),
   selectedGroupId:null,
@@ -1491,8 +1536,14 @@ let isBootingDatabase = false;
 let lastUserInputAt = 0;
 let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
+let liveDataLoadSequence = 0;
+let guestCheckStateVersion = 0;
+let liveRosterAnchorGeneration = 0;
+let pendingLiveRosterAnchor = null;
 let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
+let modalFocusOpen = false;
+let modalReturnFocus = null;
 
 function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -1639,6 +1690,129 @@ function restoreScrollPositions(positions) {
   });
 }
 
+function captureLiveRosterAnchor(guestId = "", action = "", restoreFocus = false) {
+  if (state.view !== "door" && state.view !== "tabletDoor") return null;
+
+  const cards = [...document.querySelectorAll("[data-live-roster-card][data-guest-id]")];
+  if (!cards.length) return null;
+
+  const requestedGuestId = String(guestId || "");
+  const documentScroller = document.scrollingElement || document.documentElement;
+  const panel = state.view === "door" ? document.getElementById("guestScrollPanel") : null;
+  const panelScrollable = Boolean(panel && panel.scrollHeight > panel.clientHeight + 1);
+  const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+  const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+
+  let cardIndex = requestedGuestId
+    ? cards.findIndex(card => String(card.dataset.guestId || "") === requestedGuestId)
+    : -1;
+
+  if (cardIndex < 0) {
+    cardIndex = cards.findIndex(card => card.getBoundingClientRect().bottom > anchorTop + 1);
+  }
+  if (cardIndex < 0) cardIndex = cards.length - 1;
+
+  const card = cards[cardIndex];
+  const rect = card.getBoundingClientRect();
+
+  return {
+    generation:++liveRosterAnchorGeneration,
+    view:state.view,
+    guestId:String(card.dataset.guestId || ""),
+    requestedGuestId,
+    previousGuestId:String(cards[cardIndex - 1]?.dataset.guestId || ""),
+    nextGuestId:String(cards[cardIndex + 1]?.dataset.guestId || ""),
+    action:String(action || ""),
+    restoreFocus:Boolean(restoreFocus),
+    cardOffset:rect.top - anchorTop,
+    documentScrollTop:Number(documentScroller?.scrollTop || 0),
+    panelScrollTop:Number(panel?.scrollTop || 0)
+  };
+}
+
+function prepareLiveRosterAction(event, guestId, action) {
+  const control = event?.currentTarget || null;
+  const snapshot = captureLiveRosterAnchor(
+    guestId,
+    action,
+    Boolean(control && document.activeElement === control)
+  );
+
+  if (!snapshot) return;
+
+  pendingLiveRosterAnchor = snapshot;
+  queueMicrotask(() => {
+    const primaryGuestId = snapshot.requestedGuestId || snapshot.guestId;
+    if (pendingLiveRosterAnchor?.generation === snapshot.generation && !isGuestCheckActionBusy(primaryGuestId)) {
+      pendingLiveRosterAnchor = null;
+    }
+  });
+}
+
+function restoreLiveRosterAnchor(snapshot) {
+  if (!snapshot) return;
+
+  requestAnimationFrame(() => {
+    if (snapshot.generation !== liveRosterAnchorGeneration || snapshot.view !== state.view) return;
+
+    const cards = [...document.querySelectorAll("[data-live-roster-card][data-guest-id]")];
+    const findCard = id => id
+      ? cards.find(card => String(card.dataset.guestId || "") === String(id)) || null
+      : null;
+    const primaryGuestId = snapshot.requestedGuestId || snapshot.guestId;
+    const card = findCard(primaryGuestId)
+      || findCard(snapshot.nextGuestId)
+      || findCard(snapshot.previousGuestId)
+      || findCard(snapshot.guestId);
+    const documentScroller = document.scrollingElement || document.documentElement;
+    const panel = state.view === "door" ? document.getElementById("guestScrollPanel") : null;
+    const panelScrollable = Boolean(panel && panel.scrollHeight > panel.clientHeight + 1);
+
+    if (documentScroller) documentScroller.scrollTop = snapshot.documentScrollTop;
+    if (panel) panel.scrollTop = snapshot.panelScrollTop;
+
+    if (card) {
+      const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+      const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+      const delta = card.getBoundingClientRect().top - anchorTop - snapshot.cardOffset;
+
+      if (Math.abs(delta) > 1) {
+        if (panelScrollable) panel.scrollTop += delta;
+        else if (documentScroller) documentScroller.scrollTop += delta;
+      }
+    }
+
+    const pendingIsCurrent = pendingLiveRosterAnchor?.generation === snapshot.generation;
+    const actionSettled = !isGuestCheckActionBusy(primaryGuestId);
+    const activeElement = document.activeElement;
+    const focusIsUnclaimed = !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+      || activeElement === document.getElementById("main-content");
+
+    if (snapshot.restoreFocus && focusIsUnclaimed && pendingIsCurrent && actionSettled && card && String(card.dataset.guestId || "") === primaryGuestId) {
+      const actionOrder = snapshot.action === "undo"
+        ? ["undo", "checkin", "toggle"]
+        : snapshot.action === "toggle"
+          ? ["toggle", "checkin", "undo"]
+          : ["checkin", "undo", "toggle"];
+      const control = actionOrder
+        .map(name => card.querySelector(`[data-roster-action="${name}"]:not([disabled])`))
+        .find(Boolean);
+
+      if (control) {
+        try {
+          control.focus({ preventScroll:true });
+        } catch {
+          control.focus();
+        }
+      }
+    }
+
+    if (pendingIsCurrent && actionSettled) pendingLiveRosterAnchor = null;
+  });
+}
+
 function captureFormFieldValues() {
   const fields = {};
   document.querySelectorAll("input[id], select[id], textarea[id]").forEach(element => {
@@ -1696,7 +1870,10 @@ function captureTransientUiState() {
     focus:captureFocusedInput(),
     scroll:captureScrollPositions(),
     fields:captureFormFieldValues(),
-    details:captureDetailsState()
+    details:captureDetailsState(),
+    liveRoster:pendingLiveRosterAnchor?.view === state.view
+      ? pendingLiveRosterAnchor
+      : captureLiveRosterAnchor()
   };
 }
 
@@ -1705,20 +1882,108 @@ function restoreTransientUiState(ui) {
   restoreDetailsState(ui?.details);
   restoreFocusedInput(ui?.focus);
   restoreScrollPositions(ui?.scroll);
+  restoreLiveRosterAnchor(ui?.liveRoster);
+}
+
+function captureModalReturnFocus() {
+  const active = document.activeElement;
+  if (!active || active === document.body) return null;
+  return {
+    id:active.id || "",
+    onclick:active.getAttribute?.("onclick") || "",
+    text:String(active.textContent || "").trim()
+  };
+}
+
+function restoreModalReturnFocus(target) {
+  let element = target?.id ? document.getElementById(target.id) : null;
+
+  if (!element && target?.onclick) {
+    element = [...document.querySelectorAll("button, [role='button']")].find(candidate => {
+      return candidate.getAttribute("onclick") === target.onclick
+        && String(candidate.textContent || "").trim() === target.text;
+    }) || null;
+  }
+
+  (element || document.getElementById("main-content"))?.focus();
+}
+
+function syncModalFocus(opening) {
+  const dialog = document.querySelector(".df-shell-modal-scope [role='dialog']");
+
+  if (dialog) {
+    modalFocusOpen = true;
+    if (opening) {
+      requestAnimationFrame(() => {
+        (dialog.querySelector(".df-modal-close") || dialog)?.focus();
+      });
+    }
+    return;
+  }
+
+  if (modalFocusOpen) {
+    const target = modalReturnFocus;
+    modalFocusOpen = false;
+    modalReturnFocus = null;
+    requestAnimationFrame(() => restoreModalReturnFocus(target));
+  }
+}
+
+function handleModalKeydown(event) {
+  if (!state.modal) return;
+
+  const dialog = document.querySelector(".df-shell-modal-scope [role='dialog']");
+  if (!dialog) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closeModal();
+    return;
+  }
+
+  if (event.key !== "Tab") return;
+
+  const focusable = [...dialog.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+    .filter(element => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+
+  if (!focusable.length) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  if (!dialog.contains(document.activeElement)) {
+    event.preventDefault();
+    first.focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function render() {
   const ui = captureTransientUiState();
   const root = document.getElementById("app");
+  const modalOpening = Boolean(state.modal) && !modalFocusOpen;
+  if (modalOpening) modalReturnFocus = captureModalReturnFocus();
 
   if (!auth.currentUser) {
     root.innerHTML = renderLogin();
     restoreTransientUiState(ui);
+    syncModalFocus(false);
     return;
   }
 
   root.innerHTML = renderApp();
   restoreTransientUiState(ui);
+  syncModalFocus(modalOpening);
 }
 
 async function runDb(label, fn) {
@@ -1937,6 +2202,35 @@ function isActionBusy(key) {
 
 function isGuestCheckActionBusy(guestId) {
   return Boolean(isActionBusy(`checkin:${guestId}`) || isActionBusy(`undo:${guestId}`));
+}
+
+function hasPendingGuestCheckActions() {
+  return Object.entries(state.actionBusy || {}).some(([key, busy]) => (
+    Boolean(busy) && (key.startsWith("checkin:") || key.startsWith("undo:"))
+  ));
+}
+
+function markGuestCheckStateChanged() {
+  guestCheckStateVersion += 1;
+  return guestCheckStateVersion;
+}
+
+function beginLiveDataSnapshot() {
+  return {
+    sequence:++liveDataLoadSequence,
+    guestCheckStateVersion,
+    guestCheckActionsPending:hasPendingGuestCheckActions()
+  };
+}
+
+function shouldApplyLiveDataSnapshot(snapshot) {
+  return Boolean(
+    snapshot
+    && snapshot.sequence === liveDataLoadSequence
+    && snapshot.guestCheckStateVersion === guestCheckStateVersion
+    && !snapshot.guestCheckActionsPending
+    && !hasPendingGuestCheckActions()
+  );
 }
 
 function refreshCheckActionSurfaces(forceRender = false) {
@@ -2848,6 +3142,8 @@ async function ensureGeneralGroup(serviceDayId) {
 
 async function loadDataForDate(dateString) {
   return runDb("Loading live data", async () => {
+    const liveDataSnapshot = beginLiveDataSnapshot();
+
     if (auth.session?.user) {
       const session = await ensureFreshAuthSession("load-data");
       if (!session) throw new Error("Session expired. Log in again.");
@@ -2928,6 +3224,14 @@ async function loadDataForDate(dateString) {
     );
 
     const nextShiftNotes = normalizeRows(must(notesResult.data, notesResult.error), normalizeShiftNote);
+
+    if (!shouldApplyLiveDataSnapshot(liveDataSnapshot)) {
+      if (liveDataSnapshot.sequence === liveDataLoadSequence) {
+        state.loading = false;
+        schedulePendingSync("guest check-in state changed during refresh");
+      }
+      return;
+    }
 
     const newDataHash = buildLiveDataHash(nextGroups, nextGuests, nextLogs, nextShiftNotes);
     const dataUnchanged = Boolean(state.lastDataHash && state.lastDataHash === newDataHash);
@@ -3750,6 +4054,7 @@ async function checkInOneGuest(id) {
     setActionBusy(actionKey, true);
     updateSyncStatus("Saving", "Checking in guest...");
 
+    markGuestCheckStateChanged();
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
@@ -3802,14 +4107,15 @@ async function checkInOneGuest(id) {
         console.warn("DoorFlow check-in rollback failed:", rollbackError);
       }
     }
+    markGuestCheckStateChanged();
     Object.assign(guest, previousGuest);
     state.loading = false;
     state.error = "Check in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
-    activeDoorFlowAction = false;
-    lastDoorFlowActionAt = Date.now();
     setActionBusy(actionKey, false);
+    activeDoorFlowAction = hasPendingGuestCheckActions();
+    lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
   }
 }
@@ -3844,6 +4150,7 @@ async function undoOneGuest(id) {
     setActionBusy(actionKey, true);
     updateSyncStatus("Saving", "Undoing check-in...");
 
+    markGuestCheckStateChanged();
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
@@ -3896,14 +4203,15 @@ async function undoOneGuest(id) {
         console.warn("DoorFlow undo rollback failed:", rollbackError);
       }
     }
+    markGuestCheckStateChanged();
     Object.assign(guest, previousGuest);
     state.loading = false;
     state.error = "Undo check-in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
-    activeDoorFlowAction = false;
-    lastDoorFlowActionAt = Date.now();
     setActionBusy(actionKey, false);
+    activeDoorFlowAction = hasPendingGuestCheckActions();
+    lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
   }
 }
@@ -4666,6 +4974,7 @@ function recentManagerAdds(limit = 5) {
 
 function renderMobileManagerView() {
   const stats = dayStats();
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
   const latestNote = state.shiftNotes[0];
   const recentAdds = recentManagerAdds(5);
   const general = generalGroup();
@@ -4680,8 +4989,7 @@ function renderMobileManagerView() {
     <div class="mobile-manager-view">
       <section class="mobile-manager-header">
         <div class="mobile-manager-header-top">
-          ${renderBrandBlock({ title:"Manager Mode", subtitle:`The B.O.B. · ${state.activeDate}`, variant:"dark", compact:true })}
-          <div class="mobile-manager-live-badge">Live</div>
+          ${renderBrandBlock({ title:"Manager Mode", subtitle:`${venueContext.compactLabel} / ${venueContext.sharedGuestListLabel}`, variant:"dark", compact:true })}
         </div>
 
         <div class="mobile-manager-stats-grid">
@@ -4690,8 +4998,6 @@ function renderMobileManagerView() {
           <div class="mobile-manager-stat-card"><strong>${stats.remaining}</strong><span>Remaining</span></div>
         </div>
       </section>
-
-      ${renderMobileManagerServiceDateCard()}
 
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
@@ -4737,6 +5043,8 @@ function renderMobileManagerView() {
           <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickAddGuest()">Add Guest</button>
         </div>
       </section>
+
+      ${renderMobileManagerServiceDateCard()}
 
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
@@ -4959,7 +5267,6 @@ function renderMobileManagerView() {
         </details>
       </section>
 
-      ${renderMobileSyncFooter()}
     </div>
   `;
 }
@@ -5783,29 +6090,35 @@ function renderShiftNotesPanel(showComposer = true) {
   const notes = state.shiftNotes || [];
 
   return `
-    <div class="card">
-      <h2>Manager / Shift Notes</h2>
-      <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Use this for live notes that door staff and managers need for the night.</p>
+    <section class="card df-admin-card df-shift-notes-panel" aria-labelledby="shift-notes-title">
+      <header class="df-admin-section-header">
+        <div>
+          <p class="df-admin-kicker">Service-day record</p>
+          <h2 id="shift-notes-title">Manager / Shift Notes</h2>
+          <p>Adding to <strong>${esc(state.activeDate)}</strong>. Use this for live notes that door staff and managers need for the night.</p>
+        </div>
+        <span class="df-status-badge df-status-badge--neutral">${notes.length} ${notes.length === 1 ? "note" : "notes"}</span>
+      </header>
 
       ${showComposer && perms()?.manage ? `
-        <form onsubmit="createShiftNote(event)" class="form" style="margin-bottom:16px;">
+        <form onsubmit="createShiftNote(event)" class="form df-admin-form df-shift-note-composer">
           <div class="two">
             <div>
-              <label>Category</label>
-              <select name="category">
+              <label for="shiftNoteCategory">Category</label>
+              <select id="shiftNoteCategory" name="category">
                 ${noteCategories.map(item => `<option>${esc(item)}</option>`).join("")}
               </select>
             </div>
             <div>
-              <label>Priority</label>
-              <select name="priority">
+              <label for="shiftNotePriority">Priority</label>
+              <select id="shiftNotePriority" name="priority">
                 ${notePriorities.map(item => `<option>${esc(item)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Note</label>
+            <label for="shiftNoteComposerText">Note</label>
             <textarea id="shiftNoteComposerText" name="note_text" rows="4" placeholder="Example: VIP table arriving around 10:30 PM. Approved by manager."></textarea>
             ${renderEmojiKeyboard("shiftNoteComposerText")}
           </div>
@@ -5819,7 +6132,7 @@ function renderShiftNotesPanel(showComposer = true) {
       ${notes.length ? `
         <div class="shift-note-list">
           ${notes.map(note => `
-            <div class="shift-note-card">
+            <article class="shift-note-card df-shift-note-record">
               <div class="party-meta">
                 <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
                 <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
@@ -5835,13 +6148,13 @@ function renderShiftNotesPanel(showComposer = true) {
                   <button type="button" class="btn danger small" onclick="deleteShiftNote('${note.id}')">Delete Note</button>
                 </div>
               ` : ""}
-            </div>
+            </article>
           `).join("")}
         </div>
       ` : `
-        <div class="notice warn">No manager or shift notes have been added for this date yet.</div>
+        ${renderAdminState("empty", "No shift notes", "No manager or shift notes have been added for this date yet.")}
       `}
-    </div>
+    </section>
   `;
 }
 
@@ -5852,25 +6165,29 @@ function renderShiftNotesForDoorStaff() {
 
   if (!notes.length) {
     return `
-      <div class="card">
-        <h2>Manager / Shift Notes</h2>
-        <p class="subtle" style="margin:0;">No manager or shift notes have been added for this date yet.</p>
-      </div>
+      <section class="card df-door-shift-notes df-door-shift-notes--empty" aria-labelledby="door-shift-notes-title">
+        <header class="df-door-section-heading df-door-shift-brief-row">
+          <div><h2 id="door-shift-notes-title">Shift Brief</h2></div>
+          <p class="df-door-shift-empty-summary" role="status">No notes</p>
+        </header>
+      </section>
     `;
   }
 
   return `
-    <div class="card">
-      <h2>Manager / Shift Notes</h2>
-      <p class="subtle">Read these before working the door. These are live instructions from management for the active service day.</p>
+    <section class="card df-door-shift-notes" aria-labelledby="door-shift-notes-title">
+      <header class="df-door-section-heading">
+        <div><p class="df-door-kicker">Shift brief</p><h2 id="door-shift-notes-title">Manager / Shift Notes</h2></div>
+        <p>Read these before working the door. These are live instructions from management for the active service day.</p>
+      </header>
 
-      <div class="row-actions" style="margin-bottom:12px;">
+      <div class="row-actions df-door-note-actions">
         <button type="button" class="btn secondary small" onclick="loadDataForDate(state.activeDate)">Refresh Notes</button>
       </div>
 
-      <div class="shift-note-list">
+      <div class="shift-note-list df-door-note-list">
         ${notes.map(note => `
-          <div class="shift-note-card">
+          <article class="shift-note-card df-door-note-card">
             <div class="party-meta">
               <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
               <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
@@ -5879,10 +6196,10 @@ function renderShiftNotesForDoorStaff() {
             </div>
 
             <p class="shift-note-text">${esc(note.note_text || "")}</p>
-          </div>
+          </article>
         `).join("")}
       </div>
-    </div>
+    </section>
   `;
 }
 
@@ -6148,177 +6465,181 @@ function downloadCloseOutReportCsv() {
 
 function renderCloseOutReportModal() {
   const report = buildCloseOutReportData();
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(report.venue);
   const lateAdds = report.late_adds || [];
   const noShows = report.no_shows || [];
   const shiftNotes = report.shift_notes || [];
   const activityLogs = report.activity_logs || [];
+  const generatedAt = new Date(report.generated_at).toLocaleString();
+  const canKeepPrintSectionTogether = (rows, maxRows, fields) => {
+    const rowLengths = rows.map(row => fields
+      .map(field => String(row?.[field] ?? ""))
+      .join(" ")
+      .trim()
+      .length);
+    return rows.length <= maxRows
+      && rowLengths.every(length => length <= 180)
+      && rowLengths.reduce((total, length) => total + length, 0) <= 480;
+  };
+  const keepGroupsTogether = canKeepPrintSectionTogether(report.groups, 4, ["group_name", "group_type", "host_name", "table_location"]);
+  const keepLateAddsTogether = canKeepPrintSectionTogether(lateAdds, 4, ["display_name", "group_name", "approved_by", "reason", "added_by"]);
+  const keepNoShowsTogether = canKeepPrintSectionTogether(noShows, 4, ["display_name", "group_name", "guest_type", "notes"]);
+  const keepShiftNotesTogether = canKeepPrintSectionTogether(shiftNotes, 3, ["category", "priority", "note_text", "created_by_name"]);
 
   return `
-    <div class="modal-backdrop">
-      <div class="modal" style="max-width:1100px;">
-        <div class="closeout-print-header">
-          <div>
-            ${renderBrandBlock({ title:"Close Out Report", subtitle:`${report.venue} · ${report.day_name} · ${report.service_date}`, compact:true })}
-            <p class="subtle" style="margin:0;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
-            <p class="subtle" style="margin:4px 0 0;">Generated by ${esc(report.generated_by)} · ${new Date(report.generated_at).toLocaleString()}</p>
+    <div class="modal-backdrop df-admin-modal-backdrop df-closeout-report-backdrop">
+      <article class="modal df-admin-modal df-closeout-modal df-closeout-report" role="dialog" aria-modal="true" aria-labelledby="closeout-report-title" aria-describedby="closeout-report-context" tabindex="-1">
+        <header class="df-closeout-report__header">
+          <div class="df-closeout-report__identity">
+            <span class="df-closeout-report__monogram" aria-hidden="true">${esc(shellInitials(venueContext.parentVenue, "V"))}</span>
+            <div class="df-closeout-report__heading">
+              <p class="df-closeout-report__eyebrow">DoorFlow operational report</p>
+              <h2 id="closeout-report-title">Close Out Report</h2>
+              <p id="closeout-report-context" class="df-closeout-report__context"><strong>${esc(venueContext.reportLabel)}</strong><span>${esc(venueContext.sharedGuestListLabel)}</span><span aria-hidden="true">&middot;</span><span>${esc(report.day_name)} ${esc(report.service_date)}</span></p>
+              <p class="df-closeout-report__generated">Generated by ${esc(report.generated_by)} on ${esc(generatedAt)}</p>
+            </div>
           </div>
 
-          <div class="row-actions">
+          <div class="df-closeout-report__actions" aria-label="Report actions">
             <button type="button" class="btn secondary" onclick="downloadCloseOutReportCsv()">Export Report CSV</button>
             <button type="button" class="btn secondary" onclick="printCloseOutReport()">Print</button>
-            <button type="button" class="btn" onclick="closeModal()">Close</button>
+            <button class="df-modal-close df-closeout-report__close" type="button" onclick="closeModal()" aria-label="Close report" title="Close report">&times;</button>
           </div>
+        </header>
+
+        <section class="df-closeout-report__summary" aria-label="Closeout summary">
+          <article class="df-closeout-report__metric"><span>Total Allowed</span><strong>${report.summary.total_allowed}</strong></article>
+          <article class="df-closeout-report__metric df-closeout-report__metric--success"><span>Checked In</span><strong>${report.summary.checked_in}</strong></article>
+          <article class="df-closeout-report__metric df-closeout-report__metric--warning"><span>Remaining / No-Shows</span><strong>${report.summary.remaining}</strong></article>
+          <article class="df-closeout-report__metric"><span>Late Adds</span><strong>${lateAdds.length}</strong></article>
+        </section>
+
+        <div class="df-closeout-report__body">
+
+          <section class="df-closeout-report__section df-closeout-report__section--groups${keepGroupsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-groups-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Attendance</p><h3 id="closeout-groups-title">Group Breakdown</h3><p>Attendance totals by group for the selected service date.</p></div></header>
+            ${report.groups.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Group Breakdown table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Group attendance breakdown</caption>
+                  <thead><tr><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Host</th><th scope="col">Table</th><th scope="col">Allowed</th><th scope="col">Checked In</th><th scope="col">Remaining</th></tr></thead>
+                  <tbody>
+                    ${report.groups.map(group => `
+                      <tr>
+                        <td data-label="Group"><strong>${esc(group.group_name)}</strong></td>
+                        <td data-label="Type">${esc(group.group_type)}</td>
+                        <td data-label="Host">${esc(group.host_name || "")}</td>
+                        <td data-label="Table">${esc(group.table_location || "")}</td>
+                        <td class="df-closeout-report__number" data-label="Allowed">${group.total_allowed}</td>
+                        <td class="df-closeout-report__number" data-label="Checked In">${group.checked_in}</td>
+                        <td class="df-closeout-report__number" data-label="Remaining">${group.remaining}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No groups recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section df-closeout-report__section--late-adds${keepLateAddsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-late-adds-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Review</p><h3 id="closeout-late-adds-title">Late Adds</h3><p>Manager-approved additions recorded for this service date.</p></div></header>
+            ${lateAdds.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Late Adds table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Late additions for the selected service date</caption>
+                  <thead><tr><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Approved By</th><th scope="col">Reason</th><th scope="col">Added By</th><th scope="col">Added At</th></tr></thead>
+                  <tbody>
+                    ${lateAdds.map(guest => `
+                      <tr>
+                        <td data-label="Guest"><strong>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</strong></td>
+                        <td data-label="Group">${esc(guest.group_name)}</td>
+                        <td data-label="Type">${esc(guest.guest_type)}</td>
+                        <td data-label="Approved By">${esc(guest.approved_by || "")}</td>
+                        <td data-label="Reason">${esc(guest.reason || "")}</td>
+                        <td data-label="Added By">${esc(guest.added_by || "")}</td>
+                        <td data-label="Added At">${guest.added_at ? esc(new Date(guest.added_at).toLocaleString()) : ""}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No late adds recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section df-closeout-report__section--no-shows${keepNoShowsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-no-shows-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Remaining attendance</p><h3 id="closeout-no-shows-title">No-Shows / Remaining Guests</h3><p>Guests with attendance still remaining at the time of this report.</p></div></header>
+            ${noShows.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="No-Shows and Remaining Guests table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">No-shows and guests remaining</caption>
+                  <thead><tr><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Checked In</th><th scope="col">Remaining</th><th scope="col">Notes</th></tr></thead>
+                  <tbody>
+                    ${noShows.map(guest => `
+                      <tr>
+                        <td data-label="Guest"><strong>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</strong></td>
+                        <td data-label="Group">${esc(guest.group_name)}</td>
+                        <td data-label="Type">${esc(guest.guest_type)}</td>
+                        <td class="df-closeout-report__number" data-label="Checked In">${guest.checked_in_count}/${guest.total_allowed}</td>
+                        <td class="df-closeout-report__number" data-label="Remaining">${guest.remaining}</td>
+                        <td data-label="Notes">${esc(guest.notes || "")}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No no-shows / remaining guests.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section df-closeout-report__section--notes${keepShiftNotesTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-notes-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Shift record</p><h3 id="closeout-notes-title">Manager / Shift Notes</h3><p>Operational notes recorded by management for this service date.</p></div></header>
+            ${shiftNotes.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Manager and Shift Notes table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Manager and shift notes</caption>
+                  <thead><tr><th scope="col">Category</th><th scope="col">Priority</th><th scope="col">Note</th><th scope="col">By</th><th scope="col">Time</th></tr></thead>
+                  <tbody>
+                    ${shiftNotes.map(note => `
+                      <tr>
+                        <td data-label="Category">${esc(note.category || "")}</td>
+                        <td data-label="Priority">${esc(note.priority || "")}</td>
+                        <td data-label="Note">${esc(note.note_text || "")}</td>
+                        <td data-label="By">${esc(note.created_by_name || "")}</td>
+                        <td data-label="Time">${note.created_at ? esc(new Date(note.created_at).toLocaleString()) : ""}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No shift notes recorded.</p></div>`}
+          </section>
+
+          <section class="df-closeout-report__section df-closeout-report__section--activity" aria-labelledby="closeout-activity-title">
+            <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Door record</p><h3 id="closeout-activity-title">Recent Door Activity</h3><p>The most recent recorded check-in activity for this service date.</p></div></header>
+            ${activityLogs.length ? `
+              <div class="df-closeout-report__table-wrap" role="region" aria-label="Recent Door Activity table" tabindex="0">
+                <table class="df-closeout-report__table">
+                  <caption class="sr-only">Recent door activity</caption>
+                  <thead><tr><th scope="col">Time</th><th scope="col">Action</th><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Staff</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${activityLogs.slice(0,60).map(log => `
+                      <tr>
+                        <td data-label="Time">${log.time ? esc(new Date(log.time).toLocaleString()) : ""}</td>
+                        <td data-label="Action">${esc(log.action || "")}</td>
+                        <td data-label="Guest"><strong>${esc(log.guest_name || "")}</strong></td>
+                        <td data-label="Group">${esc(log.group_name || "")}</td>
+                        <td data-label="Staff">${esc(log.staff_name || "")}</td>
+                        <td data-label="Door">${esc(log.door_location || "")}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No recent activity logs recorded.</p></div>`}
+          </section>
         </div>
 
-        <div class="closeout-summary-grid">
-          <div class="stat"><span>Total Allowed</span><strong>${report.summary.total_allowed}</strong></div>
-          <div class="stat"><span>Checked In</span><strong>${report.summary.checked_in}</strong></div>
-          <div class="stat"><span>Remaining / No-Shows</span><strong>${report.summary.remaining}</strong></div>
-          <div class="stat"><span>Late Adds</span><strong>${lateAdds.length}</strong></div>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Group Breakdown</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Host</th>
-                <th>Table</th>
-                <th>Allowed</th>
-                <th>Checked In</th>
-                <th>Remaining</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${report.groups.map(group => `
-                <tr>
-                  <td>${esc(group.group_name)}</td>
-                  <td>${esc(group.group_type)}</td>
-                  <td>${esc(group.host_name || "")}</td>
-                  <td>${esc(group.table_location || "")}</td>
-                  <td>${group.total_allowed}</td>
-                  <td>${group.checked_in}</td>
-                  <td>${group.remaining}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Late Adds</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Approved By</th>
-                <th>Reason</th>
-                <th>Added By</th>
-                <th>Added At</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lateAdds.length ? lateAdds.map(guest => `
-                <tr>
-                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
-                  <td>${esc(guest.group_name)}</td>
-                  <td>${esc(guest.guest_type)}</td>
-                  <td>${esc(guest.approved_by || "")}</td>
-                  <td>${esc(guest.reason || "")}</td>
-                  <td>${esc(guest.added_by || "")}</td>
-                  <td>${guest.added_at ? esc(new Date(guest.added_at).toLocaleString()) : ""}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="7">No late adds recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>No-Shows / Remaining Guests</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Type</th>
-                <th>Checked In</th>
-                <th>Remaining</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${noShows.length ? noShows.map(guest => `
-                <tr>
-                  <td>${esc(guest.display_name || `${guest.first_name} ${guest.last_name}`)}</td>
-                  <td>${esc(guest.group_name)}</td>
-                  <td>${esc(guest.guest_type)}</td>
-                  <td>${guest.checked_in_count}/${guest.total_allowed}</td>
-                  <td>${guest.remaining}</td>
-                  <td>${esc(guest.notes || "")}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="6">No no-shows / remaining guests.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Manager / Shift Notes</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Priority</th>
-                <th>Note</th>
-                <th>By</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${shiftNotes.length ? shiftNotes.map(note => `
-                <tr>
-                  <td>${esc(note.category || "")}</td>
-                  <td>${esc(note.priority || "")}</td>
-                  <td>${esc(note.note_text || "")}</td>
-                  <td>${esc(note.created_by_name || "")}</td>
-                  <td>${note.created_at ? esc(new Date(note.created_at).toLocaleString()) : ""}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="5">No shift notes recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="closeout-report-section">
-          <h3>Recent Door Activity</h3>
-          <table class="closeout-report-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Action</th>
-                <th>Guest</th>
-                <th>Group</th>
-                <th>Staff</th>
-                <th>Door</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${activityLogs.length ? activityLogs.slice(0,60).map(log => `
-                <tr>
-                  <td>${log.time ? esc(new Date(log.time).toLocaleString()) : ""}</td>
-                  <td>${esc(log.action || "")}</td>
-                  <td>${esc(log.guest_name || "")}</td>
-                  <td>${esc(log.group_name || "")}</td>
-                  <td>${esc(log.staff_name || "")}</td>
-                  <td>${esc(log.door_location || "")}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="6">No recent activity logs recorded.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <footer class="df-closeout-report__footer"><span>DoorFlow operational closeout report</span><span>End of report</span></footer>
+      </article>
     </div>
   `;
 }
@@ -6392,35 +6713,110 @@ function closeModal() {
 
 /* RENDER */
 
-function renderLogin() {
+function renderDoorFlowLockup() {
   return `
-    <div class="auth">
-      <div class="card">
-        <div style="margin-bottom:18px;">
-          ${renderBrandBlock({ title:`${BOB_BRAND.appName} Login`, subtitle:"Supabase email/password account" })}
+    <span class="df-doorflow-lockup" aria-label="DoorFlow">
+      <span class="df-doorflow-mark" aria-hidden="true"></span>
+      <span class="df-doorflow-wordmark">Door<span>Flow</span></span>
+    </span>
+  `;
+}
+
+function shellInitials(value, fallback = "DF") {
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return fallback;
+  return words.slice(0, 2).map(word => word[0]).join("").toUpperCase();
+}
+
+function shellUsesDrawer() {
+  return window.matchMedia("(max-width: 1080px)").matches;
+}
+
+function setShellNavOpen(open, restoreFocus = false) {
+  const shouldOpen = Boolean(open && shellUsesDrawer());
+  state.shellNavOpen = shouldOpen;
+
+  const sidebar = document.getElementById("df-primary-sidebar");
+  const backdrop = document.getElementById("df-nav-backdrop");
+  const menuButton = document.getElementById("df-shell-menu");
+
+  sidebar?.classList.toggle("is-open", shouldOpen);
+  if (sidebar) {
+    if (!shouldOpen && shellUsesDrawer()) sidebar.setAttribute("inert", "");
+    else sidebar.removeAttribute("inert");
+  }
+  if (backdrop) backdrop.hidden = !shouldOpen;
+  if (menuButton) {
+    menuButton.setAttribute("aria-expanded", String(shouldOpen));
+    menuButton.setAttribute("aria-label", shouldOpen ? "Close navigation menu" : "Open navigation menu");
+    menuButton.title = shouldOpen ? "Close navigation menu" : "Open navigation menu";
+    const symbol = menuButton.querySelector("[data-shell-menu-symbol]");
+    if (symbol) symbol.textContent = shouldOpen ? "\u00d7" : "\u2630";
+  }
+
+  document.body.classList.toggle("df-shell-nav-open", shouldOpen);
+  if (restoreFocus) menuButton?.focus();
+}
+
+function toggleShellNav() {
+  setShellNavOpen(!state.shellNavOpen);
+}
+
+function closeShellNav(restoreFocus = false) {
+  setShellNavOpen(false, restoreFocus);
+}
+
+function shellNavigate(view) {
+  closeShellNav(false);
+  switchView(view);
+}
+
+function handleShellKeydown(event) {
+  if (event.key === "Escape" && state.shellNavOpen) {
+    event.preventDefault();
+    closeShellNav(true);
+  }
+}
+
+function renderLogin() {
+  state.shellNavOpen = false;
+  document.body.classList.remove("df-shell-nav-open");
+
+  return `
+    <div class="df-login-screen">
+      <section class="df-login-brand-panel" aria-label="DoorFlow hospitality operations">
+        ${renderDoorFlowLockup()}
+        <div class="df-login-brand-copy">
+          <p class="df-login-eyebrow">Hospitality operations</p>
+          <h1>Welcome to DoorFlow.</h1>
+          <p>Guest list, arrival, and closeout tools for your venue team.</p>
         </div>
+        <p class="df-login-brand-foot">Secure staff access for authorized venue teams.</p>
+      </section>
 
-        <div class="notice greenbox">
-          <strong>Real account mode:</strong> sign in with the email/password account created in Supabase Authentication.
+      <main class="df-login-form-panel">
+        <div class="df-login-card">
+          <p class="df-login-eyebrow">Staff access</p>
+          <h2>Sign in</h2>
+          <p>Use your authorized DoorFlow staff account.</p>
+
+          ${state.error ? `<div class="notice redbox" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+
+          <form onsubmit="login(event)" class="form">
+            <div>
+              <label for="df-login-email">Email</label>
+              <input id="df-login-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+            </div>
+            <div>
+              <label for="df-login-password">Password</label>
+              <input id="df-login-password" name="password" type="password" autocomplete="current-password" />
+            </div>
+            <button class="btn" type="submit">Log In</button>
+          </form>
+
+          <p class="df-login-help">Access and available tools are determined by your active staff profile.</p>
         </div>
-
-        ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-
-        <form onsubmit="login(event)" class="form">
-          <div>
-            <label>Email</label>
-            <input name="email" type="email" autocomplete="email" placeholder="you@example.com" />
-          </div>
-          <div>
-            <label>Password</label>
-            <input name="password" type="password" autocomplete="current-password" />
-          </div>
-          <button class="btn" type="submit">Log In</button>
-        </form>
-
-        <div class="divider"></div>
-        <p class="subtle" style="margin:0;">Staff access is controlled by the <strong>staff_profiles</strong> table in Supabase.</p>
-      </div>
+      </main>
     </div>
   `;
 }
@@ -6439,11 +6835,26 @@ function syncClassName() {
   return "good";
 }
 
-function renderSyncPill() {
-  const status = state.loading ? "Syncing" : (state.syncStatus || "Live");
+function renderSyncPill(surface = "pill") {
+  const status = state.error ? "Error" : state.loading ? "Syncing" : (state.syncStatus || "Live");
+  const statusKey = String(status).toLowerCase();
   const last = formatClock(state.lastSyncAt);
-  const title = state.syncMessage || "DoorFlow live sync";
-  return `<span class="pill sync-pill ${syncClassName()}" title="${esc(title)}"><span class="sync-dot"></span>${esc(status)} · Updated ${esc(last)}</span>`;
+  const message = state.error
+    ? state.error
+    : state.loading
+      ? "Refreshing the active service day."
+      : (state.syncMessage || "Guest and check-in data sync across devices.");
+  const tone = state.error || statusKey.includes("error") || statusKey.includes("failed") || statusKey.includes("offline") || statusKey.includes("signed out")
+    ? "bad"
+    : state.loading || statusKey.includes("saving") || statusKey.includes("syncing") || statusKey.includes("pending") || statusKey.includes("polling") || statusKey.includes("reconnect") || statusKey.includes("connecting")
+      ? "warn"
+      : syncClassName();
+
+  if (surface === "notice") {
+    return `<div class="notice df-door-system-state df-door-live-sync-notice ${tone}" role="${tone === "bad" ? "alert" : "status"}"><strong>${esc(status)}</strong><span>${esc(message)}</span></div>`;
+  }
+
+  return `<span class="pill sync-pill ${tone}" title="${esc(message)}"><span class="sync-dot"></span>${esc(status)} · Updated ${esc(last)}</span>`;
 }
 
 function renderMobileSyncFooter() {
@@ -6475,17 +6886,60 @@ function renderBrandBlock(options = {}) {
 
 function renderTopbar() {
   const user = currentUser();
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueInitials = shellInitials(venueContext.parentVenue, "V");
+  const userInitials = shellInitials(user.name, "U");
 
   return `
-    <header class="topbar">
-      <div class="topbar-inner">
-        ${renderBrandBlock({ subtitle:`${state.activeDay} · ${state.activeDate} · Live Database` })}
+    <header class="df-utility-bar">
+      <div class="df-utility-inner">
+        <button id="df-shell-menu" class="df-shell-menu" type="button" aria-controls="df-primary-sidebar" aria-expanded="${state.shellNavOpen ? "true" : "false"}" aria-label="${state.shellNavOpen ? "Close" : "Open"} navigation menu" title="${state.shellNavOpen ? "Close" : "Open"} navigation menu" onclick="toggleShellNav()">
+          <span data-shell-menu-symbol aria-hidden="true">${state.shellNavOpen ? "&times;" : "&#9776;"}</span>
+        </button>
 
-        <div class="top-actions">
-          ${renderSyncPill()}
-          <button type="button" class="btn secondary small" onclick="manualRefreshData()">Refresh Data</button>
-          <span class="pill">${esc(user.name)} · ${roleLabel(user.role)}</span>
-          <button type="button" class="btn secondary small" onclick="logout()">Log Out</button>
+        <div class="df-shell-venue" aria-label="Parent venue ${esc(venueContext.parentVenue)}${venueContext.operatingSpace ? `; operating space ${esc(venueContext.operatingSpace)}` : ""}; ${esc(venueContext.sharedGuestListLabel)}">
+          <span class="df-venue-monogram" aria-hidden="true">${esc(venueInitials)}</span>
+          <div class="df-venue-copy df-venue-hierarchy">
+            <div class="df-venue-hierarchy__expanded">
+              <div class="df-venue-hierarchy__item"><span class="df-utility-label">Venue</span><strong>${esc(venueContext.parentVenue)}</strong></div>
+              ${venueContext.operatingSpace ? `<div class="df-venue-hierarchy__item"><span class="df-utility-label">Operating space</span><strong>${esc(venueContext.operatingSpace)}</strong></div>` : ""}
+            </div>
+            <div class="df-venue-hierarchy__compact"><span class="df-utility-label">Venue</span><strong title="${esc(venueContext.desktopLabel)}">${esc(venueContext.compactLabel)}</strong></div>
+            <span class="df-venue-scope">${esc(venueContext.sharedGuestListLabel)}</span>
+          </div>
+        </div>
+
+        <div class="df-shell-service" aria-label="Service context">
+          <div class="df-service-context-row">
+            <label class="df-service-field">
+              <span class="df-utility-label">Day</span>
+              <select onchange="setActiveDay(this.value)">
+                ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
+              </select>
+            </label>
+            <label class="df-service-field">
+              <span class="df-utility-label">Service date</span>
+              <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+            </label>
+          </div>
+          <div class="df-service-sync-row">
+            ${renderSyncPill()}
+            <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span><span class="df-refresh-label">Refresh</span></button>
+          </div>
+        </div>
+
+        <div class="df-utility-user">
+          <div class="df-user-context" aria-label="${esc(user.name)}; ${esc(roleLabel(user.role))}">
+            <div class="df-user-copy">
+              <strong title="${esc(user.name)}">${esc(user.name)}</strong>
+              <span>${esc(roleLabel(user.role))}</span>
+            </div>
+            <span class="df-user-avatar" aria-hidden="true">${esc(userInitials)}</span>
+          </div>
+          <button type="button" class="btn secondary small df-logout-button" onclick="closeShellNav(false);logout()" aria-label="Log out ${esc(user.name)}">
+            <span class="df-logout-icon" aria-hidden="true">OUT</span>
+            <span class="df-logout-label">Log Out</span>
+          </button>
         </div>
       </div>
     </header>
@@ -6494,39 +6948,39 @@ function renderTopbar() {
 
 function renderTabs() {
   const p = perms();
+  const navItem = (view, label, symbol, allowed) => {
+    if (!allowed) return "";
+    const current = state.view === view ? ` aria-current="page"` : "";
+    return `<li><button type="button" class="df-nav-item"${current} onclick="shellNavigate('${view}')"><span class="df-nav-symbol" aria-hidden="true">${symbol}</span><span>${label}</span></button></li>`;
+  };
 
   return `
-    <div class="tabs">
-      ${p.door ? `<button type="button" class="tab ${state.view === "door" ? "active" : ""}" onclick="switchView('door')">Door Check-In</button>` : ""}
-      ${p.door ? `<button type="button" class="tab ${state.view === "tabletDoor" ? "active" : ""}" onclick="switchView('tabletDoor')">Tablet Door Mode</button>` : ""}
-      ${p.manage ? `<button type="button" class="tab ${state.view === "manage" ? "active" : ""}" onclick="switchView('manage')">Management</button>` : ""}
-      ${p.users ? `<button type="button" class="tab ${state.view === "users" ? "active" : ""}" onclick="switchView('users')">Staff</button>` : ""}
-      ${p.reports ? `<button type="button" class="tab ${state.view === "reports" ? "active" : ""}" onclick="switchView('reports')">Reports</button>` : ""}
-    </div>
+    <nav class="df-primary-nav" aria-label="Primary navigation">
+      <ul>
+        ${navItem("door", "Door Check-In", "DC", p.door)}
+        ${navItem("tabletDoor", "Tablet Door Mode", "TD", p.door)}
+        ${navItem("manage", "Management", "MG", p.manage)}
+        ${navItem("users", "Staff", "ST", p.users)}
+        ${navItem("reports", "Reports", "RP", p.reports)}
+      </ul>
+    </nav>
   `;
 }
 
 function renderDateBar() {
   const group = selectedGroup();
+  const contextLabel = state.currentMode === "GENERAL" ? "General Guest List" : (group?.name || "Selected Group");
 
   return `
-    <div class="card tight">
-      <div class="datebar">
-        <div>
-          <label>Day</label>
-          <select onchange="setActiveDay(this.value)">
-            ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
-          </select>
-        </div>
-
-        <div>
-          <label>Calendar Date</label>
-          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-        </div>
-
-        <div>
-          <label>Selected Party / Group</label>
-          <select onchange="selectGroup(this.value)">
+    <section class="card tight df-operational-context-card df-door-context" aria-labelledby="door-context-title">
+      <header class="df-door-context__heading">
+        <div><p class="df-door-kicker">Operating context</p><h2 id="door-context-title">${esc(contextLabel)}</h2></div>
+        <p>${esc(state.activeDay)} <span aria-hidden="true">&middot;</span> ${esc(state.activeDate)}</p>
+      </header>
+      <div class="datebar df-door-context__controls">
+        <div class="df-door-field">
+          <label for="doorGroupSelect">Selected Party / Group</label>
+          <select id="doorGroupSelect" onchange="selectGroup(this.value)">
             ${specificGroups().length
               ? specificGroups().map(item => `<option value="${item.id}" ${item.id === group?.id ? "selected" : ""}>${esc(item.name)} — ${esc(item.host_name || item.group_type)}</option>`).join("")
               : `<option>No specific groups for this date</option>`
@@ -6534,14 +6988,14 @@ function renderDateBar() {
           </select>
         </div>
 
-        <div>
-          <label>Door Location</label>
-          <select onchange="state.doorLocation=this.value;render()">
+        <div class="df-door-field">
+          <label for="doorLocationSelect">Door Location</label>
+          <select id="doorLocationSelect" onchange="state.doorLocation=this.value;render()">
             ${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(option => `<option ${option === state.doorLocation ? "selected" : ""}>${option}</option>`).join("")}
           </select>
         </div>
       </div>
-    </div>
+    </section>
   `;
 }
 
@@ -6568,22 +7022,25 @@ function renderManagerServiceDateCard() {
 
 function renderMobileManagerServiceDateCard() {
   return `
-    <section class="mobile-manager-card">
-      <div class="mobile-manager-title-row">
-        <div>
-          <h2>Service Date</h2>
-          <p>Adding to ${esc(state.activeDate)}</p>
-        </div>
-      </div>
+    <section class="mobile-manager-card mobile-manager-service-date">
+      <details id="mobileManagerServiceDateDetails" class="mobile-manager-details">
+        <summary>
+          <div>
+            <h2>Change Service Date</h2>
+            <p>Current: ${esc(state.activeDate)}</p>
+          </div>
+          <strong aria-hidden="true">⌄</strong>
+        </summary>
 
-      <div class="mobile-manager-form">
-        <div>
-          <label>Service Date</label>
-          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-        </div>
+        <div class="mobile-manager-form">
+          <div>
+            <label>Service Date</label>
+            <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+          </div>
 
-        <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
-      </div>
+          <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
+        </div>
+      </details>
     </section>
   `;
 }
@@ -6592,12 +7049,12 @@ function renderStats() {
   const stats = dayStats();
 
   return `
-    <div id="dayStatsPanel" class="stats">
-      <div class="stat"><span>Groups</span><strong>${stats.groups}</strong></div>
-      <div class="stat"><span>Complete Groups</span><strong>${stats.completeGroups}</strong></div>
-      <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
-      <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
-      <div class="stat"><span>Still Remaining</span><strong>${stats.remaining}</strong></div>
+    <div id="dayStatsPanel" class="stats df-door-metrics" aria-label="Door attendance summary">
+      <div class="stat df-door-metric"><span>Groups</span><strong>${stats.groups}</strong></div>
+      <div class="stat df-door-metric df-door-metric--complete"><span>Complete Groups</span><strong>${stats.completeGroups}</strong></div>
+      <div class="stat df-door-metric"><span>Total Allowed</span><strong>${stats.total}</strong></div>
+      <div class="stat df-door-metric df-door-metric--checked"><span>Checked In</span><strong>${stats.checked}</strong></div>
+      <div class="stat df-door-metric df-door-metric--remaining"><span>Still Remaining</span><strong>${stats.remaining}</strong></div>
     </div>
   `;
 }
@@ -6606,8 +7063,11 @@ function renderGroupList(showActions = false) {
   const stats = dayStats();
 
   const generalCard = `
-    <div class="party-card ${state.currentMode === "GENERAL" ? "selected" : ""}" onclick="setMode('GENERAL')">
-      <h3 class="party-title">General Guest List</h3>
+    <div class="party-card df-door-party-card df-door-party-card--general ${state.currentMode === "GENERAL" ? "selected" : ""}" role="button" tabindex="0" aria-pressed="${state.currentMode === "GENERAL" ? "true" : "false"}" onclick="setMode('GENERAL')" onkeydown="if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();setMode('GENERAL')}">
+      <div class="df-door-party-card__top">
+        <div><p class="df-door-kicker">All arrivals</p><h3 class="party-title">General Guest List</h3></div>
+        <span class="df-door-party-state">${state.currentMode === "GENERAL" ? "Selected" : "Master list"}</span>
+      </div>
       <div class="party-meta">
         <span class="badge general">Master List</span>
         <span class="badge in">${stats.checked} in</span>
@@ -6623,18 +7083,25 @@ function renderGroupList(showActions = false) {
     <div class="party-list">
       ${generalCard}
 
-      ${!groups.length ? `<div class="notice warn">No bottle service or special party groups are scheduled for this date.</div>` : ""}
+      ${!groups.length ? `<div class="notice warn df-door-empty-state" role="status"><strong>No party groups</strong><span>No bottle service or special party groups are scheduled for this date.</span></div>` : ""}
 
       ${groups.map(group => {
         const groupStat = groupStats(group.id);
         const hostGuest = findHostGuestForGroup(group);
-        const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
+        const hostLabel = showActions
+          ? (hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A")
+          : (hostGuest ? DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(hostGuest) : DOORFLOW_LIVE_GUEST_PRESENTATION.cleanName(group.host_name || "N/A"));
         const complete = groupStat.total > 0 && groupStat.remaining === 0;
         const started = groupStat.checked > 0 && groupStat.remaining > 0;
+        const selected = state.currentMode === "GROUP" && group.id === selectedGroup()?.id;
+        const statusLabel = complete ? "Complete" : started ? "Partially Arrived" : "Not Arrived";
 
         return `
-          <div class="party-card ${state.currentMode === "GROUP" && group.id === selectedGroup()?.id ? "selected" : ""} ${complete ? "complete" : started ? "started" : ""}" onclick="selectGroup('${group.id}')">
-            <h3 class="party-title">${esc(group.name)}</h3>
+          <div class="party-card df-door-party-card ${selected ? "selected" : ""} ${complete ? "complete" : started ? "started" : ""}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}" onclick="selectGroup('${group.id}')" onkeydown="if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();selectGroup('${group.id}')}">
+            <div class="df-door-party-card__top">
+              <h3 class="party-title">${esc(group.name)}</h3>
+              <span class="df-door-party-state">${statusLabel}</span>
+            </div>
             <div class="party-meta">
               <span class="badge ${typeClass(group.group_type)}">${esc(group.group_type)}</span>
               <span class="badge general">Host: ${esc(hostLabel)}</span>
@@ -6643,6 +7110,15 @@ function renderGroupList(showActions = false) {
               <span class="badge remaining">${groupStat.remaining} left</span>
             </div>
             <p class="subtle" style="margin:0;">${esc(group.notes || "No notes listed.")}</p>
+
+            ${selected && !showActions ? `
+              <div class="df-door-party-focus" aria-label="Selected group summary">
+                <div><span>Total</span><strong>${groupStat.total}</strong></div>
+                <div><span>In</span><strong>${groupStat.checked}</strong></div>
+                <div><span>Left</span><strong>${groupStat.remaining}</strong></div>
+                ${group.approved_by ? `<p>Approved by ${esc(group.approved_by)}</p>` : ""}
+              </div>
+            ` : ""}
 
             ${showActions ? `
               <div class="row-actions" style="margin-top:10px;">
@@ -6660,7 +7136,7 @@ function renderGroupList(showActions = false) {
 
 function renderGuestList(showActions = false, guests = visibleGuests()) {
   if (!guests.length) {
-    return `<div class="notice warn">No names found for the selected view.</div>`;
+    return `<div class="notice warn df-door-empty-state" role="status"><strong>No guests found</strong><span>No names found for the selected view.</span></div>`;
   }
 
   return `
@@ -6677,28 +7153,29 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
         const guestBusy = checkInBusy || undoBusy;
 
         return `
-          <div class="guest-row ${fullyIn ? "checked" : ""}">
-            <button type="button" class="guest-check" onclick="toggleGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
+          <div class="guest-row df-door-guest-row ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}" data-live-roster-card data-guest-id="${esc(guest.id)}">
+            <button type="button" class="guest-check df-door-guest-check" data-roster-action="toggle" onclick="prepareLiveRosterAction(event,'${guest.id}','toggle');toggleGuest('${guest.id}')" aria-label="Toggle check-in for ${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}" ${guestBusy ? "disabled" : ""}>${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
 
-            <div>
-              <div class="name-line">
-                <p class="guest-name">${esc(guestDisplayName(guest))}</p>
+            <div class="df-door-guest-copy">
+              <div class="name-line df-door-guest-name-line df-door-live-name-row">
+                <p class="guest-name">${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}</p>
                 <span class="count-pill">${checked}/${total}</span>
-                ${fullyIn ? `<span class="badge in">Fully In</span>` : remaining > 0 ? `<span class="badge remaining">${remaining} left</span>` : ""}
-                ${lateAddBadge(guest)}
               </div>
               <p class="guest-detail">
                 ${esc(guest.guest_type)}
                 ${group ? ` · ${esc(groupDoorLabel(group))}` : ""}
                 ${guest.notes ? ` · ${esc(guest.notes)}` : ""}
               </p>
-              ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
+              <div class="df-door-live-status-row">
+                ${fullyIn ? `<span class="badge in df-door-status df-door-status--complete">Fully In</span>` : remaining > 0 ? `<span class="badge remaining df-door-status df-door-status--remaining">${remaining} left</span>` : ""}
+                ${isLateAdd(guest) ? `<span class="badge remaining df-live-approval-state">${guest.late_add_approved_by ? "Late Add" : "Needs Approval"}</span>` : ""}
+              </div>
               ${showLast ? `<p class="guest-detail">Last check-in by ${esc(guest.last_checked_in_by_name || "")} at ${esc(guest.last_door_location || "")}</p>` : ""}
             </div>
 
-            <div class="row-actions">
-              ${checkInBusy ? `<button type="button" class="btn green small" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green small" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<span class="badge in">Fully In</span>`}
-              ${undoBusy ? `<button type="button" class="btn secondary small" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary small" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : ""}
+            <div class="row-actions df-door-guest-actions">
+              ${checkInBusy ? `<button type="button" class="btn green small df-door-checkin-action" data-roster-action="checkin" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green small df-door-checkin-action" data-roster-action="checkin" onclick="prepareLiveRosterAction(event,'${guest.id}','checkin');checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<span class="badge in df-door-status df-door-status--complete">Fully In</span>`}
+              ${undoBusy ? `<button type="button" class="btn secondary small df-door-undo-action" data-roster-action="undo" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary small df-door-undo-action" data-roster-action="undo" onclick="prepareLiveRosterAction(event,'${guest.id}','undo');undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : ""}
               ${showActions ? `
                 <button type="button" class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
                 <button type="button" class="btn secondary small" onclick="openPlusOnesModal('${guest.id}')">Edit Plus Ones</button>
@@ -6717,23 +7194,26 @@ function renderSelectedGroupPanel() {
 
   if (!group) {
     return `
-      <div id="selectedGroupPanel" class="card">
-        <h2>Selected Group</h2>
-        <p class="subtle">No party or bottle service group selected.</p>
-      </div>
+      <section id="selectedGroupPanel" class="card df-door-selected-group df-door-selected-group--empty" aria-labelledby="selected-group-title">
+        <header class="df-door-section-heading"><div><p class="df-door-kicker">Party focus</p><h2 id="selected-group-title">Selected Group</h2></div></header>
+        <div class="df-door-empty-state" role="status"><strong>No group selected</strong><span>No party or bottle service group selected.</span></div>
+      </section>
     `;
   }
 
   const stats = groupStats(group.id);
   const hostGuest = findHostGuestForGroup(group);
   const hostLabel = hostGuest ? guestDisplayName(hostGuest) : group.host_name || "N/A";
+  const groupComplete = stats.total > 0 && stats.remaining === 0;
+  const groupStarted = stats.checked > 0 && stats.remaining > 0;
+  const groupStatus = groupComplete ? "Complete" : groupStarted ? "Partially Arrived" : "Not Arrived";
 
   return `
-    <div id="selectedGroupPanel" class="card">
-      <h2>${esc(group.name)}</h2>
+    <section id="selectedGroupPanel" class="card df-door-selected-group ${groupComplete ? "is-complete" : groupStarted ? "is-partial" : "is-pending"}" aria-labelledby="selected-group-title">
+      <header class="df-door-selected-group__header"><div><p class="df-door-kicker">Party focus</p><h2 id="selected-group-title">${esc(group.name)}</h2></div><span class="df-door-party-state">${groupStatus}</span></header>
       <p class="subtle">${esc(group.group_type)} · Host: ${esc(hostLabel)}</p>
 
-      <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
+      <div class="stats df-door-selected-metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
         <div class="stat"><span>Total</span><strong>${stats.total}</strong></div>
         <div class="stat"><span>In</span><strong>${stats.checked}</strong></div>
         <div class="stat"><span>Left</span><strong>${stats.remaining}</strong></div>
@@ -6741,17 +7221,19 @@ function renderSelectedGroupPanel() {
 
       <div class="divider"></div>
 
-      <p class="subtle"><strong>Table/Location:</strong> ${esc(group.table_location || "Not listed")}</p>
-      <p class="subtle"><strong>Approved By:</strong> ${esc(group.approved_by || "Not listed")}</p>
-      <p class="subtle"><strong>Notes:</strong> ${esc(group.notes || "No notes listed.")}</p>
+      <div class="df-door-selected-group__details">
+        <p class="subtle"><strong>Table/Location:</strong> ${esc(group.table_location || "Not listed")}</p>
+        <p class="subtle"><strong>Approved By:</strong> ${esc(group.approved_by || "Not listed")}</p>
+        <p class="subtle"><strong>Notes:</strong> ${esc(group.notes || "No notes listed.")}</p>
+      </div>
 
       ${perms().manage ? `
-        <div class="row-actions">
+        <div class="row-actions df-door-group-actions">
           <button type="button" class="btn secondary small" onclick="openGroupModal('${group.id}')">Edit Group</button>
           <button type="button" class="btn danger small" onclick="deleteGroup('${group.id}')">Delete Group</button>
         </div>
       ` : ""}
-    </div>
+    </section>
   `;
 }
 
@@ -6761,48 +7243,66 @@ function renderMainWorkspace(showManagement = false) {
     ? "This master list shows everyone for the selected date, including bottle service attendees."
     : "This shows only the names under the selected group.";
   const guests = visibleGuests();
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const filterPanel = `
+    <section class="card tight df-door-filter-panel" aria-label="Guest search and filters">
+      <div class="toolbar df-door-filter-toolbar">
+        <input id="mainSearchInput" aria-label="Search guests" placeholder="${state.currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(state.searchText)}" oninput="updateMainSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+
+        <select id="mainListModeSelect" aria-label="Guest list view" onchange="setMode(this.value)">
+          <option value="GENERAL" ${state.currentMode === "GENERAL" ? "selected" : ""}>General Guest List</option>
+          <option value="GROUP" ${state.currentMode === "GROUP" ? "selected" : ""}>Selected Group Only</option>
+        </select>
+
+        <select id="mainGuestFilterSelect" aria-label="Guest status filter" onchange="setGuestFilter(this.value)">
+          ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+        </select>
+
+        <select id="mainSortModeSelect" aria-label="Guest sort order" onchange="setSortMode(this.value)">
+          ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
+        </select>
+
+        ${showManagement
+          ? `<button type="button" class="btn" onclick="openGuestModal()">Add Individual Guest</button>`
+          : `<button type="button" class="btn secondary df-door-clear-action" onclick="clearMainSearch()">Clear Search</button>`
+        }
+      </div>
+    </section>
+  `;
 
   return `
-    ${renderDateBar()}
-    ${renderStats()}
-
-    <div class="grid">
-      <main class="stack">
-        <div class="card tight">
-          <div class="toolbar">
-            <input id="mainSearchInput" placeholder="${state.currentMode === "GENERAL" ? "Search general guest list..." : "Search selected group..."}" value="${esc(state.searchText)}" oninput="updateMainSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-
-            <select onchange="setMode(this.value)">
-              <option value="GENERAL" ${state.currentMode === "GENERAL" ? "selected" : ""}>General Guest List</option>
-              <option value="GROUP" ${state.currentMode === "GROUP" ? "selected" : ""}>Selected Group Only</option>
-            </select>
-
-            <select id="mainGuestFilterSelect" onchange="setGuestFilter(this.value)">
-              ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
-            </select>
-
-            <select id="mainSortModeSelect" onchange="setSortMode(this.value)">
-              ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
-            </select>
-
-            ${showManagement
-              ? `<button type="button" class="btn" onclick="openGuestModal()">Add Individual Guest</button>`
-              : `<button type="button" class="btn secondary" onclick="clearMainSearch()">Clear Search</button>`
-            }
+    <div class="df-door-operating-workspace${showManagement ? " is-management" : ""}"${showManagement ? "" : ' aria-labelledby="door-checkin-title"'}>
+      ${showManagement ? "" : `
+        <header class="df-door-view-header">
+          <div><p class="df-door-kicker">Live service</p><h1 id="door-checkin-title">Door Check-In</h1><p>Find arrivals, confirm the right party, and keep the door moving with confidence.</p></div>
+          <div class="df-door-view-header__context" aria-label="${esc(venueContext.compactLabel)}; ${esc(venueContext.sharedGuestListLabel)}; door ${esc(state.doorLocation)}">
+            <span>${esc(venueContext.compactLabel)}</span>
+            <span>Door: ${esc(state.doorLocation)}</span>
+            <strong>${esc(venueContext.sharedGuestListLabel)} &middot; ${guests.length} guests shown</strong>
           </div>
-        </div>
+        </header>
+      `}
 
-        <div class="card">
-          <h2>${title}</h2>
-          <p class="subtle">${subtitle}</p>
-          <div class="party-meta" style="margin-bottom:12px;">
+      ${renderDateBar()}
+      ${renderStats()}
+      ${showManagement ? "" : filterPanel}
+
+    <div class="grid df-door-workspace">
+      <main class="stack df-door-roster-column">
+        ${showManagement ? filterPanel : ""}
+
+        <section class="card df-door-guest-panel" aria-labelledby="door-guest-list-title">
+          <header class="df-door-section-heading">
+            <div>${showManagement ? "" : `<p class="df-door-kicker">Arrival roster</p>`}<h2 id="door-guest-list-title">${title}</h2><p class="subtle">${subtitle}</p></div>
+          </header>
+          <div class="party-meta df-door-list-meta">
             <span id="mainFilterBadge" class="badge general">Filter: ${esc(activeFilterLabel())}</span>
             <span id="mainShownCount" class="badge general">${guests.length} shown</span>
           </div>
           <div id="guestScrollPanel" class="scroll-panel">
             ${renderGuestList(showManagement, guests)}
           </div>
-        </div>
+        </section>
 
         ${showManagement ? `
           <div class="card">
@@ -6835,18 +7335,18 @@ function renderMainWorkspace(showManagement = false) {
         ` : ""}
       </main>
 
-      <aside class="stack">
-        <div class="card">
-          <h2>Party / Bottle Service Groups</h2>
-          <p class="subtle">Click General Guest List to see everyone, or click a group to see only that group.</p>
-          <input id="groupSearchInput" placeholder="Search groups..." value="${esc(state.groupSearchText)}" oninput="updateGroupSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="margin-bottom:12px;" />
+      <aside class="stack df-door-support-column">
+        <section class="card df-door-party-panel" aria-labelledby="door-party-list-title">
+          <header class="df-door-section-heading"><div>${showManagement ? "" : `<p class="df-door-kicker">Party browser</p>`}<h2 id="door-party-list-title">Party / Bottle Service Groups</h2><p class="subtle">Click General Guest List to see everyone, or click a group to see only that group.</p></div></header>
+          <input id="groupSearchInput" aria-label="Search party groups" placeholder="Search groups..." value="${esc(state.groupSearchText)}" oninput="updateGroupSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <div id="groupScrollPanel" class="scroll-panel short">
             ${renderGroupList(showManagement)}
           </div>
-        </div>
+        </section>
 
-        ${renderSelectedGroupPanel()}
+        ${showManagement ? renderSelectedGroupPanel() : ""}
       </aside>
+    </div>
     </div>
   `;
 }
@@ -6906,6 +7406,17 @@ function refreshSyncStatusSurface() {
     }
   }
 
+  const liveNotice = document.querySelector(".df-door-live-sync-notice");
+  if (liveNotice) {
+    const template = document.createElement("template");
+    template.innerHTML = renderSyncPill("notice");
+    const next = template.content.firstElementChild;
+    if (next) {
+      liveNotice.replaceWith(next);
+      touched = true;
+    }
+  }
+
   return touched;
 }
 
@@ -6938,6 +7449,9 @@ function refreshStatsSurface() {
 }
 
 function refreshVisibleGuestSurface() {
+  const rosterAnchor = pendingLiveRosterAnchor?.view === state.view
+    ? pendingLiveRosterAnchor
+    : captureLiveRosterAnchor();
   const guests = visibleGuests();
   let touched = false;
 
@@ -6980,6 +7494,7 @@ function refreshVisibleGuestSurface() {
   refreshStatsSurface();
   syncGuestFilterControls();
   syncSortControls();
+  restoreLiveRosterAnchor(rosterAnchor);
 
   return touched;
 }
@@ -7080,65 +7595,82 @@ function renderTabletGuestCards(guests) {
     const guestBusy = checkInBusy || undoBusy;
 
     return `
-      <div class="tablet-guest-card ${fullyIn ? "checked" : ""}">
+      <article class="tablet-guest-card df-tablet-guest-card ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}" data-live-roster-card data-guest-id="${esc(guest.id)}" aria-label="${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}, ${fullyIn ? "fully checked in" : `${remaining} remaining`}">
         <div class="tablet-guest-top">
-          <div>
-            <p class="tablet-guest-name">${esc(guestDisplayName(guest))}</p>
+          <div class="df-tablet-guest-copy">
+            <p class="tablet-guest-name">${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}</p>
             <p class="tablet-guest-meta">${esc(guest.guest_type)}${group ? ` · ${esc(groupDoorLabel(group))}` : ""}${guest.notes ? ` · ${esc(guest.notes)}` : ""}</p>
-            ${isLateAdd(guest) ? `<p class="late-add-detail">${esc(lateAddMetaText(guest))}</p>` : ""}
+            ${isLateAdd(guest) ? `<span class="badge remaining df-live-approval-state">${guest.late_add_approved_by ? "Late Add" : "Needs Approval"}</span>` : ""}
           </div>
-          <div class="tablet-count">${checked}/${total}</div>
+          <div class="tablet-count df-tablet-guest-count">${checked}/${total}</div>
         </div>
 
-        <p class="tablet-note">${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</p>
+        <p class="tablet-note df-tablet-guest-status"><strong>${fullyIn ? "Checked In" : checked > 0 ? "Partially Arrived" : "Not Arrived"}</strong><span>${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</span></p>
 
-        <div class="tablet-actions">
-          ${checkInBusy ? `<button type="button" class="btn green tablet-check-btn" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green tablet-check-btn" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<button type="button" class="btn green tablet-check-btn" disabled>Fully In</button>`}
-          ${undoBusy ? `<button type="button" class="btn secondary tablet-undo-btn" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : `<button type="button" class="btn secondary tablet-undo-btn" disabled>Undo 1</button>`}
+        <div class="tablet-actions df-tablet-guest-actions">
+          ${checkInBusy ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" onclick="prepareLiveRosterAction(event,'${guest.id}','checkin');checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" disabled>Fully In</button>`}
+          ${undoBusy ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" onclick="prepareLiveRosterAction(event,'${guest.id}','undo');undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" disabled>Undo 1</button>`}
         </div>
-      </div>
+      </article>
     `;
-  }).join("") : `<div class="tablet-empty">No guests found. Try clearing search or switching list view.</div>`;
+  }).join("") : `<div class="tablet-empty df-door-empty-state" role="status"><strong>No guests found</strong><span>Try clearing search or switching list view.</span></div>`;
 }
 
 
 function renderTabletDoorMode() {
   const guests = visibleGuests();
   const stats = dayStats();
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
   const selectedListValue = state.currentMode === "GENERAL" ? "GENERAL" : (selectedGroup()?.id || "GENERAL");
+  const activeGroup = selectedGroup();
+  const activeGroupStats = activeGroup ? groupStats(activeGroup.id) : null;
+  const activeGroupStatus = activeGroupStats
+    ? (activeGroupStats.total > 0 && activeGroupStats.remaining === 0 ? "Complete" : activeGroupStats.checked > 0 ? "Partially Arrived" : "Not Arrived")
+    : "No Group Selected";
+  const activeListSummary = activeGroupStats
+    ? `${activeGroupStats.checked}/${activeGroupStats.total} in, ${activeGroupStats.remaining} left`
+    : `${stats.checked}/${stats.total} in, ${stats.remaining} left`;
 
   return `
+    <section class="df-tablet-door-mode" aria-labelledby="tablet-door-title">
+    <header class="df-tablet-mode-header">
+      <div class="df-tablet-mode-header__brand">${renderDoorFlowLockup()}<div><p class="df-door-kicker">Dedicated door workspace</p><h1 id="tablet-door-title">Tablet Door Mode</h1></div></div>
+      <div class="df-tablet-mode-header__context" aria-label="Parent venue ${esc(venueContext.parentVenue)}${venueContext.operatingSpace ? `; operating space ${esc(venueContext.operatingSpace)}` : ""}; ${esc(venueContext.sharedGuestListLabel)}; door ${esc(state.doorLocation)}">
+        <span class="df-tablet-venue-label">${esc(venueContext.compactLabel)}</span>
+        <span class="df-tablet-list-scope">${esc(venueContext.sharedGuestListLabel)}</span>
+        <span>${esc(state.activeDay)} ${esc(state.activeDate)}</span>
+        <strong>Door: ${esc(state.doorLocation)}</strong>
+      </div>
+    </header>
+
     ${renderDateBar()}
 
-    <div id="tabletMobileSummaryBar" class="mobile-summary-bar">
+    <div id="tabletMobileSummaryBar" class="mobile-summary-bar df-tablet-mobile-summary" aria-label="Tablet attendance summary">
       <div class="mobile-summary-item"><span>In</span><strong>${stats.checked}</strong></div>
       <div class="mobile-summary-item"><span>Left</span><strong>${stats.remaining}</strong></div>
       <div class="mobile-summary-item"><span>Total</span><strong>${stats.total}</strong></div>
     </div>
 
     <div class="tablet-door-shell">
-      <div class="card">
-        ${renderBrandBlock({ title:"Tablet Door Mode", subtitle:"Large-format check-in screen for The B.O.B.", compact:true })}
-        <div class="brand-spacer"></div>
-        <h2>Tablet Door Mode</h2>
-        <p class="subtle">Large-format check-in screen for iPad/tablet use at the door.</p>
+      <section class="card df-tablet-overview" aria-labelledby="tablet-attendance-title">
+        <header class="df-door-section-heading"><div><p class="df-door-kicker">Service pulse</p><h2 id="tablet-attendance-title">Attendance at a glance</h2><p>Large-format arrival totals for the active service day.</p></div></header>
 
-        <div id="tabletDayStatsPanel" class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
+        <div id="tabletDayStatsPanel" class="stats df-tablet-stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">
           <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
           <div class="stat"><span>Remaining</span><strong>${stats.remaining}</strong></div>
           <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
         </div>
-      </div>
+      </section>
 
-      <div class="tablet-action-bar">
-        <div class="tablet-action-grid">
-          <div>
-            <label>Search Guest</label>
+      <section class="tablet-action-bar df-tablet-command-bar" aria-label="Tablet guest search and filters">
+        <div class="tablet-action-grid df-tablet-control-grid">
+          <div class="df-tablet-search-field">
+            <label for="tabletSearchInput">Search Guest</label>
             <input id="tabletSearchInput" class="tablet-search" placeholder="Type guest name..." value="${esc(state.searchText)}" oninput="updateTabletSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           </div>
 
-          <div>
-            <label>Guest List / Party</label>
+          <div class="df-tablet-list-field">
+            <label for="tabletListSelect">Guest List / Party</label>
             <select id="tabletListSelect" onchange="selectTabletList(this.value)">
               <option value="GENERAL" ${selectedListValue === "GENERAL" ? "selected" : ""}>General Guest List</option>
               ${specificGroups().map(group => `
@@ -7147,58 +7679,113 @@ function renderTabletDoorMode() {
             </select>
           </div>
 
-          <div>
-            <label>Quick Clear</label>
-            <button type="button" class="btn secondary" onclick="clearTabletSearchFilter()">Clear Search/Filter</button>
-          </div>
-        </div>
-
-        <div class="tablet-filter-row">
-          <div>
-            <label>Filter</label>
+          <div class="df-tablet-filter-field">
+            <label for="tabletGuestFilterSelect">Filter</label>
             <select id="tabletGuestFilterSelect" onchange="setGuestFilter(this.value)">
               ${guestFilterOptions.map(option => `<option value="${option.value}" ${option.value === (state.guestFilter || "ALL") ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
           </div>
 
-          <div>
-            <label>Sort</label>
+          <div class="df-tablet-sort-field">
+            <label for="tabletSortModeSelect">Sort</label>
             <select id="tabletSortModeSelect" onchange="setSortMode(this.value)">
               ${sortOptions.map(option => `<option value="${option.value}" ${option.value === state.sortMode ? "selected" : ""}>${esc(option.label)}</option>`).join("")}
             </select>
           </div>
-        </div>
-      </div>
 
-      <div class="card tight">
-        <div class="party-meta">
+          <div class="df-tablet-clear-field">
+            <span class="df-tablet-control-label">Quick Clear</span>
+            <button type="button" class="btn secondary df-door-clear-action" onclick="clearTabletSearchFilter()">Clear Search/Filter</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="card tight df-tablet-result-meta">
+        <div class="party-meta" aria-label="Current tablet result status">
           <span id="tabletFilterBadge" class="badge general">Filter: ${esc(activeFilterLabel())}</span>
           <span id="tabletShownCount" class="badge general">${guests.length} shown</span>
         </div>
+        <div class="df-tablet-active-list" aria-label="Active guest list summary">
+          <strong>${activeGroup ? esc(activeGroup.name) : "General Guest List"}</strong>
+          <span class="df-door-party-state">${activeGroup ? activeGroupStatus : "Master List"}</span>
+          <span>${activeListSummary}</span>
+        </div>
       </div>
 
-      ${renderShiftNotesForDoorStaff()}
-
-      <div id="tabletCardGrid" class="tablet-card-grid">
-        ${renderTabletGuestCards(guests)}
+      <div class="df-tablet-content-layout is-roster-only">
+        <section class="df-tablet-results" aria-labelledby="tablet-results-title">
+          <header class="df-door-section-heading"><div><p class="df-door-kicker">Arrival results</p><h2 id="tablet-results-title">Guests</h2><p>${guests.length} names match the current list, search, filter, and sort.</p></div></header>
+          <div id="tabletCardGrid" class="tablet-card-grid">
+            ${renderTabletGuestCards(guests)}
+          </div>
+        </section>
       </div>
+    </div>
+    </section>
+  `;
+}
+
+function renderAdminPageHeader({ eyebrow, title, description, meta = [] }) {
+  return `
+    <header class="df-admin-page-header">
+      <div class="df-admin-page-heading">
+        <p class="df-admin-eyebrow">${esc(eyebrow)}</p>
+        <h1>${esc(title)}</h1>
+        <p class="df-admin-lede">${esc(description)}</p>
+      </div>
+      ${meta.length ? `
+        <dl class="df-admin-context" aria-label="Current operational context">
+          ${meta.map(item => `
+            <div>
+              <dt>${esc(item.label)}</dt>
+              <dd>${esc(item.value)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      ` : ""}
+    </header>
+  `;
+}
+
+function renderAdminState(tone, title, message) {
+  return `
+    <div class="df-admin-state df-admin-state--${esc(tone)}" ${tone === "error" ? 'role="alert"' : 'role="status"'}>
+      <strong>${esc(title)}</strong>
+      <p>${esc(message)}</p>
     </div>
   `;
 }
 
 function renderManagement() {
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+
   return `
     ${renderMobileManagerView()}
-    <div class="stack manage-desktop-view">
+    <div class="stack manage-desktop-view df-admin-page df-management-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Guest list administration",
+        title:"Management",
+        description:"Build the service-day guest list, manage parties, and keep operational notes in one workspace.",
+        meta:[
+          { label:"Venue", value:venueContext.parentVenue },
+          ...(venueContext.operatingSpace ? [{ label:"Operating space", value:venueContext.operatingSpace }] : []),
+          { label:"Guest-list scope", value:venueContext.guestListScope },
+          { label:"Service date", value:`${state.activeDay} ${state.activeDate}` }
+        ]
+      })}
+
       ${renderManagerServiceDateCard()}
 
-      <div class="card">
-        ${renderBrandBlock({ title:"Manager Portal", subtitle:`Adding to ${state.activeDay} ${state.activeDate}`, compact:true })}
-        <div class="brand-spacer"></div>
-        <h2>Management Controls</h2>
-        <p class="subtle">Create groups, add names, bulk paste, upload Excel, clear the master list, and export reports.</p>
+      <section class="card df-admin-card df-management-actions" aria-labelledby="management-controls-title">
+        <header class="df-admin-section-header">
+          <div>
+            <p class="df-admin-kicker">Administrative actions</p>
+            <h2 id="management-controls-title">Management Controls</h2>
+            <p>Create groups, add names, import lists, clear the master list, and export the current service day.</p>
+          </div>
+        </header>
 
-        <div class="row-actions">
+        <div class="row-actions df-admin-action-bar">
           <button type="button" class="btn" onclick="openGroupModal()">Create Party</button>
           <button type="button" class="btn secondary" onclick="openGuestModal()">Add Individual Guest</button>
           <button type="button" class="btn secondary" onclick="openBulkPasteModal()">Bulk Paste Names</button>
@@ -7207,8 +7794,9 @@ function renderManagement() {
           <button type="button" class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out Report</button>
           <button type="button" class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
         </div>
-      </div>
+      </section>
 
+      ${state.loading ? renderAdminState("loading", "Loading management records", "DoorFlow is refreshing the selected service day.") : ""}
       ${renderShiftNotesPanel(true)}${renderMainWorkspace(true)}
     </div>
   `;
@@ -7216,187 +7804,289 @@ function renderManagement() {
 
 function renderStaffManagement() {
   if (!perms().users) {
-    return `<div class="card"><h2>No Access</h2><p class="subtle">This account cannot manage staff.</p></div>`;
+    return `
+      <div class="df-admin-page">
+        ${renderAdminPageHeader({ eyebrow:"Access control", title:"Staff", description:"Manage staff access and operational roles." })}
+        ${renderAdminState("error", "No access", "This account cannot manage staff.")}
+      </div>
+    `;
   }
 
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+
   return `
-    <div class="grid">
-      <main class="stack">
-        <div class="card">
-          <h2>Staff Management</h2>
-          <p class="subtle">Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
-          <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
-        </div>
+    <div class="df-admin-page df-staff-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Access control",
+        title:"Staff",
+        description:"Review the active DoorFlow team and maintain role and access assignments.",
+        meta:[
+          { label:"Venue", value:venueContext.parentVenue },
+          ...(venueContext.operatingSpace ? [{ label:"Operating space", value:venueContext.operatingSpace }] : []),
+          { label:"Guest-list scope", value:venueContext.guestListScope },
+          { label:"Profiles", value:String(state.staffProfiles.length) }
+        ]
+      })}
 
-        <div class="card">
-          <h2>Current Staff</h2>
-          <p class="subtle">Change a staff member's role or deactivate access. New email/password users still need to be created in Supabase Authentication first.</p>
+      ${state.loading ? renderAdminState("loading", "Loading staff", "DoorFlow is refreshing staff profiles.") : ""}
 
-          <div class="scroll-panel">
-            ${state.staffProfiles.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Save</th>
-                  </tr>
-                </thead>
+      <div class="grid df-staff-workspace">
+        <main class="stack">
+          <section class="card df-admin-card" aria-labelledby="staff-management-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Directory controls</p>
+                <h2 id="staff-management-title">Staff Management</h2>
+                <p>Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
+              </div>
+              <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+            </header>
+          </section>
 
-                <tbody>
-                  ${state.staffProfiles.map(profile => `
+          <section class="card df-admin-card" aria-labelledby="current-staff-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Authorized profiles</p>
+                <h2 id="current-staff-title">Current Staff</h2>
+                <p>Change a staff member's role or active access. New email/password users must be created in Supabase Authentication first.</p>
+              </div>
+            </header>
+
+            <div class="scroll-panel df-data-table-region">
+              ${state.staffProfiles.length ? `
+                <table class="df-data-table df-staff-table">
+                  <caption class="sr-only">Current DoorFlow staff profiles and editable access settings</caption>
+                  <thead>
                     <tr>
-                      <td>
-                        <form id="staff-${profile.id}" onsubmit="updateStaffProfile(event)">
-                          <input type="hidden" name="id" value="${profile.id}" />
-                          <input name="full_name" value="${esc(profile.full_name)}" />
-                        </form>
-                      </td>
-                      <td>
-                        <select form="staff-${profile.id}" name="role">
-                          ${["admin","manager","door","viewer"].map(role => `<option value="${role}" ${role === profile.role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
-                        </select>
-                      </td>
-                      <td>
-                        <select form="staff-${profile.id}" name="active">
-                          <option value="true" ${profile.active ? "selected" : ""}>Active</option>
-                          <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
-                        </select>
-                      </td>
-                      <td>${profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}</td>
-                      <td><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                      <th scope="col">Name</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Action</th>
                     </tr>
-                  `).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No staff profiles loaded. Click Refresh Staff List.</p>`}
-          </div>
-        </div>
-      </main>
+                  </thead>
 
-      <aside class="stack">
-        <div class="card">
-          <h2>How to Add Staff</h2>
-          <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
-        </div>
+                  <tbody>
+                    ${state.staffProfiles.map(profile => `
+                      <tr>
+                        <td data-label="Name">
+                          <form id="staff-${profile.id}" onsubmit="updateStaffProfile(event)">
+                            <input type="hidden" name="id" value="${profile.id}" />
+                            <input name="full_name" value="${esc(profile.full_name)}" aria-label="Full name for ${esc(profile.full_name || "staff profile")}" />
+                          </form>
+                        </td>
+                        <td data-label="Role">
+                          <select form="staff-${profile.id}" name="role" aria-label="Role for ${esc(profile.full_name || "staff profile")}">
+                            ${["admin","manager","door","viewer"].map(role => `<option value="${role}" ${role === profile.role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
+                          </select>
+                        </td>
+                        <td data-label="Status">
+                          <select class="df-status-control" form="staff-${profile.id}" name="active" aria-label="Status for ${esc(profile.full_name || "staff profile")}">
+                            <option value="true" ${profile.active ? "selected" : ""}>Active</option>
+                            <option value="false" ${!profile.active ? "selected" : ""}>Inactive</option>
+                          </select>
+                        </td>
+                        <td data-label="Created">${profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}</td>
+                        <td data-label="Action"><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No staff profiles loaded", "Use Refresh Staff List to load the current staff directory.")}
+            </div>
+          </section>
+        </main>
 
-        <div class="card">
-          <h2>Role Guide</h2>
-          <p class="subtle"><strong>Admin:</strong> full app access and staff management.</p>
-          <p class="subtle"><strong>Manager:</strong> manage guest lists, groups, reports, and check-ins.</p>
-          <p class="subtle"><strong>Door Staff:</strong> door check-in only.</p>
-          <p class="subtle" style="margin-bottom:0;"><strong>Viewer:</strong> reports only.</p>
-        </div>
-      </aside>
+        <aside class="stack" aria-label="Staff administration guidance">
+          <section class="card df-admin-card">
+            <p class="df-admin-kicker">Provisioning</p>
+            <h2>How to Add Staff</h2>
+            <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
+          </section>
+
+          <section class="card df-admin-card df-role-guide">
+            <p class="df-admin-kicker">Permission reference</p>
+            <h2>Role Guide</h2>
+            <dl>
+              <div><dt>Admin</dt><dd>Full app access and staff management.</dd></div>
+              <div><dt>Manager</dt><dd>Manage guest lists, groups, reports, and check-ins.</dd></div>
+              <div><dt>Door Staff</dt><dd>Door check-in only.</dd></div>
+              <div><dt>Viewer</dt><dd>Reports only.</dd></div>
+            </dl>
+          </section>
+        </aside>
+      </div>
     </div>
   `;
 }
 
 function renderReports() {
   const stats = dayStats();
+  const lateAdds = state.guests.filter(guest => isLateAdd(guest));
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
 
   return `
-    ${renderDateBar()}
-    ${renderStats()}
+    <div class="stack df-admin-page df-reports-page">
+      ${renderAdminPageHeader({
+        eyebrow:"Operations review",
+        title:"Reports & Closeout",
+        description:"Review attendance, service activity, shift notes, and the current closeout record for the selected date.",
+        meta:[
+          { label:"Venue", value:venueContext.parentVenue },
+          ...(venueContext.operatingSpace ? [{ label:"Operating space", value:venueContext.operatingSpace }] : []),
+          { label:"Guest-list scope", value:venueContext.guestListScope },
+          { label:"Service date", value:`${state.activeDay} ${state.activeDate}` }
+        ]
+      })}
 
-    <div class="grid">
-      <main class="stack">
-        <div class="card">
-          <h2>Reports</h2>\n        <p class="subtle">Late Adds This Date: <strong>${state.guests.filter(guest => isLateAdd(guest)).length}</strong></p>
-          <p class="subtle">Current date: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
-          <div class="row-actions">
-            <button type="button" class="btn" onclick="exportCsv()">Export Current Day CSV</button>
-            <button type="button" class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
-          </div>
+      <section class="df-admin-toolbar" aria-label="Report controls">
+        <div class="df-admin-toolbar-context">${renderDateBar()}</div>
+        <div class="row-actions df-admin-toolbar-actions">
+          <button type="button" class="btn" onclick="exportCsv()">Export Current Day CSV</button>
+          <button type="button" class="btn secondary" onclick="loadDataForDate(state.activeDate)">Refresh Report</button>
+          <button type="button" class="btn secondary" onclick="previewCloseOutReport()">Preview Close Out</button>
         </div>
+      </section>
 
-        <div class="card">
-          <h2>Daily Summary</h2>
-          <div class="stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:0;">
-            <div class="stat"><span>Total Allowed</span><strong>${stats.total}</strong></div>
-            <div class="stat"><span>Checked In</span><strong>${stats.checked}</strong></div>
-            <div class="stat"><span>Remaining</span><strong>${stats.remaining}</strong></div>
-            <div class="stat"><span>Activity Logs</span><strong>${state.logs.length}</strong></div>
-          </div>
-        </div>
+      ${state.loading ? renderAdminState("loading", "Loading report", "DoorFlow is refreshing attendance and activity for this service date.") : ""}
 
-        <div class="card">
-          <h2>Check-In Activity Log</h2>
-          <p class="subtle">Shows who was checked in, which group they were under, who checked them in, where, and when.</p>
-          <div id="reportScrollPanel" class="scroll-panel">
-            ${state.logs.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Guest</th>
-                    <th>Group</th>
-                    <th>Action</th>
-                    <th>Staff</th>
-                    <th>Door</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${state.logs.map(log => `
-                    <tr>
-                      <td>${esc(logTime(log))}</td>
-                      <td><strong>${esc(guestNameFromLog(log))}</strong></td>
-                      <td>${esc(groupNameFromLog(log))}</td>
-                      <td>${esc(log.action || "")}</td>
-                      <td>${esc(log.staff_name || "")}</td>
-                      <td>${esc(log.door_location || "")}</td>
-                    </tr>
-                  `).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No check-in activity yet for this date.</p>`}
-          </div>
-        </div>
+      <section class="df-admin-summary-grid" aria-label="Service-day summary">
+        <article class="df-summary-card"><span>Groups</span><strong>${stats.groups}</strong><small>${stats.completeGroups} complete</small></article>
+        <article class="df-summary-card"><span>Total Allowed</span><strong>${stats.total}</strong><small>Across all listed guests</small></article>
+        <article class="df-summary-card df-summary-card--success"><span>Checked In</span><strong>${stats.checked}</strong><small>Recorded arrivals</small></article>
+        <article class="df-summary-card ${stats.remaining ? "df-summary-card--warning" : "df-summary-card--success"}"><span>Remaining</span><strong>${stats.remaining}</strong><small>${stats.remaining ? "Still expected" : "Complete"}</small></article>
+        <article class="df-summary-card"><span>Late Adds</span><strong>${lateAdds.length}</strong><small>For this service date</small></article>
+        <article class="df-summary-card"><span>Activity Logs</span><strong>${state.logs.length}</strong><small>Recorded door actions</small></article>
+      </section>
 
-        <div class="card">
-          <h2>Current Guest Status</h2>
-          <p class="subtle">Quick operational view of all names for this date.</p>
-          <div class="scroll-panel">
-            ${state.guests.length ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Group</th>
-                    <th>Type</th>
-                    <th>Checked In</th>
-                    <th>Remaining</th>
-                    <th>Door</th>
-                  </tr>
-                </thead>
+      <div class="df-report-grid">
+        <main class="stack">
+          <section class="card df-admin-card" aria-labelledby="attendance-breakdown-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Attendance</p>
+                <h2 id="attendance-breakdown-title">Group Breakdown</h2>
+                <p>Current attendance totals for every group on the selected service date.</p>
+              </div>
+            </header>
+            <div class="df-data-table-region">
+              ${state.groups.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Attendance totals by group</caption>
+                  <thead><tr><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Allowed</th><th scope="col">Checked In</th><th scope="col">Remaining</th></tr></thead>
+                  <tbody>
+                    ${state.groups.map(group => {
+                      const groupStat = groupStats(group.id);
+                      return `<tr><td data-label="Group"><strong>${esc(group.name)}</strong></td><td data-label="Type">${esc(group.group_type || "")}</td><td data-label="Allowed">${groupStat.total}</td><td data-label="Checked In">${groupStat.checked}</td><td data-label="Remaining">${groupStat.remaining}</td></tr>`;
+                    }).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No groups for this date", "Attendance totals will appear after groups or guests are added.")}
+            </div>
+          </section>
 
-                <tbody>
-                  ${sortGuests([...state.guests]).map(guest => {
-                    const group = state.groups.find(item => item.id === guest.group_id);
-
-                    return `
+          <section class="card df-admin-card" aria-labelledby="activity-log-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Operational record</p>
+                <h2 id="activity-log-title">Check-In Activity Log</h2>
+                <p>Shows who was checked in, their group, the staff member, door location, and recorded time.</p>
+              </div>
+            </header>
+            <div id="reportScrollPanel" class="scroll-panel df-data-table-region">
+              ${state.logs.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Check-in activity for the selected service date</caption>
+                  <thead><tr><th scope="col">Time</th><th scope="col">Guest</th><th scope="col">Group</th><th scope="col">Action</th><th scope="col">Staff</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${state.logs.map(log => `
                       <tr>
-                        <td><strong>${esc(guestDisplayName(guest))}</strong></td>
-                        <td>${esc(group?.name || "")}</td>
-                        <td>${esc(guest.guest_type || "")}</td>
-                        <td>${guestChecked(guest)} / ${guestTotal(guest)}</td>
-                        <td>${guestRemaining(guest)}</td>
-                        <td>${esc(guest.last_door_location || "")}</td>
+                        <td data-label="Time">${esc(logTime(log))}</td>
+                        <td data-label="Guest"><strong>${esc(guestNameFromLog(log))}</strong></td>
+                        <td data-label="Group">${esc(groupNameFromLog(log))}</td>
+                        <td data-label="Action">${esc(log.action || "")}</td>
+                        <td data-label="Staff">${esc(log.staff_name || "")}</td>
+                        <td data-label="Door">${esc(log.door_location || "")}</td>
                       </tr>
-                    `;
-                  }).join("")}
-                </tbody>
-              </table>
-            ` : `<p class="subtle">No guests are listed for this date.</p>`}
-          </div>
-        </div>
-      </main>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No check-in activity", "Door activity will appear here after the first recorded action for this date.")}
+            </div>
+          </section>
 
-      <aside class="stack">
-        ${renderSelectedGroupPanel()}
-      </aside>
+          <section class="card df-admin-card" aria-labelledby="guest-status-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Guest status</p>
+                <h2 id="guest-status-title">Current Guest Status</h2>
+                <p>Quick operational view of all names for this date.</p>
+              </div>
+            </header>
+            <div class="scroll-panel df-data-table-region">
+              ${state.guests.length ? `
+                <table class="df-data-table df-responsive-record-table">
+                  <caption class="sr-only">Current guest attendance status</caption>
+                  <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Type</th><th scope="col">Checked In</th><th scope="col">Remaining</th><th scope="col">Door</th></tr></thead>
+                  <tbody>
+                    ${sortGuests([...state.guests]).map(guest => {
+                      const group = state.groups.find(item => item.id === guest.group_id);
+                      return `
+                        <tr>
+                          <td data-label="Name"><strong>${esc(guestDisplayName(guest))}</strong></td>
+                          <td data-label="Group">${esc(group?.name || "")}</td>
+                          <td data-label="Type">${esc(guest.guest_type || "")}</td>
+                          <td data-label="Checked In">${guestChecked(guest)} / ${guestTotal(guest)}</td>
+                          <td data-label="Remaining">${guestRemaining(guest)}</td>
+                          <td data-label="Door">${esc(guest.last_door_location || "")}</td>
+                        </tr>
+                      `;
+                    }).join("")}
+                  </tbody>
+                </table>
+              ` : renderAdminState("empty", "No guests listed", "Guest status will appear after names are added to this service date.")}
+            </div>
+          </section>
+        </main>
+
+        <aside class="stack" aria-label="Closeout review">
+          <section class="card df-admin-card df-closeout-actions" aria-labelledby="closeout-actions-title">
+            <p class="df-admin-kicker">Closeout</p>
+            <h2 id="closeout-actions-title">Service-Day Record</h2>
+            <p class="subtle">Preview the existing closeout report before printing or exporting its current data.</p>
+            <div class="row-actions">
+              <button type="button" class="btn" onclick="previewCloseOutReport()">Preview Close Out Report</button>
+              <button type="button" class="btn secondary" onclick="exportCsv()">Export Current Day CSV</button>
+            </div>
+          </section>
+
+          <section class="card df-admin-card" aria-labelledby="report-shift-notes-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Shift record</p>
+                <h2 id="report-shift-notes-title">Shift Notes</h2>
+                <p>Manager notes attached to this service date.</p>
+              </div>
+            </header>
+            ${state.shiftNotes.length ? `
+              <div class="df-report-note-list">
+                ${state.shiftNotes.map(note => `
+                  <article class="df-report-note">
+                    <div class="party-meta">
+                      <span class="badge ${noteCategoryClass(note.category)}">${esc(note.category || "General Note")}</span>
+                      <span class="badge ${notePriorityClass(note.priority)}">${esc(note.priority || "Normal")}</span>
+                    </div>
+                    <p>${esc(note.note_text || "")}</p>
+                    <small>By ${esc(note.created_by_name || "Unknown")} &middot; ${esc(noteTime(note))}</small>
+                  </article>
+                `).join("")}
+              </div>
+            ` : renderAdminState("empty", "No shift notes", "No manager or shift notes have been added for this date.")}
+          </section>
+
+          ${renderSelectedGroupPanel()}
+        </aside>
+      </div>
     </div>
   `;
 }
@@ -7409,48 +8099,49 @@ function renderGroupModal() {
   const hostPlusOnes = hostGuest ? guestPlusCount(hostGuest) : 0;
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="${isEdit ? "Edit Party or Group" : "Create Party or Group"}" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close party form" title="Close">&times;</button>
         <h2>${isEdit ? "Edit Party / Group" : "Create Party / Group"}</h2>
         <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong></p>
 
-        <form onsubmit="${isEdit ? "updateGroup(event)" : "createGroup(event)"}" class="form two">
+        <form onsubmit="${isEdit ? "updateGroup(event)" : "createGroup(event)"}" class="form two df-admin-form">
           <div>
-            <label>Party / Group Name</label>
-            <input name="name" value="${esc(group?.name || "")}" placeholder="Smith Bottle Service" />
+            <label for="groupName">Party / Group Name</label>
+            <input id="groupName" name="name" value="${esc(group?.name || "")}" placeholder="Smith Bottle Service" />
           </div>
 
           <div>
-            <label>Type</label>
-            <select name="group_type">
+            <label for="groupType">Type</label>
+            <select id="groupType" name="group_type">
               ${groupTypes.map(type => `<option ${type === (group?.group_type || "Bottle Service") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
 
           <div>
-            <label>Service Date</label>
-            <input name="date" type="date" value="${esc(state.activeDate)}" readonly />
+            <label for="groupDate">Service Date</label>
+            <input id="groupDate" name="date" type="date" value="${esc(state.activeDate)}" readonly />
           </div>
 
           <div>
-            <label>Host Name</label>
-            <input name="host_name" value="${esc(group?.host_name || "")}" placeholder="John Smith" />
+            <label for="groupHostName">Host Name</label>
+            <input id="groupHostName" name="host_name" value="${esc(group?.host_name || "")}" placeholder="John Smith" />
           </div>
 
           <div>
-            <label>Host Plus Ones</label>
-            <input name="host_plus_ones" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="${hostPlusOnes}" oninput="updateHostPlusTotal(this,'groupHostTotalAllowed')" />
+            <label for="groupHostPlusOnes">Host Plus Ones</label>
+            <input id="groupHostPlusOnes" name="host_plus_ones" type="number" min="0" max="${MAX_HOST_PLUS_ONES}" step="1" value="${hostPlusOnes}" oninput="updateHostPlusTotal(this,'groupHostTotalAllowed')" />
             <p class="subtle" style="margin:6px 0 0;">Additional unnamed guests allowed under the host's name.</p>
           </div>
 
           <div>
-            <label>Total Allowed</label>
+            <label for="groupHostTotalAllowed">Total Allowed</label>
             <input id="groupHostTotalAllowed" value="${1 + hostPlusOnes}" readonly />
           </div>
 
           <div>
-            <label>Booth / Location</label>
-            <select name="table_location">
+            <label for="groupTableLocation">Booth / Location</label>
+            <select id="groupTableLocation" name="table_location">
               <option value="" ${!(group?.table_location) ? "selected" : ""}>Select booth/location</option>
               ${group?.table_location && !boothOptions.includes(group.table_location) ? `<option selected value="${esc(group.table_location)}">${esc(group.table_location)}</option>` : ""}
               ${boothOptions.map(booth => `<option value="${esc(booth)}" ${booth === (group?.table_location || "") ? "selected" : ""}>${esc(booth)}</option>`).join("")}
@@ -7458,20 +8149,20 @@ function renderGroupModal() {
           </div>
 
           <div>
-            <label>Approved By</label>
-            <input name="approved_by" value="${esc(group?.approved_by || "Management")}" />
+            <label for="groupApprovedBy">Approved By</label>
+            <input id="groupApprovedBy" name="approved_by" value="${esc(group?.approved_by || "Management")}" />
           </div>
 
           <div>
-            <label>Status</label>
-            <select name="status">
+            <label for="groupStatus">Status</label>
+            <select id="groupStatus" name="status">
               ${["Active","Draft","Closed"].map(status => `<option ${status === (group?.status || "Active") ? "selected" : ""}>${status}</option>`).join("")}
             </select>
           </div>
 
           <div style="grid-column:1/-1;">
-            <label>Notes</label>
-            <textarea name="notes" rows="3">${esc(group?.notes || "")}</textarea>
+            <label for="groupNotes">Notes</label>
+            <textarea id="groupNotes" name="notes" rows="3">${esc(group?.notes || "")}</textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="row-actions">
@@ -7490,16 +8181,17 @@ function renderGuestModal() {
   const guest = isEdit ? normalizeGuest(existingGuest) : emptyGuestForm();
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="${isEdit ? "Edit guest name" : "Add guest name"}" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close guest form" title="Close">&times;</button>
         <h2>${isEdit ? "Edit Name" : "Add Name"}</h2>
         <p class="subtle">${isEdit ? "Editing this name on" : "Adding to"}: <strong>${esc(state.activeDate)}</strong></p>
 
-        <form onsubmit="${isEdit ? "updateGuest(event)" : "createGuest(event)"}" class="form two">
+        <form onsubmit="${isEdit ? "updateGuest(event)" : "createGuest(event)"}" class="form two df-admin-form">
           ${!isEdit ? `
             <div style="grid-column:1/-1;">
-              <label>Add To</label>
-              <select name="target">
+              <label for="guestTarget">Add To</label>
+              <select id="guestTarget" name="target">
                 <option value="general">General Guest List / Individual Guest</option>
                 ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
@@ -7507,55 +8199,55 @@ function renderGuestModal() {
           ` : ""}
 
           <div>
-            <label>First Name</label>
-            <input name="first_name" value="${esc(guest?.first_name || "")}" />
+            <label for="guestFirstName">First Name</label>
+            <input id="guestFirstName" name="first_name" value="${esc(guest?.first_name || "")}" />
           </div>
 
           <div>
-            <label>Last Name</label>
-            <input name="last_name" value="${esc(guest?.last_name || "")}" />
+            <label for="guestLastName">Last Name</label>
+            <input id="guestLastName" name="last_name" value="${esc(guest?.last_name || "")}" />
           </div>
 
           <div>
-            <label>Guest Type</label>
-            <select name="guest_type">
+            <label for="guestType">Guest Type</label>
+            <select id="guestType" name="guest_type">
               ${guestTypes.map(type => `<option ${type === (guest?.guest_type || "Guest") ? "selected" : ""}>${esc(type)}</option>`).join("")}
             </select>
           </div>
 
           <div>
-            <label>Total Allowed / Party Size</label>
-            <input name="total_allowed" type="number" min="1" value="${guestTotal(guest || { total_allowed:1 })}" />
+            <label for="guestTotalAllowed">Total Allowed / Party Size</label>
+            <input id="guestTotalAllowed" name="total_allowed" type="number" min="1" value="${guestTotal(guest || { total_allowed:1 })}" />
           </div>
 
           ${!isEdit ? `
             <div>
               <label style="display:flex;align-items:center;gap:8px;margin-top:30px;">
-                <input style="width:auto;" type="checkbox" name="checked_in" />
+                <input id="guestAlreadyCheckedIn" style="width:auto;" type="checkbox" name="checked_in" />
                 Already checked in
               </label>
             </div>
           ` : `<div></div>`}
 
           <div style="grid-column:1/-1;">
-            <label>Notes</label>
-            <textarea name="notes" rows="3">${esc(guest?.notes || "")}</textarea>
+            <label for="guestNotes">Notes</label>
+            <textarea id="guestNotes" name="notes" rows="3">${esc(guest?.notes || "")}</textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="card tight">
             <div class="name-line" style="margin-bottom:10px;">
-              <input type="checkbox" name="is_late_add" ${guest && isLateAdd(guest) ? "checked" : ""} style="width:auto;" />
-              <label style="margin:0;">Late Add / Manager Approved Entry</label>
+              <input id="guestLateAdd" type="checkbox" name="is_late_add" ${guest && isLateAdd(guest) ? "checked" : ""} style="width:auto;" />
+              <label for="guestLateAdd" style="margin:0;">Late Add / Manager Approved Entry</label>
             </div>
 
             <div class="two">
               <div>
-                <label>Approved By</label>
-                <input name="late_add_approved_by" placeholder="Manager name" value="${esc(guest?.late_add_approved_by || "")}" />
+                <label for="guestLateAddApprovedBy">Approved By</label>
+                <input id="guestLateAddApprovedBy" name="late_add_approved_by" placeholder="Manager name" value="${esc(guest?.late_add_approved_by || "")}" />
               </div>
               <div>
-                <label>Reason / Approval Note</label>
-                <input name="late_add_reason" placeholder="Example: Late VIP approval" value="${esc(guest?.late_add_reason || "")}" />
+                <label for="guestLateAddReason">Reason / Approval Note</label>
+                <input id="guestLateAddReason" name="late_add_reason" placeholder="Example: Late VIP approval" value="${esc(guest?.late_add_reason || "")}" />
               </div>
             </div>
 
@@ -7577,8 +8269,9 @@ function renderPlusOnesModal() {
 
   if (!guest) {
     return `
-      <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-        <div class="modal">
+      <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+        <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Adjust Plus Ones" tabindex="-1">
+          <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close plus ones form" title="Close">&times;</button>
           <h2>Adjust Plus Ones</h2>
           <div class="notice redbox">DoorFlow could not find that guest on the selected service date. Tap Refresh Data, then try again.</div>
           <div class="row-actions">
@@ -7595,8 +8288,9 @@ function renderPlusOnesModal() {
   const busy = isActionBusy(`plus:${guest.id}`);
 
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Adjust Plus Ones" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close plus ones form" title="Close">&times;</button>
         <h2>Adjust Plus Ones</h2>
         <p class="subtle">Service Date: <strong>${esc(state.activeDate)}</strong>${group ? ` &bull; ${esc(group.name)}` : ""}</p>
 
@@ -7604,35 +8298,35 @@ function renderPlusOnesModal() {
           This updates the allowed plus-one count on the existing host record only. No unnamed guest rows will be created.
         </div>
 
-        <form onsubmit="savePlusOnes(event)" class="form two">
+        <form onsubmit="savePlusOnes(event)" class="form two df-admin-form">
           <div style="grid-column:1/-1;">
-            <label>Host Name</label>
-            <input value="${esc(guestBaseName(guest))}" readonly />
+            <label for="plusHostName">Host Name</label>
+            <input id="plusHostName" value="${esc(guestBaseName(guest))}" readonly />
           </div>
 
           <div>
-            <label>Current Plus Ones</label>
-            <input value="+${currentPlus}" readonly />
+            <label for="plusCurrentCount">Current Plus Ones</label>
+            <input id="plusCurrentCount" value="+${currentPlus}" readonly />
           </div>
 
           <div>
-            <label>Current Checked In</label>
-            <input value="${checked} / ${guestTotal(guest)}" readonly />
+            <label for="plusCurrentChecked">Current Checked In</label>
+            <input id="plusCurrentChecked" value="${checked} / ${guestTotal(guest)}" readonly />
           </div>
 
           <div>
-            <label>New Plus Ones</label>
-            <input name="plus_count" type="number" min="0" max="20" step="1" value="${currentPlus}" required />
+            <label for="plusNewCount">New Plus Ones</label>
+            <input id="plusNewCount" name="plus_count" type="number" min="0" max="20" step="1" value="${currentPlus}" required />
           </div>
 
           <div>
-            <label>Approved By</label>
-            <input name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" required />
+            <label for="plusApprovedBy">Approved By</label>
+            <input id="plusApprovedBy" name="approved_by" value="${esc(currentUser()?.name || "")}" placeholder="Manager name" required />
           </div>
 
           <div style="grid-column:1/-1;">
-            <label>Notes / Reason</label>
-            <textarea name="reason" rows="3" placeholder="Example: Host approved two additional guests"></textarea>
+            <label for="plusReason">Notes / Reason</label>
+            <textarea id="plusReason" name="reason" rows="3" placeholder="Example: Host approved two additional guests"></textarea>
           </div>
 
           <div style="grid-column:1/-1;" class="row-actions">
@@ -7647,8 +8341,9 @@ function renderPlusOnesModal() {
 
 function renderBulkModal() {
   return `
-    <div class="modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop" onclick="if(event.target.classList.contains('modal-backdrop')) closeModal()">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Bulk Paste Names" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close bulk paste form" title="Close">&times;</button>
         <h2>Bulk Paste Names</h2>
         <p class="subtle">Adding to: <strong>${esc(state.activeDate)}</strong>. Paste one name per line. Supports plus counts like Sarah Johnson +2.</p>
 
@@ -7659,27 +8354,27 @@ function renderBulkModal() {
           David Miller - VIP - Owner approved
         </div>
 
-        <form onsubmit="bulkAddNames(event)" class="form">
+        <form onsubmit="bulkAddNames(event)" class="form df-admin-form">
           <div class="form two">
             <div>
-              <label>Add To</label>
-              <select name="target">
+              <label for="bulkTarget">Add To</label>
+              <select id="bulkTarget" name="target">
                 <option value="general">General Guest List / Individual Guest</option>
                 ${specificGroups().map(item => `<option value="group:${item.id}">${esc(item.name)}${item.host_name ? ` — ${esc(item.host_name)}` : ""}</option>`).join("")}
               </select>
             </div>
 
             <div>
-              <label>Default Guest Type</label>
-              <select name="defaultType">
+              <label for="bulkDefaultType">Default Guest Type</label>
+              <select id="bulkDefaultType" name="defaultType">
                 ${guestTypes.map(type => `<option ${type === "Guest" ? "selected" : ""}>${esc(type)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Paste Names</label>
-            <textarea name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea>
+            <label for="bulkNames">Paste Names</label>
+            <textarea id="bulkNames" name="bulkNames" rows="12" placeholder="John Smith&#10;Sarah Johnson +2&#10;David Miller - VIP - Owner approved"></textarea>
           </div>
 
           <div class="row-actions">
@@ -7700,30 +8395,31 @@ function renderShiftNoteModal() {
   }
 
   return `
-    <div class="modal-backdrop">
-      <div class="modal">
+    <div class="modal-backdrop df-admin-modal-backdrop">
+      <div class="modal df-admin-modal" role="dialog" aria-modal="true" aria-label="Edit Shift Note" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close shift note form" title="Close">&times;</button>
         <h2>Edit Shift Note</h2>
         <p class="subtle">Update the category, priority, or note text for this service day.</p>
 
-        <form onsubmit="updateShiftNote(event)" class="form">
+        <form onsubmit="updateShiftNote(event)" class="form df-admin-form">
           <div class="two">
             <div>
-              <label>Category</label>
-              <select name="category">
+              <label for="shiftNoteEditCategory">Category</label>
+              <select id="shiftNoteEditCategory" name="category">
                 ${noteCategories.map(item => `<option ${item === note.category ? "selected" : ""}>${esc(item)}</option>`).join("")}
               </select>
             </div>
 
             <div>
-              <label>Priority</label>
-              <select name="priority">
+              <label for="shiftNoteEditPriority">Priority</label>
+              <select id="shiftNoteEditPriority" name="priority">
                 ${notePriorities.map(item => `<option ${item === note.priority ? "selected" : ""}>${esc(item)}</option>`).join("")}
               </select>
             </div>
           </div>
 
           <div>
-            <label>Note</label>
+            <label for="shiftNoteEditText">Note</label>
             <textarea id="shiftNoteEditText" name="note_text" rows="6">${esc(note.note_text || "")}</textarea>
             ${renderEmojiKeyboard("shiftNoteEditText")}
           </div>
@@ -7752,27 +8448,53 @@ function renderModal() {
 function renderApp() {
   let content = "";
 
-  if (state.view === "door") content = `<div class="stack">${renderShiftNotesForDoorStaff()}${renderMainWorkspace(false)}</div>`;
-  if (state.view === "tabletDoor") content = renderTabletDoorMode();
+  if (state.view === "door") content = `<div class="stack df-door-checkin-view">${renderShiftNotesForDoorStaff()}${renderMainWorkspace(false)}</div>`;
+  if (state.view === "tabletDoor") content = `<div class="stack df-tablet-door-view">${renderShiftNotesForDoorStaff()}${renderTabletDoorMode()}</div>`;
   if (state.view === "manage") content = renderManagement();
   if (state.view === "users") content = renderStaffManagement();
   if (state.view === "reports") content = renderReports();
 
+  const isLiveServiceView = state.view === "door" || state.view === "tabletDoor";
+  const sidebarClass = state.shellNavOpen ? "df-sidebar is-open" : "df-sidebar";
+  const drawerInert = !state.shellNavOpen && shellUsesDrawer() ? ` inert` : "";
+
   return `
-    ${renderTopbar()}
-    <div class="page">
-      ${state.error ? `<div class="notice redbox"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-      <div class="notice greenbox"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
-      ${renderTabs()}
-      ${content}
+    <a class="df-skip-link" href="#main-content">Skip to main content</a>
+    <div class="df-app-shell ${isLiveServiceView ? "df-shell-live" : "df-shell-admin"}">
+      <aside id="df-primary-sidebar" class="${sidebarClass}" aria-label="DoorFlow navigation"${drawerInert}>
+        <div class="df-sidebar-header">${renderDoorFlowLockup()}</div>
+        ${renderTabs()}
+        <p class="df-sidebar-note">${isLiveServiceView ? "Low-light live-service workspace" : "Operational navigation"}</p>
+      </aside>
+
+      <button id="df-nav-backdrop" class="df-nav-backdrop" type="button" aria-label="Close navigation menu" onclick="closeShellNav(true)" ${state.shellNavOpen ? "" : "hidden"}></button>
+
+      <div class="df-shell-content">
+        ${renderTopbar()}
+        <main id="main-content" class="df-main-content ${isLiveServiceView ? "df-live-service-content df-door-theme" : "df-admin-theme"}" tabindex="-1">
+          <div class="page${isLiveServiceView ? " df-door-page" : ""}">
+            ${state.error && !isLiveServiceView ? `<div class="notice redbox df-admin-state-inline" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+            ${isLiveServiceView ? renderSyncPill("notice") : `
+              <details class="notice greenbox df-admin-state-inline df-database-mode-disclosure">
+                <summary><strong>Live database mode</strong></summary>
+                <p>Guests and check-ins are stored in Supabase and sync across devices.</p>
+              </details>
+            `}
+            ${content}
+          </div>
+        </main>
+      </div>
     </div>
-    ${renderModal()}
+    <div class="df-shell-modal-scope">${renderModal()}</div>
   `;
 }
 
 Object.assign(window, {
   login,
   logout,
+  toggleShellNav,
+  closeShellNav,
+  shellNavigate,
   switchView,
   setActiveDay,
   setActiveDate,
@@ -7786,6 +8508,7 @@ Object.assign(window, {
   updateTabletSearch,
   clearMainSearch,
   clearTabletSearchFilter,
+  prepareLiveRosterAction,
   checkInOneGuest,
   undoOneGuest,
   toggleGuest,
@@ -7820,6 +8543,10 @@ Object.assign(window, {
   render,
   isLateAdd
 });
+
+document.addEventListener("keydown", handleModalKeydown);
+document.addEventListener("keydown", handleShellKeydown);
+window.matchMedia("(min-width: 1081px)").addEventListener("change", () => closeShellNav(false));
 
 render();
 initAuth();

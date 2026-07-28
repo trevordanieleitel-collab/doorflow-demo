@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>DoorFlow Reports &amp; Closeout Prototype</title>
+  <link rel="stylesheet" href="doorflow-operational-tokens.css">
+  <link rel="stylesheet" href="reports-closeout-prototype.css">
+  <script src="reports-closeout-prototype.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to report content</a>
+
+  <div class="prototype-banner" id="prototype-notice" role="note">
+    <strong>Illustrative DoorFlow operational prototype</strong>&nbsp;&middot;&nbsp;fictional sample data&nbsp;&middot;&nbsp;no production connection
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="prototype-sidebar" aria-label="DoorFlow prototype navigation">
+      <a class="brand-lockup" href="#main-content" aria-label="DoorFlow prototype home">
+        <span class="brand-lockup__symbol" aria-hidden="true"></span>
+        <span class="brand-lockup__wordmark">Door<span>Flow</span></span>
+      </a>
+
+      <nav class="primary-nav" aria-label="Primary prototype navigation">
+        <ul>
+          <li><a href="#prototype-notice" data-short="OV" data-prototype-nav>Overview</a></li>
+          <li><a href="#prototype-notice" data-short="GL" data-prototype-nav>Guest Lists</a></li>
+          <li><a href="#prototype-notice" data-short="DO" data-prototype-nav>Door Operations</a></li>
+          <li><a href="#prototype-notice" data-short="SN" data-prototype-nav>Shift Notes</a></li>
+          <li><a href="#main-content" data-short="RP" aria-current="page">Reports</a></li>
+          <li><a href="#prototype-notice" data-short="ST" data-prototype-nav>Staff</a></li>
+        </ul>
+      </nav>
+    </aside>
+    <div class="nav-backdrop" id="nav-backdrop" hidden></div>
+
+    <div class="main-area">
+      <header class="utility-bar">
+        <div class="utility-bar__inner">
+          <button
+            class="icon-button menu-button"
+            id="menu-button"
+            type="button"
+            aria-expanded="false"
+            aria-controls="prototype-sidebar"
+            aria-label="Open navigation menu"
+            title="Open navigation menu"
+          >
+            <span aria-hidden="true">&#9776;</span>
+          </button>
+
+          <div class="venue-identity">
+            <span class="venue-monogram" role="img" aria-label="Sample Venue logo">SV</span>
+            <div class="venue-identity__text">
+              <span class="utility-label">Current venue</span>
+              <strong>Sample Venue</strong>
+              <span class="utility-bar__mobile-date" data-service-date-compact>Jul 11 &middot; Service review</span>
+            </div>
+          </div>
+
+          <div class="service-context">
+            <div class="service-context__date">
+              <label class="utility-label" for="service-date">Sample service date</label>
+              <select class="utility-date" id="service-date" aria-describedby="service-date-help">
+                <option value="Saturday, July 11, 2026" data-compact="Jul 11">Sat, Jul 11, 2026</option>
+                <option value="Friday, July 10, 2026" data-compact="Jul 10">Fri, Jul 10, 2026</option>
+                <option value="Thursday, July 9, 2026" data-compact="Jul 9">Thu, Jul 9, 2026</option>
+              </select>
+              <span class="sr-only" id="service-date-help">Changes fictional sample labels only. Nothing is loaded or saved.</span>
+            </div>
+            <span class="status status--ready"><span class="status__icon" aria-hidden="true">R</span>Service review</span>
+          </div>
+
+          <button
+            class="account-control"
+            type="button"
+            aria-label="Open Sample Manager account preview"
+            data-modal-title="Account preview"
+            data-modal-message="This account control is a visual example only. It is not connected to authentication or a real user account."
+          >
+            <span class="account-control__text">
+              <strong>Sample Manager</strong>
+              <span>Manager</span>
+            </span>
+            <span class="user-avatar" aria-hidden="true">SM</span>
+            <span class="account-control__chevron" aria-hidden="true">&#9662;</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content" id="main-content" tabindex="-1">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Operations Review</p>
+            <h1>Reports &amp; Closeout</h1>
+            <p class="page-header__lede">Review the night&rsquo;s attendance, operational notes, and service activity from one shared record.</p>
+          </div>
+          <div class="page-header__meta">
+            <span class="sample-label">Fictional sample data</span>
+          </div>
+        </header>
+
+        <section class="toolbar" aria-label="Prototype report controls">
+          <div class="toolbar__group">
+            <span class="toolbar__label" id="report-view-label">Report view</span>
+            <div class="segmented-control" role="group" aria-labelledby="report-view-label">
+              <button type="button" data-report-view="full" aria-pressed="true">Full report</button>
+              <button type="button" data-report-view="attendance" aria-pressed="false">Attendance</button>
+              <button type="button" data-report-view="activity" aria-pressed="false">Activity</button>
+            </div>
+            <span class="sr-only" id="report-view-status" aria-live="polite"></span>
+          </div>
+          <button
+            class="button button--secondary"
+            type="button"
+            data-modal-title="Export preview"
+            data-modal-message="Export is intentionally unavailable in this isolated prototype. No file was created and no data was transmitted."
+          >
+            <span aria-hidden="true">&#8595;</span>
+            Export preview
+          </button>
+        </section>
+
+        <section class="summary-grid" aria-label="Fictional closeout summary">
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Guests Checked In</span>
+              <span class="summary-card__symbol" aria-hidden="true">IN</span>
+            </div>
+            <strong>184</strong>
+            <small>Fictional count for <span data-service-date-output>Saturday, July 11, 2026</span></small>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Parties Arrived</span>
+              <span class="summary-card__symbol" aria-hidden="true">PA</span>
+            </div>
+            <strong>63</strong>
+            <small>Sample parties marked arrived</small>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Guests Remaining</span>
+              <span class="summary-card__symbol" aria-hidden="true">RM</span>
+            </div>
+            <strong>21</strong>
+            <small>Sample expected guests not arrived</small>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Late Adds</span>
+              <span class="summary-card__symbol" aria-hidden="true">LA</span>
+            </div>
+            <strong>8</strong>
+            <small>Fictional additions during service</small>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Shift Notes</span>
+              <span class="summary-card__symbol" aria-hidden="true">SN</span>
+            </div>
+            <strong>6</strong>
+            <small>Sample notes in the shared record</small>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__top">
+              <span class="summary-card__label">Exceptions Reviewed</span>
+              <span class="summary-card__symbol" aria-hidden="true">EX</span>
+            </div>
+            <strong>3 of 4</strong>
+            <small>One fictional item remains open</small>
+          </article>
+        </section>
+
+        <div class="report-grid">
+          <div class="report-column">
+            <section class="section-panel" aria-labelledby="attendance-title" data-report-section data-views="attendance">
+              <header class="section-panel__header">
+                <div>
+                  <h2 id="attendance-title">Attendance summary</h2>
+                  <p>Fictional attendance categories for the selected sample service date.</p>
+                </div>
+                <span class="status status--verified"><span class="status__icon" aria-hidden="true">&#10003;</span>Verified sample</span>
+              </header>
+
+              <div class="attendance-layout">
+                <div class="attendance-total">
+                  <span>Total sample arrivals</span>
+                  <strong>184</strong>
+                  <p>Across five illustrative attendance categories.</p>
+                </div>
+                <div class="bar-list" aria-label="Fictional attendance bar visualization">
+                  <div class="bar-row">
+                    <div class="bar-row__meta"><span>Guest List</span><strong>92</strong></div>
+                    <div class="bar-row__track"><div class="bar-row__fill" style="--bar: 100%"></div></div>
+                  </div>
+                  <div class="bar-row">
+                    <div class="bar-row__meta"><span>VIP Parties</span><strong>38</strong></div>
+                    <div class="bar-row__track"><div class="bar-row__fill" style="--bar: 41%; --bar-color: #1f704c"></div></div>
+                  </div>
+                  <div class="bar-row">
+                    <div class="bar-row__meta"><span>Walk-Ins</span><strong>31</strong></div>
+                    <div class="bar-row__track"><div class="bar-row__fill" style="--bar: 34%; --bar-color: #b58a50"></div></div>
+                  </div>
+                  <div class="bar-row">
+                    <div class="bar-row__meta"><span>Staff / House</span><strong>23</strong></div>
+                    <div class="bar-row__track"><div class="bar-row__fill" style="--bar: 25%; --bar-color: #5f6b7c"></div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table class="data-table">
+                  <caption class="field-label">Fictional attendance breakdown</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Category</th>
+                      <th scope="col">Expected</th>
+                      <th scope="col">Arrived</th>
+                      <th scope="col">Remaining</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td data-label="Category">Guest List</td>
+                      <td data-label="Expected" data-numeric>103</td>
+                      <td data-label="Arrived" data-numeric>92</td>
+                      <td data-label="Remaining" data-numeric>11</td>
+                      <td data-label="Status"><span class="status status--open"><span class="status__icon" aria-hidden="true">O</span>Open</span></td>
+                    </tr>
+                    <tr>
+                      <td data-label="Category">VIP Parties</td>
+                      <td data-label="Expected" data-numeric>42</td>
+                      <td data-label="Arrived" data-numeric>38</td>
+                      <td data-label="Remaining" data-numeric>4</td>
+                      <td data-label="Status"><span class="status status--review"><span class="status__icon" aria-hidden="true">!</span>Needs Review</span></td>
+                    </tr>
+                    <tr>
+                      <td data-label="Category">Walk-Ins</td>
+                      <td data-label="Expected" data-numeric>&mdash;</td>
+                      <td data-label="Arrived" data-numeric>31</td>
+                      <td data-label="Remaining" data-numeric>&mdash;</td>
+                      <td data-label="Status"><span class="status status--closed"><span class="status__icon" aria-hidden="true">C</span>Closed</span></td>
+                    </tr>
+                    <tr>
+                      <td data-label="Category">Staff / House</td>
+                      <td data-label="Expected" data-numeric>29</td>
+                      <td data-label="Arrived" data-numeric>23</td>
+                      <td data-label="Remaining" data-numeric>6</td>
+                      <td data-label="Status"><span class="status status--verified"><span class="status__icon" aria-hidden="true">&#10003;</span>Verified</span></td>
+                    </tr>
+                    <tr>
+                      <td data-label="Category">Not Arrived</td>
+                      <td data-label="Expected" data-numeric>21</td>
+                      <td data-label="Arrived" data-numeric>0</td>
+                      <td data-label="Remaining" data-numeric>21</td>
+                      <td data-label="Status"><span class="status status--pending"><span class="status__icon" aria-hidden="true">P</span>Pending</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="section-panel" aria-labelledby="activity-title" data-report-section data-views="activity">
+              <header class="section-panel__header">
+                <div>
+                  <h2 id="activity-title">Arrival activity</h2>
+                  <p>A fictional operational timeline showing the density and rhythm of closeout activity.</p>
+                </div>
+                <span class="sample-label">Sample timeline</span>
+              </header>
+              <ol class="timeline">
+                <li>
+                  <span class="timeline__marker" aria-hidden="true">IN</span>
+                  <div><strong>Sample Party A checked in</strong><p>Four fictional guests marked arrived by Door role.</p></div>
+                  <time datetime="2026-07-11T23:42">11:42 PM</time>
+                </li>
+                <li>
+                  <span class="timeline__marker" aria-hidden="true">LA</span>
+                  <div><strong>Late addition approved</strong><p>Sample Guest 04 added to Sample Party B by Manager role.</p></div>
+                  <time datetime="2026-07-11T23:31">11:31 PM</time>
+                </li>
+                <li>
+                  <span class="timeline__marker" aria-hidden="true">NT</span>
+                  <div><strong>Shift note added</strong><p>Fictional note recorded for the east entrance handoff.</p></div>
+                  <time datetime="2026-07-11T23:18">11:18 PM</time>
+                </li>
+                <li>
+                  <span class="timeline__marker" aria-hidden="true">AR</span>
+                  <div><strong>Sample Guest 12 marked arrived</strong><p>Arrival recorded under Sample Party C.</p></div>
+                  <time datetime="2026-07-11T22:54">10:54 PM</time>
+                </li>
+                <li>
+                  <span class="timeline__marker" aria-hidden="true">CO</span>
+                  <div><strong>Closeout review opened</strong><p>Manager role began this fictional review.</p></div>
+                  <time datetime="2026-07-12T00:08">12:08 AM</time>
+                </li>
+              </ol>
+            </section>
+
+            <section class="section-panel" aria-labelledby="notes-title" data-report-section data-views="activity">
+              <header class="section-panel__header">
+                <div>
+                  <h2 id="notes-title">Operational notes</h2>
+                  <p>Sample shift and closeout notes. These messages were not written or transmitted by real staff.</p>
+                </div>
+                <span class="status status--draft"><span class="status__icon" aria-hidden="true">D</span>Draft sample</span>
+              </header>
+              <ul class="note-list">
+                <li>
+                  <div class="note-meta"><strong>Manager role</strong><time datetime="2026-07-11T23:18">11:18 PM</time><span>Entry handoff</span><span class="status status--verified"><span class="status__icon" aria-hidden="true">&#10003;</span>Verified</span></div>
+                  <p>Fictional example: east entrance list was reconciled before the final staff rotation.</p>
+                </li>
+                <li>
+                  <div class="note-meta"><strong>Door role</strong><time datetime="2026-07-11T22:46">10:46 PM</time><span>Guest exception</span><span class="status status--review"><span class="status__icon" aria-hidden="true">!</span>Needs Review</span></div>
+                  <p>Fictional example: duplicate sample name was held for manager confirmation.</p>
+                </li>
+                <li>
+                  <div class="note-meta"><strong>Manager role</strong><time datetime="2026-07-12T00:14">12:14 AM</time><span>Closeout</span><span class="status status--pending"><span class="status__icon" aria-hidden="true">P</span>Pending</span></div>
+                  <p>Fictional example: final exception review remains open before closeout acknowledgment.</p>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <aside class="report-column report-column--secondary" aria-label="Fictional closeout review">
+            <section class="section-panel" aria-labelledby="exceptions-title" data-report-section data-views="attendance">
+              <header class="section-panel__header">
+                <div>
+                  <h2 id="exceptions-title">Exceptions</h2>
+                  <p>Illustrative items requiring review.</p>
+                </div>
+                <span class="status status--warning"><span class="status__icon" aria-hidden="true">4</span>4 items</span>
+              </header>
+              <ul class="exception-list">
+                <li><div class="exception-meta"><span class="status status--review"><span class="status__icon" aria-hidden="true">!</span>Needs Review</span><span>Late add</span></div><strong>Unresolved late addition</strong><p>Sample Guest 18 has no manager note.</p></li>
+                <li><div class="exception-meta"><span class="status status--pending"><span class="status__icon" aria-hidden="true">P</span>Pending</span><span>Arrival</span></div><strong>Incomplete party arrival</strong><p>Sample Party D has two fictional guests remaining.</p></li>
+                <li><div class="exception-meta"><span class="status status--verified"><span class="status__icon" aria-hidden="true">&#10003;</span>Verified</span><span>Identity</span></div><strong>Duplicate-name review</strong><p>Sample Guest 07 was confirmed as a separate entry.</p></li>
+                <li><div class="exception-meta"><span class="status status--error"><span class="status__icon" aria-hidden="true">!</span>Error</span><span>Closeout</span></div><strong>Missing closeout note</strong><p>A fictional manager summary is still required.</p></li>
+              </ul>
+            </section>
+
+            <section class="section-panel closeout-panel" aria-labelledby="closeout-title" data-report-section data-views="attendance activity">
+              <header class="section-panel__header">
+                <div>
+                  <h2 id="closeout-title">Closeout review</h2>
+                  <p>Prototype checklist only. Changes exist in this page session and are never saved.</p>
+                </div>
+                <span class="status status--open"><span class="status__icon" aria-hidden="true">O</span>Open</span>
+              </header>
+              <ul class="checklist">
+                <li><label><input type="checkbox" checked><span>Attendance totals reviewed</span></label></li>
+                <li><label><input type="checkbox" checked><span>Shift notes reviewed</span></label></li>
+                <li><label><input type="checkbox"><span>All exceptions resolved</span></label></li>
+                <li><label><input type="checkbox"><span>Manager summary added</span></label></li>
+              </ul>
+              <div class="acknowledgment">
+                <span>Manager acknowledgment</span>
+                <strong>Not acknowledged &middot; fictional state</strong>
+              </div>
+              <div class="closeout-actions">
+                <button
+                  class="button button--secondary"
+                  type="button"
+                  data-modal-title="Export placeholder"
+                  data-modal-message="This export control is a visual example only. No file was created and no operational data was read."
+                >
+                  <span aria-hidden="true">&#8595;</span>
+                  Export sample
+                </button>
+                <button
+                  class="button"
+                  type="button"
+                  data-modal-title="Finalize Closeout"
+                  data-modal-message="This is a visual prototype. No operational data was changed."
+                >
+                  <span aria-hidden="true">&#10003;</span>
+                  Finalize Closeout
+                </button>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <section class="door-preview" aria-labelledby="door-preview-title">
+          <div>
+            <span class="door-preview__eyebrow">Door Mode foundation &middot; token preview only</span>
+            <h2 id="door-preview-title">High contrast for live-service environments.</h2>
+            <p>This non-interactive preview demonstrates coordinated dark surfaces, large touch-area proportions, and text-backed status colors. It does not simulate check-in behavior.</p>
+          </div>
+          <div class="door-preview__states" aria-label="Door Mode sample states">
+            <div class="door-preview__state door-preview__state--ready"><span>Completion state</span><strong>Ready &middot; verified</strong></div>
+            <div class="door-preview__state door-preview__state--review"><span>Exception state</span><strong>Review needed</strong></div>
+          </div>
+        </section>
+
+        <footer class="prototype-footer">
+          <p><strong>DoorFlow operational prototype</strong> &middot; fictional sample data</p>
+          <p>No authentication, database, analytics, storage, or production connection.</p>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="prototype-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+      <header class="modal__header">
+        <div>
+          <p class="eyebrow">Prototype notice</p>
+          <h2 id="modal-title">Visual prototype only</h2>
+        </div>
+        <button class="icon-button" id="modal-close" type="button" aria-label="Close prototype notice" title="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </header>
+      <div class="modal__body">
+        <p id="modal-description">This is a visual prototype. No operational data was changed.</p>
+        <div class="modal__notice">Fictional sample data &middot; no production connection &middot; nothing saved or transmitted</div>
+        <div class="modal__actions">
+          <button class="button" id="modal-confirm" type="button">Return to prototype</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
