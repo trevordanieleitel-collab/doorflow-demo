@@ -1,0 +1,118 @@
+:root {
+  color-scheme: light;
+
+  /* Brand foundations */
+  --df-paper: #f6f2ea;
+  --df-canvas: #fcfbf8;
+  --df-surface: #ffffff;
+  --df-ink: #071528;
+  --df-text: #172133;
+  --df-muted: #5f6b7c;
+  --df-muted-strong: #46556a;
+  --df-navy: #0a2347;
+  --df-navy-deep: #06162e;
+  --df-navy-soft: #12345f;
+  --df-blue: #0b63f6;
+  --df-blue-hover: #084fd0;
+  --df-blue-active: #063fa8;
+  --df-blue-soft: #dceaff;
+  --df-amber: #b58a50;
+  --df-amber-ink: #7a5124;
+  --df-green: #1f704c;
+  --df-red: #a52d2d;
+  --df-border: #d6dde6;
+  --df-border-strong: #bac5d2;
+  --df-focus: #2878ff;
+
+  /* Status system: every color is paired with visible status text in markup. */
+  --df-status-ready-bg: #e5f4eb;
+  --df-status-ready-ink: #145c3d;
+  --df-status-open-bg: #e4efff;
+  --df-status-open-ink: #064fae;
+  --df-status-checked-bg: #dff3e8;
+  --df-status-checked-ink: #135c3c;
+  --df-status-verified-bg: #e7f3ed;
+  --df-status-verified-ink: #185e41;
+  --df-status-pending-bg: #fff3d5;
+  --df-status-pending-ink: #714708;
+  --df-status-review-bg: #f8ead8;
+  --df-status-review-ink: #75430e;
+  --df-status-warning-bg: #ffead0;
+  --df-status-warning-ink: #743b08;
+  --df-status-error-bg: #fde7e7;
+  --df-status-error-ink: #8c2020;
+  --df-status-closed-bg: #e9edf2;
+  --df-status-closed-ink: #3d4a5c;
+  --df-status-draft-bg: #eeeaf8;
+  --df-status-draft-ink: #4e3d78;
+
+  /* Door Mode foundation */
+  --df-door-canvas: #06162e;
+  --df-door-surface: #0b1d35;
+  --df-door-surface-raised: #102744;
+  --df-door-border: rgb(174 208 242 / 22%);
+  --df-door-text: #ffffff;
+  --df-door-muted: #b7c7d8;
+  --df-door-action: #2c9b65;
+  --df-door-action-hover: #238355;
+  --df-door-warning: #e2ad55;
+  --df-door-error: #ff7777;
+  --df-door-focus: #7fb4ff;
+
+  /* Type */
+  --df-font-editorial: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --df-font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --df-type-xs: 0.75rem;
+  --df-type-sm: 0.875rem;
+  --df-type-base: 1rem;
+  --df-type-lg: 1.125rem;
+  --df-type-xl: 1.375rem;
+  --df-type-2xl: 1.75rem;
+  --df-type-page: 3.75rem;
+
+  /* Spacing */
+  --df-space-1: 0.25rem;
+  --df-space-2: 0.5rem;
+  --df-space-3: 0.75rem;
+  --df-space-4: 1rem;
+  --df-space-5: 1.25rem;
+  --df-space-6: 1.5rem;
+  --df-space-8: 2rem;
+  --df-space-10: 2.5rem;
+  --df-space-12: 3rem;
+  --df-space-16: 4rem;
+
+  /* Shape and elevation */
+  --df-radius-control: 8px;
+  --df-radius-card-sm: 12px;
+  --df-radius-card: 16px;
+  --df-radius-presentation: 24px;
+  --df-shadow-sm: 0 8px 24px rgb(7 21 40 / 7%);
+  --df-shadow-md: 0 18px 48px rgb(7 21 40 / 11%);
+  --df-shadow-shell: 0 24px 70px rgb(2 13 30 / 22%);
+
+  /* Layout */
+  --df-shell-max: 1500px;
+  --df-content-max: 1240px;
+  --df-sidebar-width: 250px;
+  --df-control-height: 44px;
+  --df-header-height: 72px;
+  --df-page-gutter: clamp(16px, 3vw, 40px);
+  --df-safe-left: env(safe-area-inset-left, 0px);
+  --df-safe-right: env(safe-area-inset-right, 0px);
+  --df-safe-top: env(safe-area-inset-top, 0px);
+  --df-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (max-width: 430px) {
+  :root {
+    --df-page-gutter: 16px;
+    --df-type-page: 2.35rem;
+  }
+}
+
+@media (max-width: 340px) {
+  :root {
+    --df-page-gutter: 12px;
+  }
+}
