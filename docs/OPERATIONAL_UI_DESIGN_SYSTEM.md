@@ -8,6 +8,8 @@ The principle is **brand-aligned, operation-first**.
 
 Phase P2 demonstrates this direction in the isolated Reports / Closeout prototype. Phase P3 integrates the shared login treatment, authenticated shell, venue utility bar, and base administrative theme. Phase P4 applies the system to administrative workflows, and Phase P5 applies a dedicated dark live-service system to the real Door Check-In and Tablet Door Mode presentation.
 
+Phase P6 freezes the approved visual system at the P5 baseline while hardening release validation, PWA cache ownership, stale-shell behavior, and operational release/rollback procedures. P6.1 adds a narrow check-in/load reconciliation fix in the synchronized inline runtime and mirror; it does not add a visual layer or alter roles, database contracts, reports, or realtime subscriptions.
+
 ## Relationship to DoorFlow Marketing
 
 The operational system translates these approved marketing foundations:
@@ -451,7 +453,19 @@ Until a reviewed data-model phase adds explicit hierarchy, the UI uses the isola
 
 Management, Staff, Reports, and the closeout preview show parent venue, operating space, and shared-list scope without changing calculations or stored data. `buildCloseOutReportData()` continues to retain the database venue value `EVE`, and CSV columns and exported values are unchanged. A future hierarchy model should provide explicit parent-property, operating-space, and list-scope relationships rather than relying on presentation configuration.
 
+### P6.5 mobile density, stable roster position, and print flow
+
+Phone utility controls reflow into three deliberate rows: venue and user identity, Day and Service Date, then the truthful connection state with Refresh. The date row and connection row remain separate, flexible children use `minmax(0, 1fr)`, and the connection row may stack below 380px. The opaque utility background consumes the existing top safe-area value, while page content consumes the bottom safe-area value so installed-PWA and mobile-browser controls do not obscure final actions.
+
+Door Check-In and Tablet Door Mode show one compact, state-aware sync notice. Error, Syncing, Pending, reconnecting, Offline, warning, and Live wording continue to come from existing state; presentation does not substitute Live for another state. An empty Shift Brief becomes a compact semantic heading and `No notes` status. On phones, operating context, summary metrics, search, filters, and roster spacing are tightened without changing IDs, handlers, values, or the dark live-service boundary. Mobile Manager keeps Total, Checked In, and Remaining at the top, moves Quick Add immediately below them, removes repeated date and hardcoded Live copy, and places the duplicate Service Date control in an on-demand disclosure with the existing date handler and Use Today action intact.
+
+Live guest cards carry the existing guest ID as a presentation-only stable anchor. Before a local Check In, Undo, or toggle render, DoorFlow records the acted-on card's viewport or roster-panel offset, the active document and nested-panel scroll positions, the action generation, and keyboard focus when the action control actually held focus. After replacement, one animation frame restores the current generation to the same guest or the nearest retained neighbor; older action generations cannot move the operator back. Full refresh and realtime reconciliation preserve the current visible roster anchor where it still exists but do not create an action anchor or force-scroll to another record. This coordination does not change a query, mutation, optimistic update, rollback, count, permission, realtime subscription, backup poll, or P6.1 race guard.
+
+Closeout print markup distinguishes short Group Breakdown, Late Adds, No-Shows / Remaining Guests, and Manager / Shift Notes sections from the splittable Recent Door Activity table. Short sections avoid a page break only below explicit row and text-length thresholds, so a few unusually long notes do not create a large blank page; section headings stay with following content, table headers repeat, and individual rows avoid splitting. Print-only margins, padding, empty states, and summary spacing are reduced without changing screen layout or report data. Chrome's URL, date/time, and page count are browser-added print decorations controlled by **Print → More settings → Headers and footers**; application CSS does not attempt to remove them.
+
 ### Remaining P6 hardening
+
+P6.1 prevents an older live-data snapshot from replacing guest state around any Check In or Undo action. Per-guest locks still prevent same-record overlap, while a load sequence, guest-state version, and captured pending-at-start state reject stale snapshots caused by two different guest actions completing out of order. Existing optimistic updates, isolated rollback, Supabase payloads, and normal post-write reconciliation remain the authority. The deterministic no-network race smoke passes, but this does not replace live browser, failed-write, duplicate-log, or two-device acceptance.
 
 P6 must complete authenticated owner testing with approved non-production admin, manager, door, and viewer accounts; the full desktop, tablet, phone, short-height, keyboard, reduced-motion, and 200% zoom matrix; rapid check-in/undo and failed-write recovery; duplicate prevention; two-device realtime behavior; role restrictions; and measured low-light review on target hardware. Static smoke checks do not prove these outcomes.
 

@@ -4654,3 +4654,629 @@ body.df-shell-nav-open {
     margin-top: 2px;
   }
 }
+
+/* Phase P6.5: mobile information density, safe reflow, and print pagination. */
+.df-service-context-row,
+.df-service-sync-row {
+  display: contents;
+  min-width: 0;
+}
+
+.df-refresh-label {
+  display: none;
+}
+
+.df-database-mode-disclosure {
+  padding-block: 10px;
+}
+
+.df-database-mode-disclosure summary {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+}
+
+.df-database-mode-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.df-database-mode-disclosure summary::after {
+  content: "+";
+  font-weight: 850;
+}
+
+.df-database-mode-disclosure[open] summary::after {
+  content: "−";
+}
+
+.df-database-mode-disclosure p {
+  margin: 8px 0 0;
+}
+
+.df-door-theme .df-door-live-sync-notice {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 8px;
+  border: 1px solid #34785f;
+  background: #102c25;
+  color: #b7ead1;
+}
+
+.df-door-theme .df-door-live-sync-notice.warn {
+  border-color: #8c6d35;
+  background: #392d19;
+  color: #f5ca78;
+}
+
+.df-door-theme .df-door-live-sync-notice.bad {
+  border-color: #91444d;
+  background: #331b25;
+  color: #ffc2c7;
+}
+
+.df-door-theme .df-door-live-sync-notice span {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.df-door-theme .df-door-shift-notes--empty {
+  min-height: 0;
+  padding-block: 10px;
+}
+
+.df-door-theme .df-door-shift-brief-row {
+  align-items: center;
+}
+
+.df-door-theme .df-door-shift-empty-summary {
+  margin: 0 !important;
+  color: var(--df-door-muted-strong) !important;
+  font-size: 0.78rem !important;
+  white-space: nowrap;
+}
+
+@media (max-width: 540px) {
+  .df-utility-bar,
+  .df-shell-live .df-utility-bar {
+    background: var(--df-canvas);
+  }
+
+  .df-shell-live .df-utility-bar {
+    background: #0a1928;
+  }
+
+  .df-utility-inner {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    gap: 7px 8px;
+    padding: calc(8px + var(--df-safe-top)) max(10px, var(--df-safe-right)) 8px max(10px, var(--df-safe-left));
+  }
+
+  .df-shell-menu {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .df-shell-venue {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .df-utility-user {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .df-logout-label {
+    position: static;
+    display: none;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+
+  .df-shell-service,
+  .df-shell-live .df-shell-service {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-row: 2 / span 2;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .df-service-context-row,
+  .df-service-sync-row {
+    display: grid;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .df-service-context-row {
+    grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
+  }
+
+  .df-service-sync-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .df-service-field,
+  .df-service-field select,
+  .df-service-field input,
+  .df-shell-service .sync-pill {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .df-shell-service .sync-pill {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+    padding-inline: 10px;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+
+  .df-shell-service .df-refresh-button,
+  .df-shell-live .df-shell-service .df-refresh-button {
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    min-width: 88px;
+    padding-inline: 12px;
+  }
+
+  .df-refresh-icon {
+    display: none;
+  }
+
+  .df-refresh-icon::after {
+    content: none;
+  }
+
+  .df-refresh-label {
+    display: inline;
+  }
+
+  .df-main-content .page,
+  .df-door-theme .df-door-page {
+    padding-bottom: calc(22px + var(--df-safe-bottom));
+  }
+
+  .df-database-mode-disclosure {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+  }
+
+  .df-database-mode-disclosure p {
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+  .mobile-manager-view {
+    gap: 8px;
+  }
+
+  .mobile-manager-header {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .mobile-manager-header .bob-brand {
+    min-width: 0;
+  }
+
+  .mobile-manager-header .bob-brand > div:last-child {
+    min-width: 0;
+  }
+
+  .mobile-manager-header .bob-brand h1,
+  .mobile-manager-header .bob-brand p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-manager-stats-grid {
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .mobile-manager-stat-card {
+    padding: 8px 5px;
+    border-radius: 10px;
+  }
+
+  .mobile-manager-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .mobile-manager-card .mobile-manager-form {
+    gap: 9px;
+    margin-top: 10px;
+  }
+
+  .mobile-manager-service-date summary p {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (max-width: 430px) {
+  .df-door-theme .df-door-live-sync-notice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 3px 7px;
+    align-items: baseline;
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    font-size: 0.74rem;
+    line-height: 1.25;
+  }
+
+  .df-door-theme .df-door-shift-notes--empty {
+    padding: 7px 9px;
+  }
+
+  .df-door-theme .df-door-shift-notes--empty .df-door-shift-brief-row {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0;
+  }
+
+  .df-door-theme .df-door-shift-notes--empty h2 {
+    font-size: 0.86rem;
+  }
+
+  .df-door-theme .df-door-shift-empty-summary {
+    font-size: 0.72rem !important;
+  }
+
+  .df-door-theme .df-door-shift-notes:not(.df-door-shift-notes--empty) {
+    gap: 7px;
+    padding: 9px;
+  }
+
+  .df-door-theme .df-door-shift-notes:not(.df-door-shift-notes--empty) > .df-door-section-heading > p {
+    display: none;
+  }
+
+  .df-door-theme .df-door-view-header,
+  .df-door-theme .df-tablet-mode-header {
+    padding: 0 2px;
+  }
+
+  .df-door-theme .df-door-view-header .df-door-kicker,
+  .df-door-theme .df-tablet-mode-header .df-door-kicker {
+    display: none;
+  }
+
+  .df-door-theme .df-door-view-header p:not(.df-door-kicker) {
+    margin-top: 2px;
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+
+  .df-door-theme .df-door-view-header__context,
+  .df-door-theme .df-tablet-mode-header__context {
+    display: flex;
+    min-height: 0;
+    gap: 3px 8px;
+    align-items: baseline;
+  }
+
+  .df-door-theme .df-door-view-header__context span,
+  .df-door-theme .df-door-view-header__context strong,
+  .df-door-theme .df-tablet-mode-header__context span,
+  .df-door-theme .df-tablet-mode-header__context strong {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 0.68rem;
+  }
+
+  .df-door-theme .df-door-context {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .df-door-theme .df-door-context__heading {
+    display: block;
+  }
+
+  .df-door-theme .df-door-context__heading .df-door-kicker,
+  .df-door-theme .df-door-context__heading > p {
+    display: none;
+  }
+
+  .df-door-theme .df-door-context__heading h2 {
+    font-size: 0.82rem;
+  }
+
+  .df-door-theme .df-door-context__controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .df-door-theme .df-door-context__controls label {
+    margin-bottom: 3px;
+    font-size: 0.6rem;
+  }
+
+  .df-door-theme .df-door-context__controls select {
+    min-height: 44px;
+    padding-inline: 7px;
+    font-size: 0.72rem;
+  }
+
+  .df-door-theme .df-door-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .df-door-theme .df-door-metrics > :nth-child(-n + 2) {
+    display: none;
+  }
+
+  .df-door-theme .df-door-metric {
+    min-height: 54px;
+    padding: 5px;
+  }
+
+  .df-door-theme .df-door-metric span {
+    font-size: 0.58rem;
+    line-height: 1.15;
+  }
+
+  .df-door-theme .df-door-metric strong {
+    font-size: 1.08rem;
+  }
+
+  .df-door-theme .df-door-filter-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .df-door-theme .df-door-filter-toolbar > *,
+  .df-door-theme .df-door-filter-toolbar > #mainSearchInput {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    flex-basis: auto;
+  }
+
+  .df-door-theme .df-door-filter-toolbar > #mainSearchInput {
+    grid-column: 1 / -1;
+    padding-left: 38px;
+    background-position: 12px center;
+  }
+
+  .df-door-theme .df-door-guest-panel > .df-door-section-heading p,
+  .df-door-theme .df-door-party-panel > .df-door-section-heading p:not(.df-door-kicker) {
+    display: none;
+  }
+
+  .df-door-theme .df-door-guest-panel > .df-door-section-heading,
+  .df-door-theme .df-door-party-panel > .df-door-section-heading {
+    margin-bottom: 6px;
+  }
+
+  .df-door-theme .df-tablet-overview {
+    display: none;
+  }
+
+  .df-door-theme .df-tablet-door-view,
+  .df-door-theme .df-tablet-door-mode,
+  .df-door-theme .tablet-door-shell {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 380px) {
+  .df-service-sync-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-shell-service .df-refresh-button,
+  .df-shell-live .df-shell-service .df-refresh-button {
+    width: 100%;
+  }
+
+  .df-door-theme .df-door-context__controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media print {
+  .df-closeout-report__header {
+    padding-bottom: 9pt !important;
+  }
+
+  .df-closeout-report__summary {
+    gap: 5pt !important;
+    padding: 8pt 0 !important;
+  }
+
+  .df-closeout-report__metric {
+    min-height: 46pt !important;
+    padding: 6pt !important;
+  }
+
+  .df-closeout-report__metric strong {
+    font-size: 16pt !important;
+  }
+
+  .df-closeout-report__section {
+    padding-top: 9pt !important;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .df-closeout-report__section:first-child {
+    padding-top: 5pt !important;
+  }
+
+  .df-closeout-report__section--print-short {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+
+  .df-closeout-report__section--activity {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  .df-closeout-report__section-header,
+  .df-closeout-report__section-header h3 {
+    margin-bottom: 4pt !important;
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .df-closeout-report__table thead {
+    display: table-header-group !important;
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .df-closeout-report__table tbody tr:first-child {
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+
+  .df-closeout-report__table tr,
+  .df-closeout-report__table tbody tr {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .df-closeout-report__table th,
+  .df-closeout-report__table td,
+  .df-closeout-report__table tbody td,
+  .df-closeout-report__table tbody tr:last-child td {
+    padding: 3pt 4pt !important;
+    line-height: 1.18 !important;
+  }
+
+  .df-closeout-report__empty {
+    padding: 5pt 6pt !important;
+  }
+
+  .df-closeout-report__empty span {
+    width: 18pt;
+    height: 18pt;
+    font-size: 9pt;
+  }
+
+  .df-closeout-report__footer {
+    margin-top: 8pt;
+    padding-top: 5pt !important;
+  }
+}
+
+/* Phase P6.7: phone Service Date edge safety. */
+@media (max-width: 540px) {
+  .df-utility-inner {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    padding-inline-start: max(10px, calc(var(--df-safe-left) + 10px));
+    padding-inline-end: max(16px, calc(var(--df-safe-right) + 10px));
+  }
+
+  .df-shell-service,
+  .df-service-context-row {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .df-service-context-row {
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  }
+
+  .df-service-context-row > .df-service-field {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .df-service-context-row > .df-service-field > select {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #df-service-date {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+}
+
+/* Phase P6.9: stacked phone service context and iPhone edge clearance. */
+@media (max-width: 540px) {
+  .df-utility-inner {
+    padding-inline-end: calc(24px + var(--df-safe-right));
+  }
+
+  .df-service-context-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-service-context-row > .df-service-field,
+  .df-service-context-row > .df-service-field > select,
+  .df-service-context-row > .df-service-field > input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #df-service-date {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+}
+
+/* Phase P6.10: final iOS Service Date overlay gutter. */
+@media (max-width: 540px) {
+  .df-service-context-row > .df-service-field:last-child {
+    --df-mobile-overlay-gutter: 20px;
+
+    box-sizing: border-box;
+    justify-self: start;
+    width: calc(100% - var(--df-mobile-overlay-gutter));
+    min-width: 0;
+    max-width: calc(100% - var(--df-mobile-overlay-gutter));
+    inline-size: calc(100% - var(--df-mobile-overlay-gutter));
+    min-inline-size: 0;
+    max-inline-size: calc(100% - var(--df-mobile-overlay-gutter));
+  }
+}

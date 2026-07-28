@@ -1336,7 +1336,7 @@
 
   </style>
 
-  <link rel="stylesheet" href="/doorflow-operational-theme.css">
+  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p6.10">
 
   <!-- DoorFlow PWA install support -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -1536,6 +1536,10 @@ let isBootingDatabase = false;
 let lastUserInputAt = 0;
 let activeDoorFlowAction = false;
 let lastDoorFlowActionAt = 0;
+let liveDataLoadSequence = 0;
+let guestCheckStateVersion = 0;
+let liveRosterAnchorGeneration = 0;
+let pendingLiveRosterAnchor = null;
 let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
 let modalFocusOpen = false;
@@ -1686,6 +1690,129 @@ function restoreScrollPositions(positions) {
   });
 }
 
+function captureLiveRosterAnchor(guestId = "", action = "", restoreFocus = false) {
+  if (state.view !== "door" && state.view !== "tabletDoor") return null;
+
+  const cards = [...document.querySelectorAll("[data-live-roster-card][data-guest-id]")];
+  if (!cards.length) return null;
+
+  const requestedGuestId = String(guestId || "");
+  const documentScroller = document.scrollingElement || document.documentElement;
+  const panel = state.view === "door" ? document.getElementById("guestScrollPanel") : null;
+  const panelScrollable = Boolean(panel && panel.scrollHeight > panel.clientHeight + 1);
+  const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+  const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+
+  let cardIndex = requestedGuestId
+    ? cards.findIndex(card => String(card.dataset.guestId || "") === requestedGuestId)
+    : -1;
+
+  if (cardIndex < 0) {
+    cardIndex = cards.findIndex(card => card.getBoundingClientRect().bottom > anchorTop + 1);
+  }
+  if (cardIndex < 0) cardIndex = cards.length - 1;
+
+  const card = cards[cardIndex];
+  const rect = card.getBoundingClientRect();
+
+  return {
+    generation:++liveRosterAnchorGeneration,
+    view:state.view,
+    guestId:String(card.dataset.guestId || ""),
+    requestedGuestId,
+    previousGuestId:String(cards[cardIndex - 1]?.dataset.guestId || ""),
+    nextGuestId:String(cards[cardIndex + 1]?.dataset.guestId || ""),
+    action:String(action || ""),
+    restoreFocus:Boolean(restoreFocus),
+    cardOffset:rect.top - anchorTop,
+    documentScrollTop:Number(documentScroller?.scrollTop || 0),
+    panelScrollTop:Number(panel?.scrollTop || 0)
+  };
+}
+
+function prepareLiveRosterAction(event, guestId, action) {
+  const control = event?.currentTarget || null;
+  const snapshot = captureLiveRosterAnchor(
+    guestId,
+    action,
+    Boolean(control && document.activeElement === control)
+  );
+
+  if (!snapshot) return;
+
+  pendingLiveRosterAnchor = snapshot;
+  queueMicrotask(() => {
+    const primaryGuestId = snapshot.requestedGuestId || snapshot.guestId;
+    if (pendingLiveRosterAnchor?.generation === snapshot.generation && !isGuestCheckActionBusy(primaryGuestId)) {
+      pendingLiveRosterAnchor = null;
+    }
+  });
+}
+
+function restoreLiveRosterAnchor(snapshot) {
+  if (!snapshot) return;
+
+  requestAnimationFrame(() => {
+    if (snapshot.generation !== liveRosterAnchorGeneration || snapshot.view !== state.view) return;
+
+    const cards = [...document.querySelectorAll("[data-live-roster-card][data-guest-id]")];
+    const findCard = id => id
+      ? cards.find(card => String(card.dataset.guestId || "") === String(id)) || null
+      : null;
+    const primaryGuestId = snapshot.requestedGuestId || snapshot.guestId;
+    const card = findCard(primaryGuestId)
+      || findCard(snapshot.nextGuestId)
+      || findCard(snapshot.previousGuestId)
+      || findCard(snapshot.guestId);
+    const documentScroller = document.scrollingElement || document.documentElement;
+    const panel = state.view === "door" ? document.getElementById("guestScrollPanel") : null;
+    const panelScrollable = Boolean(panel && panel.scrollHeight > panel.clientHeight + 1);
+
+    if (documentScroller) documentScroller.scrollTop = snapshot.documentScrollTop;
+    if (panel) panel.scrollTop = snapshot.panelScrollTop;
+
+    if (card) {
+      const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+      const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+      const delta = card.getBoundingClientRect().top - anchorTop - snapshot.cardOffset;
+
+      if (Math.abs(delta) > 1) {
+        if (panelScrollable) panel.scrollTop += delta;
+        else if (documentScroller) documentScroller.scrollTop += delta;
+      }
+    }
+
+    const pendingIsCurrent = pendingLiveRosterAnchor?.generation === snapshot.generation;
+    const actionSettled = !isGuestCheckActionBusy(primaryGuestId);
+    const activeElement = document.activeElement;
+    const focusIsUnclaimed = !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+      || activeElement === document.getElementById("main-content");
+
+    if (snapshot.restoreFocus && focusIsUnclaimed && pendingIsCurrent && actionSettled && card && String(card.dataset.guestId || "") === primaryGuestId) {
+      const actionOrder = snapshot.action === "undo"
+        ? ["undo", "checkin", "toggle"]
+        : snapshot.action === "toggle"
+          ? ["toggle", "checkin", "undo"]
+          : ["checkin", "undo", "toggle"];
+      const control = actionOrder
+        .map(name => card.querySelector(`[data-roster-action="${name}"]:not([disabled])`))
+        .find(Boolean);
+
+      if (control) {
+        try {
+          control.focus({ preventScroll:true });
+        } catch {
+          control.focus();
+        }
+      }
+    }
+
+    if (pendingIsCurrent && actionSettled) pendingLiveRosterAnchor = null;
+  });
+}
+
 function captureFormFieldValues() {
   const fields = {};
   document.querySelectorAll("input[id], select[id], textarea[id]").forEach(element => {
@@ -1743,7 +1870,10 @@ function captureTransientUiState() {
     focus:captureFocusedInput(),
     scroll:captureScrollPositions(),
     fields:captureFormFieldValues(),
-    details:captureDetailsState()
+    details:captureDetailsState(),
+    liveRoster:pendingLiveRosterAnchor?.view === state.view
+      ? pendingLiveRosterAnchor
+      : captureLiveRosterAnchor()
   };
 }
 
@@ -1752,6 +1882,7 @@ function restoreTransientUiState(ui) {
   restoreDetailsState(ui?.details);
   restoreFocusedInput(ui?.focus);
   restoreScrollPositions(ui?.scroll);
+  restoreLiveRosterAnchor(ui?.liveRoster);
 }
 
 function captureModalReturnFocus() {
@@ -2071,6 +2202,35 @@ function isActionBusy(key) {
 
 function isGuestCheckActionBusy(guestId) {
   return Boolean(isActionBusy(`checkin:${guestId}`) || isActionBusy(`undo:${guestId}`));
+}
+
+function hasPendingGuestCheckActions() {
+  return Object.entries(state.actionBusy || {}).some(([key, busy]) => (
+    Boolean(busy) && (key.startsWith("checkin:") || key.startsWith("undo:"))
+  ));
+}
+
+function markGuestCheckStateChanged() {
+  guestCheckStateVersion += 1;
+  return guestCheckStateVersion;
+}
+
+function beginLiveDataSnapshot() {
+  return {
+    sequence:++liveDataLoadSequence,
+    guestCheckStateVersion,
+    guestCheckActionsPending:hasPendingGuestCheckActions()
+  };
+}
+
+function shouldApplyLiveDataSnapshot(snapshot) {
+  return Boolean(
+    snapshot
+    && snapshot.sequence === liveDataLoadSequence
+    && snapshot.guestCheckStateVersion === guestCheckStateVersion
+    && !snapshot.guestCheckActionsPending
+    && !hasPendingGuestCheckActions()
+  );
 }
 
 function refreshCheckActionSurfaces(forceRender = false) {
@@ -2982,6 +3142,8 @@ async function ensureGeneralGroup(serviceDayId) {
 
 async function loadDataForDate(dateString) {
   return runDb("Loading live data", async () => {
+    const liveDataSnapshot = beginLiveDataSnapshot();
+
     if (auth.session?.user) {
       const session = await ensureFreshAuthSession("load-data");
       if (!session) throw new Error("Session expired. Log in again.");
@@ -3062,6 +3224,14 @@ async function loadDataForDate(dateString) {
     );
 
     const nextShiftNotes = normalizeRows(must(notesResult.data, notesResult.error), normalizeShiftNote);
+
+    if (!shouldApplyLiveDataSnapshot(liveDataSnapshot)) {
+      if (liveDataSnapshot.sequence === liveDataLoadSequence) {
+        state.loading = false;
+        schedulePendingSync("guest check-in state changed during refresh");
+      }
+      return;
+    }
 
     const newDataHash = buildLiveDataHash(nextGroups, nextGuests, nextLogs, nextShiftNotes);
     const dataUnchanged = Boolean(state.lastDataHash && state.lastDataHash === newDataHash);
@@ -3884,6 +4054,7 @@ async function checkInOneGuest(id) {
     setActionBusy(actionKey, true);
     updateSyncStatus("Saving", "Checking in guest...");
 
+    markGuestCheckStateChanged();
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
@@ -3936,14 +4107,15 @@ async function checkInOneGuest(id) {
         console.warn("DoorFlow check-in rollback failed:", rollbackError);
       }
     }
+    markGuestCheckStateChanged();
     Object.assign(guest, previousGuest);
     state.loading = false;
     state.error = "Check in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
-    activeDoorFlowAction = false;
-    lastDoorFlowActionAt = Date.now();
     setActionBusy(actionKey, false);
+    activeDoorFlowAction = hasPendingGuestCheckActions();
+    lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
   }
 }
@@ -3978,6 +4150,7 @@ async function undoOneGuest(id) {
     setActionBusy(actionKey, true);
     updateSyncStatus("Saving", "Undoing check-in...");
 
+    markGuestCheckStateChanged();
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
@@ -4030,14 +4203,15 @@ async function undoOneGuest(id) {
         console.warn("DoorFlow undo rollback failed:", rollbackError);
       }
     }
+    markGuestCheckStateChanged();
     Object.assign(guest, previousGuest);
     state.loading = false;
     state.error = "Undo check-in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
-    activeDoorFlowAction = false;
-    lastDoorFlowActionAt = Date.now();
     setActionBusy(actionKey, false);
+    activeDoorFlowAction = hasPendingGuestCheckActions();
+    lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
   }
 }
@@ -4815,8 +4989,7 @@ function renderMobileManagerView() {
     <div class="mobile-manager-view">
       <section class="mobile-manager-header">
         <div class="mobile-manager-header-top">
-          ${renderBrandBlock({ title:"Manager Mode", subtitle:`${venueContext.compactLabel} / ${venueContext.sharedGuestListLabel} / ${state.activeDate}`, variant:"dark", compact:true })}
-          <div class="mobile-manager-live-badge">Live</div>
+          ${renderBrandBlock({ title:"Manager Mode", subtitle:`${venueContext.compactLabel} / ${venueContext.sharedGuestListLabel}`, variant:"dark", compact:true })}
         </div>
 
         <div class="mobile-manager-stats-grid">
@@ -4825,8 +4998,6 @@ function renderMobileManagerView() {
           <div class="mobile-manager-stat-card"><strong>${stats.remaining}</strong><span>Remaining</span></div>
         </div>
       </section>
-
-      ${renderMobileManagerServiceDateCard()}
 
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
@@ -4872,6 +5043,8 @@ function renderMobileManagerView() {
           <button class="btn mobile-manager-primary-btn" type="button" onclick="mobileQuickAddGuest()">Add Guest</button>
         </div>
       </section>
+
+      ${renderMobileManagerServiceDateCard()}
 
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
@@ -5094,7 +5267,6 @@ function renderMobileManagerView() {
         </details>
       </section>
 
-      ${renderMobileSyncFooter()}
     </div>
   `;
 }
@@ -5994,10 +6166,10 @@ function renderShiftNotesForDoorStaff() {
   if (!notes.length) {
     return `
       <section class="card df-door-shift-notes df-door-shift-notes--empty" aria-labelledby="door-shift-notes-title">
-        <header class="df-door-section-heading">
-          <div><p class="df-door-kicker">Shift brief</p><h2 id="door-shift-notes-title">Manager / Shift Notes</h2></div>
+        <header class="df-door-section-heading df-door-shift-brief-row">
+          <div><h2 id="door-shift-notes-title">Shift Brief</h2></div>
+          <p class="df-door-shift-empty-summary" role="status">No notes</p>
         </header>
-        <div class="df-door-empty-state" role="status"><strong>No shift notes</strong><span>No manager or shift notes have been added for this date yet.</span></div>
       </section>
     `;
   }
@@ -6299,6 +6471,20 @@ function renderCloseOutReportModal() {
   const shiftNotes = report.shift_notes || [];
   const activityLogs = report.activity_logs || [];
   const generatedAt = new Date(report.generated_at).toLocaleString();
+  const canKeepPrintSectionTogether = (rows, maxRows, fields) => {
+    const rowLengths = rows.map(row => fields
+      .map(field => String(row?.[field] ?? ""))
+      .join(" ")
+      .trim()
+      .length);
+    return rows.length <= maxRows
+      && rowLengths.every(length => length <= 180)
+      && rowLengths.reduce((total, length) => total + length, 0) <= 480;
+  };
+  const keepGroupsTogether = canKeepPrintSectionTogether(report.groups, 4, ["group_name", "group_type", "host_name", "table_location"]);
+  const keepLateAddsTogether = canKeepPrintSectionTogether(lateAdds, 4, ["display_name", "group_name", "approved_by", "reason", "added_by"]);
+  const keepNoShowsTogether = canKeepPrintSectionTogether(noShows, 4, ["display_name", "group_name", "guest_type", "notes"]);
+  const keepShiftNotesTogether = canKeepPrintSectionTogether(shiftNotes, 3, ["category", "priority", "note_text", "created_by_name"]);
 
   return `
     <div class="modal-backdrop df-admin-modal-backdrop df-closeout-report-backdrop">
@@ -6330,7 +6516,7 @@ function renderCloseOutReportModal() {
 
         <div class="df-closeout-report__body">
 
-          <section class="df-closeout-report__section" aria-labelledby="closeout-groups-title">
+          <section class="df-closeout-report__section df-closeout-report__section--groups${keepGroupsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-groups-title">
             <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Attendance</p><h3 id="closeout-groups-title">Group Breakdown</h3><p>Attendance totals by group for the selected service date.</p></div></header>
             ${report.groups.length ? `
               <div class="df-closeout-report__table-wrap" role="region" aria-label="Group Breakdown table" tabindex="0">
@@ -6355,7 +6541,7 @@ function renderCloseOutReportModal() {
             ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No groups recorded.</p></div>`}
           </section>
 
-          <section class="df-closeout-report__section" aria-labelledby="closeout-late-adds-title">
+          <section class="df-closeout-report__section df-closeout-report__section--late-adds${keepLateAddsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-late-adds-title">
             <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Review</p><h3 id="closeout-late-adds-title">Late Adds</h3><p>Manager-approved additions recorded for this service date.</p></div></header>
             ${lateAdds.length ? `
               <div class="df-closeout-report__table-wrap" role="region" aria-label="Late Adds table" tabindex="0">
@@ -6380,7 +6566,7 @@ function renderCloseOutReportModal() {
             ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No late adds recorded.</p></div>`}
           </section>
 
-          <section class="df-closeout-report__section" aria-labelledby="closeout-no-shows-title">
+          <section class="df-closeout-report__section df-closeout-report__section--no-shows${keepNoShowsTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-no-shows-title">
             <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Remaining attendance</p><h3 id="closeout-no-shows-title">No-Shows / Remaining Guests</h3><p>Guests with attendance still remaining at the time of this report.</p></div></header>
             ${noShows.length ? `
               <div class="df-closeout-report__table-wrap" role="region" aria-label="No-Shows and Remaining Guests table" tabindex="0">
@@ -6404,7 +6590,7 @@ function renderCloseOutReportModal() {
             ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No no-shows / remaining guests.</p></div>`}
           </section>
 
-          <section class="df-closeout-report__section" aria-labelledby="closeout-notes-title">
+          <section class="df-closeout-report__section df-closeout-report__section--notes${keepShiftNotesTogether ? " df-closeout-report__section--print-short" : ""}" aria-labelledby="closeout-notes-title">
             <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Shift record</p><h3 id="closeout-notes-title">Manager / Shift Notes</h3><p>Operational notes recorded by management for this service date.</p></div></header>
             ${shiftNotes.length ? `
               <div class="df-closeout-report__table-wrap" role="region" aria-label="Manager and Shift Notes table" tabindex="0">
@@ -6427,7 +6613,7 @@ function renderCloseOutReportModal() {
             ` : `<div class="df-closeout-report__empty" role="status"><span aria-hidden="true">&#8212;</span><p>No shift notes recorded.</p></div>`}
           </section>
 
-          <section class="df-closeout-report__section" aria-labelledby="closeout-activity-title">
+          <section class="df-closeout-report__section df-closeout-report__section--activity" aria-labelledby="closeout-activity-title">
             <header class="df-closeout-report__section-header"><div><p class="df-closeout-report__section-kicker">Door record</p><h3 id="closeout-activity-title">Recent Door Activity</h3><p>The most recent recorded check-in activity for this service date.</p></div></header>
             ${activityLogs.length ? `
               <div class="df-closeout-report__table-wrap" role="region" aria-label="Recent Door Activity table" tabindex="0">
@@ -6649,11 +6835,26 @@ function syncClassName() {
   return "good";
 }
 
-function renderSyncPill() {
-  const status = state.loading ? "Syncing" : (state.syncStatus || "Live");
+function renderSyncPill(surface = "pill") {
+  const status = state.error ? "Error" : state.loading ? "Syncing" : (state.syncStatus || "Live");
+  const statusKey = String(status).toLowerCase();
   const last = formatClock(state.lastSyncAt);
-  const title = state.syncMessage || "DoorFlow live sync";
-  return `<span class="pill sync-pill ${syncClassName()}" title="${esc(title)}"><span class="sync-dot"></span>${esc(status)} · Updated ${esc(last)}</span>`;
+  const message = state.error
+    ? state.error
+    : state.loading
+      ? "Refreshing the active service day."
+      : (state.syncMessage || "Guest and check-in data sync across devices.");
+  const tone = state.error || statusKey.includes("error") || statusKey.includes("failed") || statusKey.includes("offline") || statusKey.includes("signed out")
+    ? "bad"
+    : state.loading || statusKey.includes("saving") || statusKey.includes("syncing") || statusKey.includes("pending") || statusKey.includes("polling") || statusKey.includes("reconnect") || statusKey.includes("connecting")
+      ? "warn"
+      : syncClassName();
+
+  if (surface === "notice") {
+    return `<div class="notice df-door-system-state df-door-live-sync-notice ${tone}" role="${tone === "bad" ? "alert" : "status"}"><strong>${esc(status)}</strong><span>${esc(message)}</span></div>`;
+  }
+
+  return `<span class="pill sync-pill ${tone}" title="${esc(message)}"><span class="sync-dot"></span>${esc(status)} · Updated ${esc(last)}</span>`;
 }
 
 function renderMobileSyncFooter() {
@@ -6709,18 +6910,22 @@ function renderTopbar() {
         </div>
 
         <div class="df-shell-service" aria-label="Service context">
-          <label class="df-service-field">
-            <span class="df-utility-label">Day</span>
-            <select onchange="setActiveDay(this.value)">
-              ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
-            </select>
-          </label>
-          <label class="df-service-field">
-            <span class="df-utility-label">Service date</span>
-            <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-          </label>
-          ${renderSyncPill()}
-          <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span></button>
+          <div class="df-service-context-row">
+            <label class="df-service-field">
+              <span class="df-utility-label">Day</span>
+              <select onchange="setActiveDay(this.value)">
+                ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
+              </select>
+            </label>
+            <label class="df-service-field">
+              <span class="df-utility-label">Service date</span>
+              <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+            </label>
+          </div>
+          <div class="df-service-sync-row">
+            ${renderSyncPill()}
+            <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span><span class="df-refresh-label">Refresh</span></button>
+          </div>
         </div>
 
         <div class="df-utility-user">
@@ -6817,22 +7022,25 @@ function renderManagerServiceDateCard() {
 
 function renderMobileManagerServiceDateCard() {
   return `
-    <section class="mobile-manager-card">
-      <div class="mobile-manager-title-row">
-        <div>
-          <h2>Service Date</h2>
-          <p>Adding to ${esc(state.activeDate)}</p>
-        </div>
-      </div>
+    <section class="mobile-manager-card mobile-manager-service-date">
+      <details id="mobileManagerServiceDateDetails" class="mobile-manager-details">
+        <summary>
+          <div>
+            <h2>Change Service Date</h2>
+            <p>Current: ${esc(state.activeDate)}</p>
+          </div>
+          <strong aria-hidden="true">⌄</strong>
+        </summary>
 
-      <div class="mobile-manager-form">
-        <div>
-          <label>Service Date</label>
-          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-        </div>
+        <div class="mobile-manager-form">
+          <div>
+            <label>Service Date</label>
+            <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+          </div>
 
-        <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
-      </div>
+          <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
+        </div>
+      </details>
     </section>
   `;
 }
@@ -6945,8 +7153,8 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
         const guestBusy = checkInBusy || undoBusy;
 
         return `
-          <div class="guest-row df-door-guest-row ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}">
-            <button type="button" class="guest-check df-door-guest-check" onclick="toggleGuest('${guest.id}')" aria-label="Toggle check-in for ${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}" ${guestBusy ? "disabled" : ""}>${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
+          <div class="guest-row df-door-guest-row ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}" data-live-roster-card data-guest-id="${esc(guest.id)}">
+            <button type="button" class="guest-check df-door-guest-check" data-roster-action="toggle" onclick="prepareLiveRosterAction(event,'${guest.id}','toggle');toggleGuest('${guest.id}')" aria-label="Toggle check-in for ${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}" ${guestBusy ? "disabled" : ""}>${fullyIn ? "✓" : checked > 0 ? checked : ""}</button>
 
             <div class="df-door-guest-copy">
               <div class="name-line df-door-guest-name-line df-door-live-name-row">
@@ -6966,8 +7174,8 @@ function renderGuestList(showActions = false, guests = visibleGuests()) {
             </div>
 
             <div class="row-actions df-door-guest-actions">
-              ${checkInBusy ? `<button type="button" class="btn green small df-door-checkin-action" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green small df-door-checkin-action" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<span class="badge in df-door-status df-door-status--complete">Fully In</span>`}
-              ${undoBusy ? `<button type="button" class="btn secondary small df-door-undo-action" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary small df-door-undo-action" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : ""}
+              ${checkInBusy ? `<button type="button" class="btn green small df-door-checkin-action" data-roster-action="checkin" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green small df-door-checkin-action" data-roster-action="checkin" onclick="prepareLiveRosterAction(event,'${guest.id}','checkin');checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<span class="badge in df-door-status df-door-status--complete">Fully In</span>`}
+              ${undoBusy ? `<button type="button" class="btn secondary small df-door-undo-action" data-roster-action="undo" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary small df-door-undo-action" data-roster-action="undo" onclick="prepareLiveRosterAction(event,'${guest.id}','undo');undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : ""}
               ${showActions ? `
                 <button type="button" class="btn secondary small" onclick="openGuestModal('${guest.id}')">Edit</button>
                 <button type="button" class="btn secondary small" onclick="openPlusOnesModal('${guest.id}')">Edit Plus Ones</button>
@@ -7198,6 +7406,17 @@ function refreshSyncStatusSurface() {
     }
   }
 
+  const liveNotice = document.querySelector(".df-door-live-sync-notice");
+  if (liveNotice) {
+    const template = document.createElement("template");
+    template.innerHTML = renderSyncPill("notice");
+    const next = template.content.firstElementChild;
+    if (next) {
+      liveNotice.replaceWith(next);
+      touched = true;
+    }
+  }
+
   return touched;
 }
 
@@ -7230,6 +7449,9 @@ function refreshStatsSurface() {
 }
 
 function refreshVisibleGuestSurface() {
+  const rosterAnchor = pendingLiveRosterAnchor?.view === state.view
+    ? pendingLiveRosterAnchor
+    : captureLiveRosterAnchor();
   const guests = visibleGuests();
   let touched = false;
 
@@ -7272,6 +7494,7 @@ function refreshVisibleGuestSurface() {
   refreshStatsSurface();
   syncGuestFilterControls();
   syncSortControls();
+  restoreLiveRosterAnchor(rosterAnchor);
 
   return touched;
 }
@@ -7372,7 +7595,7 @@ function renderTabletGuestCards(guests) {
     const guestBusy = checkInBusy || undoBusy;
 
     return `
-      <article class="tablet-guest-card df-tablet-guest-card ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}" aria-label="${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}, ${fullyIn ? "fully checked in" : `${remaining} remaining`}">
+      <article class="tablet-guest-card df-tablet-guest-card ${fullyIn ? "checked is-complete" : checked > 0 ? "is-partial" : "is-pending"}" data-live-roster-card data-guest-id="${esc(guest.id)}" aria-label="${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}, ${fullyIn ? "fully checked in" : `${remaining} remaining`}">
         <div class="tablet-guest-top">
           <div class="df-tablet-guest-copy">
             <p class="tablet-guest-name">${esc(DOORFLOW_LIVE_GUEST_PRESENTATION.displayName(guest))}</p>
@@ -7385,8 +7608,8 @@ function renderTabletGuestCards(guests) {
         <p class="tablet-note df-tablet-guest-status"><strong>${fullyIn ? "Checked In" : checked > 0 ? "Partially Arrived" : "Not Arrived"}</strong><span>${fullyIn ? "Fully checked in" : `${remaining} remaining`}${checked > 0 && guest.last_checked_in_by_name ? ` · Last by ${esc(guest.last_checked_in_by_name)} at ${esc(guest.last_door_location || "")}` : ""}</span></p>
 
         <div class="tablet-actions df-tablet-guest-actions">
-          ${checkInBusy ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" onclick="checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" disabled>Fully In</button>`}
-          ${undoBusy ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" onclick="undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" disabled>Undo 1</button>`}
+          ${checkInBusy ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" disabled>Saving...</button>` : remaining > 0 ? `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" onclick="prepareLiveRosterAction(event,'${guest.id}','checkin');checkInOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Check In 1</button>` : `<button type="button" class="btn green tablet-check-btn df-door-checkin-action" data-roster-action="checkin" disabled>Fully In</button>`}
+          ${undoBusy ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" disabled>Saving...</button>` : checked > 0 ? `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" onclick="prepareLiveRosterAction(event,'${guest.id}','undo');undoOneGuest('${guest.id}')" ${guestBusy ? "disabled" : ""}>Undo 1</button>` : `<button type="button" class="btn secondary tablet-undo-btn df-door-undo-action" data-roster-action="undo" disabled>Undo 1</button>`}
         </div>
       </article>
     `;
@@ -7488,8 +7711,6 @@ function renderTabletDoorMode() {
           <span>${activeListSummary}</span>
         </div>
       </div>
-
-      ${renderShiftNotesForDoorStaff()}
 
       <div class="df-tablet-content-layout is-roster-only">
         <section class="df-tablet-results" aria-labelledby="tablet-results-title">
@@ -8228,7 +8449,7 @@ function renderApp() {
   let content = "";
 
   if (state.view === "door") content = `<div class="stack df-door-checkin-view">${renderShiftNotesForDoorStaff()}${renderMainWorkspace(false)}</div>`;
-  if (state.view === "tabletDoor") content = renderTabletDoorMode();
+  if (state.view === "tabletDoor") content = `<div class="stack df-tablet-door-view">${renderShiftNotesForDoorStaff()}${renderTabletDoorMode()}</div>`;
   if (state.view === "manage") content = renderManagement();
   if (state.view === "users") content = renderStaffManagement();
   if (state.view === "reports") content = renderReports();
@@ -8252,9 +8473,13 @@ function renderApp() {
         ${renderTopbar()}
         <main id="main-content" class="df-main-content ${isLiveServiceView ? "df-live-service-content df-door-theme" : "df-admin-theme"}" tabindex="-1">
           <div class="page${isLiveServiceView ? " df-door-page" : ""}">
-            ${state.error ? `<div class="notice redbox df-admin-state-inline${isLiveServiceView ? " df-door-system-state df-door-system-state--error" : ""}" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
-            ${isLiveServiceView && state.loading ? `<div class="notice df-door-system-state df-door-system-state--loading" role="status"><strong>Syncing DoorFlow data</strong><span>Refreshing the active service day.</span></div>` : ""}
-            <div class="notice greenbox df-admin-state-inline${isLiveServiceView ? " df-door-system-state df-door-system-state--live" : ""}" role="status"><strong>Live database mode:</strong> guests and check-ins are stored in Supabase and sync across devices.</div>
+            ${state.error && !isLiveServiceView ? `<div class="notice redbox df-admin-state-inline" role="alert"><strong>Error:</strong> ${esc(state.error)}</div>` : ""}
+            ${isLiveServiceView ? renderSyncPill("notice") : `
+              <details class="notice greenbox df-admin-state-inline df-database-mode-disclosure">
+                <summary><strong>Live database mode</strong></summary>
+                <p>Guests and check-ins are stored in Supabase and sync across devices.</p>
+              </details>
+            `}
             ${content}
           </div>
         </main>
@@ -8283,6 +8508,7 @@ Object.assign(window, {
   updateTabletSearch,
   clearMainSearch,
   clearTabletSearchFilter,
+  prepareLiveRosterAction,
   checkInOneGuest,
   undoOneGuest,
   toggleGuest,

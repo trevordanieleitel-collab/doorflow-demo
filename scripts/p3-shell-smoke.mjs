@@ -63,6 +63,17 @@ const protectedFunctions = [
 
 const doorPresentationFunctions = protectedFunctions.slice(0, 7);
 const protectedLogicFunctions = protectedFunctions.slice(7);
+const p61ChangedFunctions = new Set([
+  "checkInOneGuest",
+  "undoOneGuest",
+  "loadDataForDate"
+]);
+const p61NewFunctions = [
+  "hasPendingGuestCheckActions",
+  "markGuestCheckStateChanged",
+  "beginLiveDataSnapshot",
+  "shouldApplyLiveDataSnapshot"
+];
 
 const shellFunctions = [
   "renderDoorFlowLockup",
@@ -148,7 +159,7 @@ const runtime = extractRuntime(indexHtml);
 const baselineRuntime = extractRuntime(baselineIndex);
 
 check(Boolean(runtime), "inline operational runtime remains in index.html");
-check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css">/g) === 1, "operational theme is linked exactly once");
+check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css\?v=p6\.10">/g) === 1, "P6.10 cache-versioned operational theme is linked exactly once");
 check(count(runtime, /<nav class="df-primary-nav"/g) === 1, "runtime produces one primary navigation structure");
 check(count(runtime, /\$\{renderTabs\(\)\}/g) === 1, "authenticated shell renders the navigation tree once");
 
@@ -224,12 +235,32 @@ for (const name of protectedLogicFunctions) {
   const baselineIndexBlock = extractFunction(baselineRuntime, name);
   const currentAppBlock = extractFunction(appJs, name);
   const baselineAppBlock = extractFunction(baselineApp, name);
+  if (p61ChangedFunctions.has(name)) {
+    const changed = currentIndexBlock && baselineIndexBlock && currentAppBlock && baselineAppBlock
+      && hash(currentIndexBlock) === hash(currentAppBlock)
+      && hash(currentIndexBlock) !== hash(baselineIndexBlock)
+      && hash(currentAppBlock) !== hash(baselineAppBlock);
+    check(Boolean(changed), `P6.1 authorized function ${name}`);
+    continue;
+  }
   const present = currentIndexBlock && baselineIndexBlock && currentAppBlock && baselineAppBlock;
   const matched = present
     && hash(currentIndexBlock) === hash(baselineIndexBlock)
     && hash(currentAppBlock) === hash(baselineAppBlock)
     && hash(currentIndexBlock) === hash(currentAppBlock);
   check(Boolean(matched), `protected function ${name}`);
+}
+
+for (const name of p61NewFunctions) {
+  const runtimeBlock = extractFunction(runtime, name);
+  const appBlock = extractFunction(appJs, name);
+  check(Boolean(
+    runtimeBlock
+    && appBlock
+    && hash(runtimeBlock) === hash(appBlock)
+    && !extractFunction(baselineRuntime, name)
+    && !extractFunction(baselineApp, name)
+  ), `P6.1 new helper ${name}`);
 }
 
 for (const name of doorPresentationFunctions) {
@@ -245,13 +276,17 @@ for (const name of shellFunctions) {
 }
 
 const statusRecords = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0").filter(Boolean);
-const changedPaths = statusRecords.map(record => record.slice(3).replaceAll("\\", "/"));
+const changedPaths = statusRecords
+  .filter(record => {
+    const path = record.slice(3).replaceAll("\\", "/");
+    return !(record.startsWith("?? ") && path === ".codex/config.toml");
+  })
+  .map(record => record.slice(3).replaceAll("\\", "/"));
 const forbiddenChanges = changedPaths.filter(path =>
   path.endsWith(".sql")
-  || /(^|\/)(sw\.js|manifest\.webmanifest)$/.test(path)
   || /rls|policy_snapshot/i.test(path)
 );
-check(forbiddenChanges.length === 0, "SQL, RLS, policy snapshot, service worker, and manifest files are unchanged");
+check(forbiddenChanges.length === 0, "SQL, RLS, and policy snapshot files are unchanged");
 
 const allowedChanges = new Set([
   "app.js",
@@ -260,7 +295,16 @@ const allowedChanges = new Set([
   "scripts/p3-shell-smoke.mjs",
   "scripts/p4-admin-smoke.mjs",
   "scripts/p5-door-smoke.mjs",
+  "scripts/p6-checkin-race-smoke.mjs",
+  "scripts/p6-release-smoke.mjs",
+  "sw.js",
+  "manifest.webmanifest",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
+  "docs/P6_RELEASE_HARDENING.md",
+  "docs/DOORFLOW_RELEASE_RUNBOOK.md",
+  "docs/DOORFLOW_ROLLBACK_RUNBOOK.md",
+  "docs/P6_MANUAL_ACCEPTANCE_CHECKLIST.md",
+  "docs/P6_REALTIME_CONFIGURATION.md",
   "ui-redesign/README.md"
 ]);
 check(changedPaths.every(path => allowedChanges.has(path)), "working changes stay inside the approved UI redesign file set");
@@ -270,4 +314,4 @@ if (failures) {
   process.exit(1);
 }
 
-console.log(`P3 shell smoke passed: ${protectedLogicFunctions.length} protected logic functions matched HEAD; ${doorPresentationFunctions.length} P5 Door renderers retain runtime/mirror parity. Door presentation contracts are covered by the P5 smoke suite.`);
+console.log(`P3 shell smoke passed: ${protectedLogicFunctions.length - p61ChangedFunctions.size} protected logic functions matched HEAD; ${p61ChangedFunctions.size + p61NewFunctions.length} P6.1 functions passed authorized parity checks; ${doorPresentationFunctions.length} P5 Door renderers retain runtime/mirror parity.`);

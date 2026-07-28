@@ -69,6 +69,18 @@ const protectedDoorRenderers = [
   "renderShiftNotesForDoorStaff"
 ];
 
+const p61ChangedFunctions = new Set([
+  "checkInOneGuest",
+  "undoOneGuest",
+  "loadDataForDate"
+]);
+const p61NewFunctions = [
+  "hasPendingGuestCheckActions",
+  "markGuestCheckStateChanged",
+  "beginLiveDataSnapshot",
+  "shouldApplyLiveDataSnapshot"
+];
+
 const administrativeRenderers = [
   "captureModalReturnFocus",
   "restoreModalReturnFocus",
@@ -148,12 +160,13 @@ const baselineApp = fromHead("app.js");
 const baselineTheme = fromHead("doorflow-operational-theme.css");
 const runtime = extractRuntime(indexHtml);
 const baselineRuntime = extractRuntime(baselineIndex);
+const p65Css = themeCss.split("/* Phase P6.5:")[1] || "";
 
 check(Boolean(runtime), "inline operational runtime remains in index.html");
 check(!/<script[^>]+src=["'](?:\.\/)?app\.js["']/i.test(indexHtml), "index.html remains the inline runtime and does not load app.js");
-check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css">/g) === 1, "operational theme remains linked exactly once");
+check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css\?v=p6\.10">/g) === 1, "P6.10 cache-versioned operational theme remains linked exactly once");
 
-const protectedMismatches = protectedFunctions.filter(name => {
+const protectedMismatches = protectedFunctions.filter(name => !p61ChangedFunctions.has(name)).filter(name => {
   const blocks = [
     extractFunction(runtime, name),
     extractFunction(appJs, name),
@@ -162,8 +175,36 @@ const protectedMismatches = protectedFunctions.filter(name => {
   ];
   return blocks.some(block => !block) || new Set(blocks.map(hash)).size !== 1;
 });
-check(protectedMismatches.length === 0, `protected operational hashes match HEAD (${protectedFunctions.length} logic functions)`);
+check(protectedMismatches.length === 0, `protected operational hashes match HEAD (${protectedFunctions.length - p61ChangedFunctions.size} logic functions)`);
 if (protectedMismatches.length) console.error(`  Mismatches: ${protectedMismatches.join(", ")}`);
+
+for (const name of p61ChangedFunctions) {
+  const currentRuntime = extractFunction(runtime, name);
+  const currentApp = extractFunction(appJs, name);
+  const baselineRuntimeBlock = extractFunction(baselineRuntime, name);
+  const baselineAppBlock = extractFunction(baselineApp, name);
+  check(Boolean(
+    currentRuntime
+    && currentApp
+    && baselineRuntimeBlock
+    && baselineAppBlock
+    && hash(currentRuntime) === hash(currentApp)
+    && hash(currentRuntime) !== hash(baselineRuntimeBlock)
+    && hash(currentApp) !== hash(baselineAppBlock)
+  ), `P6.1 authorized function ${name}`);
+}
+
+for (const name of p61NewFunctions) {
+  const currentRuntime = extractFunction(runtime, name);
+  const currentApp = extractFunction(appJs, name);
+  check(Boolean(
+    currentRuntime
+    && currentApp
+    && hash(currentRuntime) === hash(currentApp)
+    && !extractFunction(baselineRuntime, name)
+    && !extractFunction(baselineApp, name)
+  ), `P6.1 new helper ${name}`);
+}
 
 const doorMirrorMismatches = protectedDoorRenderers.filter(name => {
   const runtimeBlock = extractFunction(runtime, name);
@@ -216,6 +257,18 @@ check(closeoutSectionIds.every((sectionId, index) => {
   const previous = index ? closeoutBlock.indexOf(closeoutSectionIds[index - 1]) : -1;
   return position >= 0 && position > previous;
 }), "closeout section order is preserved");
+for (const className of [
+  "df-closeout-report__section--groups",
+  "df-closeout-report__section--late-adds",
+  "df-closeout-report__section--no-shows",
+  "df-closeout-report__section--notes",
+  "df-closeout-report__section--activity"
+]) {
+  check(closeoutBlock.includes(className), `closeout renderer includes pagination class ${className}`);
+}
+check(count(closeoutBlock, /df-closeout-report__section--print-short/g) === 4, "exactly four short closeout sections receive conditional keep-together treatment");
+check(closeoutBlock.includes("canKeepPrintSectionTogether") && count(closeoutBlock, /canKeepPrintSectionTogether\([^;]+, 4,/g) === 3 && count(closeoutBlock, /canKeepPrintSectionTogether\([^;]+, 3,/g) === 1, "short-section row thresholds remain bounded at 4/4/4/3");
+check(closeoutBlock.includes("length <= 180") && closeoutBlock.includes("<= 480"), "short-section eligibility rejects a few rows with unbounded text");
 
 check(/\.df-shell-modal-scope\s+\.df-closeout-report\s*\{[^}]*width:\s*min\(72rem,\s*calc\(100vw\s*-\s*2rem\)\);[^}]*max-height:\s*calc\(100dvh\s*-\s*2rem\);[^}]*overflow:\s*auto;/s.test(themeCss), "closeout modal uses viewport-safe dimensions and internal scrolling");
 check(/\.df-closeout-report__table-wrap\s*\{[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;/s.test(themeCss), "closeout horizontal scrolling is contained per table");
@@ -226,6 +279,12 @@ check(/@media\s+print\s*\{[\s\S]*?#app:has\(\.df-closeout-report\)\s*>\s*\.df-ap
 check(!/@media\s+print\s*\{[\s\S]*?#app\s*\{[^}]*display:\s*none\s*!important;/s.test(themeCss), "closeout print never hides the report's #app ancestor");
 check(/\.df-shell-modal-scope\s+\.df-closeout-report\s*\{[^}]*page:\s*doorflow-closeout;/s.test(themeCss), "closeout report opts into the dedicated print page");
 check(/@media\s+print\s*\{[\s\S]*?\.df-closeout-report__table\s+thead\s*\{[^}]*display:\s*table-header-group\s*!important;/s.test(themeCss), "closeout print restores repeating table headers");
+check(Boolean(p65Css), "P6.5 print-pagination CSS boundary exists");
+check(/\.df-closeout-report__section--print-short\s*\{[^}]*break-inside:\s*avoid-page\s*!important;[^}]*page-break-inside:\s*avoid\s*!important;/s.test(p65Css), "short closeout sections use modern and legacy keep-together rules");
+check(/\.df-closeout-report__section--activity\s*\{[^}]*break-inside:\s*auto\s*!important;[^}]*page-break-inside:\s*auto\s*!important;/s.test(p65Css), "Recent Door Activity remains splittable");
+check(/\.df-closeout-report__section-header,[\s\S]*?\{[^}]*break-after:\s*avoid-page;[^}]*page-break-after:\s*avoid;/s.test(p65Css), "closeout section headings avoid orphaning with modern and legacy rules");
+check(/\.df-closeout-report__table\s+thead\s*\{[^}]*display:\s*table-header-group\s*!important;/s.test(p65Css), "continued closeout pages repeat table headers");
+check(/\.df-closeout-report__table\s+tr,[\s\S]*?\{[^}]*break-inside:\s*avoid-page;[^}]*page-break-inside:\s*avoid;/s.test(p65Css), "closeout rows avoid splitting with modern and legacy rules");
 check(!/\.df-closeout-report[^}]*overflow-x:\s*hidden/i.test(themeCss), "closeout styling does not hide horizontal overflow defects");
 
 for (const className of [
@@ -309,15 +368,17 @@ check(!/\.df-(?:door-workspace|live-service-content|tablet-card-grid|guest-row|c
 check(baselineTheme.startsWith(preP4Css), "P4 CSS is inserted after an unchanged committed P3 prefix");
 
 const statusRecords = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0").filter(Boolean);
-const changedPaths = statusRecords.map(record => record.slice(3).replaceAll("\\", "/"));
+const changedPaths = statusRecords
+  .filter(record => {
+    const path = record.slice(3).replaceAll("\\", "/");
+    return !(record.startsWith("?? ") && path === ".codex/config.toml");
+  })
+  .map(record => record.slice(3).replaceAll("\\", "/"));
 const forbiddenChanges = changedPaths.filter(path =>
   path.endsWith(".sql")
-  || /(^|\/)(sw\.js|manifest\.webmanifest)$/.test(path)
   || /rls|policy_snapshot/i.test(path)
 );
-check(forbiddenChanges.length === 0, "SQL, RLS, policy snapshot, service worker, and manifest files are unchanged");
-check(hash(read("sw.js")) === hash(fromHead("sw.js")), "service worker matches HEAD");
-check(hash(read("manifest.webmanifest")) === hash(fromHead("manifest.webmanifest")), "manifest matches HEAD");
+check(forbiddenChanges.length === 0, "SQL, RLS, and policy snapshot files are unchanged");
 
 const allowedChanges = new Set([
   "app.js",
@@ -326,7 +387,16 @@ const allowedChanges = new Set([
   "scripts/p3-shell-smoke.mjs",
   "scripts/p4-admin-smoke.mjs",
   "scripts/p5-door-smoke.mjs",
+  "scripts/p6-checkin-race-smoke.mjs",
+  "scripts/p6-release-smoke.mjs",
+  "sw.js",
+  "manifest.webmanifest",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
+  "docs/P6_RELEASE_HARDENING.md",
+  "docs/DOORFLOW_RELEASE_RUNBOOK.md",
+  "docs/DOORFLOW_ROLLBACK_RUNBOOK.md",
+  "docs/P6_MANUAL_ACCEPTANCE_CHECKLIST.md",
+  "docs/P6_REALTIME_CONFIGURATION.md",
   "ui-redesign/README.md"
 ]);
 check(changedPaths.every(path => allowedChanges.has(path)), "working changes stay inside the approved P4 file set");

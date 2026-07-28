@@ -36,7 +36,7 @@ Phase P5.3 adds a live-service-only compact density layer at 430px and below plu
 
 The current database context still exposes only the `EVE` venue row. An isolated presentation configuration identifies The B.O.B. as the parent property, EVE as the operating nightclub, and the list as `Shared Guest List`; unknown venues fall back to their stored names. This does not alter venue IDs, service-day or guest-list queries, report calculations, CSV output, RLS, or door-location behavior. Explicit hierarchy fields remain a future data-model requirement.
 
-Phase P6 authenticated validation, PWA cache/version work, controlled release review, and operational sign-off remain outstanding.
+Phase P6 prepares an uncommitted release-hardening candidate. It preserves the P5 visual system, moves the service worker to a scoped `doorflow-cache-v30` strategy, adds dependency-free release smoke coverage, and documents manual acceptance, release, and rollback procedures. P6.1 synchronizes a narrow rapid check-in/load race fix across the inline runtime and `app.js` mirror and adds deterministic delayed-write coverage. Release status remains blocked pending authenticated live mutation, duplicate-log, two-device realtime, responsive, low-light, and installed-PWA owner sign-off.
 
 ## Run locally
 
