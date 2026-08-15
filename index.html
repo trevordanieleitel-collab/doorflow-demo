@@ -1336,7 +1336,7 @@
 
   </style>
 
-  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p6.10">
+  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p8.1">
 
   <!-- DoorFlow PWA install support -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -1510,6 +1510,9 @@ let state = {
   editingShiftNoteId:null,
   importMessage:"",
   mobileManagerNotice:null,
+  mobileManagementGuestSearch:"",
+  mobileManagementGuestScope:"ALL",
+  serviceControlsExpanded:false,
   syncStatus:"Connecting",
   syncMessage:"Starting live sync",
   realtimeStatus:"Not connected",
@@ -1540,6 +1543,14 @@ let liveDataLoadSequence = 0;
 let guestCheckStateVersion = 0;
 let liveRosterAnchorGeneration = 0;
 let pendingLiveRosterAnchor = null;
+let managementGuestAnchorGeneration = 0;
+let pendingManagementGuestAnchor = null;
+const serviceControlsPhoneMedia = typeof window.matchMedia === "function"
+  ? window.matchMedia("(max-width: 540px)")
+  : null;
+let serviceControlsPhoneLayout = serviceControlsPhoneMedia
+  ? serviceControlsPhoneMedia.matches
+  : window.innerWidth <= 540;
 let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
 let modalFocusOpen = false;
@@ -1672,7 +1683,7 @@ function restoreFocusedInput(focusInfo) {
 }
 
 function captureScrollPositions() {
-  const ids = ["guestScrollPanel", "groupScrollPanel", "reportScrollPanel"];
+  const ids = ["guestScrollPanel", "groupScrollPanel", "reportScrollPanel", "mobileManagementGuestList"];
   const positions = {};
   ids.forEach(id => {
     const element = document.getElementById(id);
@@ -1687,6 +1698,144 @@ function restoreScrollPositions(positions) {
       const element = document.getElementById(id);
       if (element) element.scrollTop = positions[id];
     });
+  });
+}
+
+function captureManagementGuestAnchor(guestId = "", action = "", restoreFocus = false) {
+  if (state.view !== "manage" || !canManageData()) return null;
+  if (window.matchMedia && !window.matchMedia("(max-width: 760px)").matches) return null;
+
+  const panel = document.getElementById("mobileManagementGuestList");
+  const cards = [...document.querySelectorAll("[data-management-guest-card][data-guest-id]")];
+  if (!panel || !cards.length) return null;
+
+  const activeControl = document.activeElement?.closest?.("[data-management-guest-action]") || null;
+  const activeCard = activeControl?.closest?.("[data-management-guest-card][data-guest-id]") || null;
+  const inferredGuestId = String(activeCard?.dataset.guestId || "");
+  const requestedGuestId = String(guestId || inferredGuestId);
+  const requestedAction = String(action || activeControl?.dataset.managementGuestAction || "");
+  const shouldRestoreFocus = Boolean(
+    restoreFocus
+      || (!guestId && activeControl && activeCard && document.activeElement === activeControl)
+  );
+  const documentScroller = document.scrollingElement || document.documentElement;
+  const panelScrollable = panel.scrollHeight > panel.clientHeight + 1;
+  const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+  const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+
+  let cardIndex = requestedGuestId
+    ? cards.findIndex(card => String(card.dataset.guestId || "") === requestedGuestId)
+    : -1;
+
+  if (cardIndex < 0) {
+    cardIndex = cards.findIndex(card => card.getBoundingClientRect().bottom > anchorTop + 1);
+  }
+  if (cardIndex < 0) cardIndex = cards.length - 1;
+
+  const card = cards[cardIndex];
+
+  return {
+    generation:++managementGuestAnchorGeneration,
+    view:state.view,
+    guestId:String(card.dataset.guestId || ""),
+    requestedGuestId,
+    previousGuestId:String(cards[cardIndex - 1]?.dataset.guestId || ""),
+    nextGuestId:String(cards[cardIndex + 1]?.dataset.guestId || ""),
+    action:requestedAction,
+    restoreFocus:shouldRestoreFocus,
+    cardOffset:card.getBoundingClientRect().top - anchorTop,
+    documentScrollTop:Number(documentScroller?.scrollTop || 0),
+    panelScrollTop:Number(panel.scrollTop || 0)
+  };
+}
+
+function prepareManagementGuestAction(event, guestId, action) {
+  const control = event?.currentTarget || null;
+  const snapshot = captureManagementGuestAnchor(
+    guestId,
+    action,
+    Boolean(control && document.activeElement === control)
+  );
+
+  if (snapshot) pendingManagementGuestAnchor = snapshot;
+  return snapshot;
+}
+
+function restoreManagementGuestAnchor(snapshot) {
+  if (!snapshot) return;
+
+  requestAnimationFrame(() => {
+    if (snapshot.generation !== managementGuestAnchorGeneration) return;
+
+    const primaryGuestId = snapshot.requestedGuestId || snapshot.guestId;
+    if (snapshot.view !== state.view) {
+      const pendingIsCurrent = pendingManagementGuestAnchor?.generation === snapshot.generation;
+      const deleteStillBusy = snapshot.action === "delete"
+        && isActionBusy(`mobile-delete:${primaryGuestId}`);
+      if (pendingIsCurrent && !deleteStillBusy) pendingManagementGuestAnchor = null;
+      return;
+    }
+
+    const panel = document.getElementById("mobileManagementGuestList");
+    const cards = [...document.querySelectorAll("[data-management-guest-card][data-guest-id]")];
+    if (!panel) return;
+
+    const findCard = id => id
+      ? cards.find(card => String(card.dataset.guestId || "") === String(id)) || null
+      : null;
+    const primaryCard = findCard(primaryGuestId);
+    const card = primaryCard
+      || findCard(snapshot.nextGuestId)
+      || findCard(snapshot.previousGuestId)
+      || findCard(snapshot.guestId);
+    const documentScroller = document.scrollingElement || document.documentElement;
+    const panelScrollable = panel.scrollHeight > panel.clientHeight + 1;
+
+    if (documentScroller) documentScroller.scrollTop = snapshot.documentScrollTop;
+    panel.scrollTop = snapshot.panelScrollTop;
+
+    if (card) {
+      const utilityBottom = Math.max(0, document.querySelector(".df-utility-bar")?.getBoundingClientRect().bottom || 0);
+      const anchorTop = panelScrollable ? panel.getBoundingClientRect().top : utilityBottom;
+      const delta = card.getBoundingClientRect().top - anchorTop - snapshot.cardOffset;
+
+      if (Math.abs(delta) > 1) {
+        if (panelScrollable) panel.scrollTop += delta;
+        else if (documentScroller) documentScroller.scrollTop += delta;
+      }
+    }
+
+    const pendingIsCurrent = pendingManagementGuestAnchor?.generation === snapshot.generation;
+    const keepForGuestModal = pendingIsCurrent && snapshot.action === "edit" && state.modal === "guest";
+    const keepForPendingDelete = pendingIsCurrent
+      && snapshot.action === "delete"
+      && isActionBusy(`mobile-delete:${primaryGuestId}`);
+    const activeElement = document.activeElement;
+    const focusIsUnclaimed = !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+      || activeElement === document.getElementById("main-content");
+
+    if (snapshot.restoreFocus && state.modal !== "guest" && focusIsUnclaimed) {
+      const focusAction = snapshot.action === "delete" && (pendingIsCurrent || !primaryCard)
+        ? "edit"
+        : snapshot.action;
+      const control = card && focusAction
+        ? card.querySelector(`[data-management-guest-action="${focusAction}"]`)
+        : null;
+      const focusTarget = control || (!card ? panel : null);
+      if (focusTarget) {
+        try {
+          focusTarget.focus({ preventScroll:true });
+        } catch {
+          focusTarget.focus();
+        }
+      }
+    }
+
+    if (pendingIsCurrent && !keepForGuestModal && !keepForPendingDelete) {
+      pendingManagementGuestAnchor = null;
+    }
   });
 }
 
@@ -1871,6 +2020,9 @@ function captureTransientUiState() {
     scroll:captureScrollPositions(),
     fields:captureFormFieldValues(),
     details:captureDetailsState(),
+    managementGuest:pendingManagementGuestAnchor?.view === state.view
+      ? pendingManagementGuestAnchor
+      : captureManagementGuestAnchor(),
     liveRoster:pendingLiveRosterAnchor?.view === state.view
       ? pendingLiveRosterAnchor
       : captureLiveRosterAnchor()
@@ -1882,7 +2034,16 @@ function restoreTransientUiState(ui) {
   restoreDetailsState(ui?.details);
   restoreFocusedInput(ui?.focus);
   restoreScrollPositions(ui?.scroll);
+  restoreManagementGuestAnchor(ui?.managementGuest);
   restoreLiveRosterAnchor(ui?.liveRoster);
+}
+
+function resetManagementSessionUiState() {
+  state.mobileManagementGuestSearch = "";
+  state.mobileManagementGuestScope = "ALL";
+  state.serviceControlsExpanded = false;
+  pendingManagementGuestAnchor = null;
+  managementGuestAnchorGeneration += 1;
 }
 
 function captureModalReturnFocus() {
@@ -1895,7 +2056,7 @@ function captureModalReturnFocus() {
   };
 }
 
-function restoreModalReturnFocus(target) {
+function restoreModalReturnFocus(target, managementSnapshot = null) {
   let element = target?.id ? document.getElementById(target.id) : null;
 
   if (!element && target?.onclick) {
@@ -1903,6 +2064,29 @@ function restoreModalReturnFocus(target) {
       return candidate.getAttribute("onclick") === target.onclick
         && String(candidate.textContent || "").trim() === target.text;
     }) || null;
+  }
+
+  if (!element && managementSnapshot?.restoreFocus) {
+    const cards = [...document.querySelectorAll("[data-management-guest-card][data-guest-id]")];
+    const findCard = id => id
+      ? cards.find(card => String(card.dataset.guestId || "") === String(id)) || null
+      : null;
+    const primaryGuestId = managementSnapshot.requestedGuestId || managementSnapshot.guestId;
+    const card = findCard(primaryGuestId)
+      || findCard(managementSnapshot.nextGuestId)
+      || findCard(managementSnapshot.previousGuestId)
+      || findCard(managementSnapshot.guestId);
+    element = card?.querySelector('[data-management-guest-action="edit"]')
+      || document.getElementById("mobileManagementGuestList");
+
+    if (element) {
+      try {
+        element.focus({ preventScroll:true });
+      } catch {
+        element.focus();
+      }
+      return;
+    }
   }
 
   (element || document.getElementById("main-content"))?.focus();
@@ -1923,9 +2107,12 @@ function syncModalFocus(opening) {
 
   if (modalFocusOpen) {
     const target = modalReturnFocus;
+    const managementSnapshot = pendingManagementGuestAnchor?.action === "edit"
+      ? pendingManagementGuestAnchor
+      : null;
     modalFocusOpen = false;
     modalReturnFocus = null;
-    requestAnimationFrame(() => restoreModalReturnFocus(target));
+    requestAnimationFrame(() => restoreModalReturnFocus(target, managementSnapshot));
   }
 }
 
@@ -2298,6 +2485,7 @@ function isUserActivelyEditing() {
 function updateSyncStatus(status, message) {
   state.syncStatus = status;
   state.syncMessage = message || "";
+  refreshServiceControlsSummary();
 }
 
 function msSinceDate(value) {
@@ -2811,6 +2999,7 @@ async function initAuth() {
     } else {
       stopAutoRefresh();
       unsubscribeRealtime();
+      resetManagementSessionUiState();
 
       auth.session = null;
       auth.currentUser = null;
@@ -2962,6 +3151,7 @@ async function logout() {
   state.editingPlusGuestId = null;
   state.editingShiftNoteId = null;
   state.error = "";
+  resetManagementSessionUiState();
 
   Object.keys(localStorage).forEach(key => {
     if (key.startsWith("sb-") || key.includes("supabase")) {
@@ -4972,7 +5162,167 @@ function recentManagerAdds(limit = 5) {
     .slice(0, limit);
 }
 
+function resolvedMobileManagementGuestScope() {
+  const scope = String(state.mobileManagementGuestScope || "ALL");
+  if (scope === "GENERAL") return scope;
+  if (scope.startsWith("GROUP:") && state.groups.some(group => group.id === scope.slice(6))) return scope;
+  return "ALL";
+}
+
+function mobileManagementGuests() {
+  const scope = resolvedMobileManagementGuestScope();
+  const general = generalGroup();
+  const terms = searchTerms(state.mobileManagementGuestSearch);
+  const rows = state.guests.filter(guest => {
+    if (scope === "GENERAL" && guest.group_id !== general?.id) return false;
+    if (scope.startsWith("GROUP:") && guest.group_id !== scope.slice(6)) return false;
+    return matchesSearchTerms(`${guest.first_name || ""} ${guest.last_name || ""}`, terms);
+  });
+
+  return [...rows].sort((a,b) => {
+    const aName = `${a.last_name || ""} ${a.first_name || ""}`.trim().toLowerCase();
+    const bName = `${b.last_name || ""} ${b.first_name || ""}`.trim().toLowerCase();
+    return aName.localeCompare(bName);
+  });
+}
+
+function renderMobileManagementGuestScopeOptions() {
+  const scope = resolvedMobileManagementGuestScope();
+  return `
+    <option value="ALL" ${scope === "ALL" ? "selected" : ""}>All guests</option>
+    <option value="GENERAL" ${scope === "GENERAL" ? "selected" : ""}>General Guest List</option>
+    ${specificGroups().map(group => `<option value="GROUP:${group.id}" ${scope === `GROUP:${group.id}` ? "selected" : ""}>${esc(group.name)}</option>`).join("")}
+  `;
+}
+
+function renderMobileManagementGuestRows(guests = mobileManagementGuests()) {
+  if (!state.guests.length) {
+    return `<div class="mobile-management-guest-empty" role="status">No guests have been added for this service date.</div>`;
+  }
+
+  if (!guests.length) {
+    return `<div class="mobile-management-guest-empty" role="status">No guests match this search and list filter.</div>`;
+  }
+
+  return guests.map(guest => {
+    const total = guestTotal(guest);
+    const checked = guestChecked(guest);
+    const remaining = guestRemaining(guest);
+    const deleteBusy = isActionBusy(`mobile-delete:${guest.id}`);
+
+    return `
+      <article class="mobile-management-guest-card" data-management-guest-card data-guest-id="${esc(guest.id)}">
+        <div class="mobile-management-guest-copy">
+          <h3>${esc(guestDisplayName(guest))}</h3>
+          <p>${esc(groupNameForGuest(guest))} <span aria-hidden="true">&middot;</span> ${esc(guest.guest_type || "Guest")}</p>
+          <p>Allowed ${total} <span aria-hidden="true">&middot;</span> ${checked} checked in <span aria-hidden="true">&middot;</span> ${remaining} remaining</p>
+          ${isLateAdd(guest) ? `<p class="mobile-management-guest-approval ${guest.late_add_approved_by ? "approved" : "pending"}">${guest.late_add_approved_by ? `Late Add &middot; Approved by ${esc(guest.late_add_approved_by)}` : "Needs Approval"}</p>` : ""}
+        </div>
+        <div class="mobile-management-guest-actions">
+          <button id="mobileManagementGuestEdit-${esc(guest.id)}" type="button" class="btn secondary" data-management-guest-action="edit" onclick="prepareManagementGuestAction(event,'${guest.id}','edit');openGuestModal('${guest.id}')">Edit</button>
+          <button id="mobileManagementGuestDelete-${esc(guest.id)}" type="button" class="btn danger" data-management-guest-action="delete" onclick="deleteMobileManagementGuest(event,'${guest.id}')" ${deleteBusy ? "disabled" : ""}>${deleteBusy ? "Deleting..." : "Delete"}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderMobileManageGuests() {
+  if (!canManageData()) return "";
+
+  const guests = mobileManagementGuests();
+  return `
+    <section id="mobileManageGuests" class="mobile-manager-card mobile-management-guests" aria-labelledby="mobile-management-guests-title">
+      <div class="mobile-manager-title-row">
+        <div>
+          <h2 id="mobile-management-guests-title">Manage Guests</h2>
+          <p>View, edit, or remove names for the selected service date.</p>
+        </div>
+        <strong id="mobileManagementGuestCount" class="mobile-management-guest-count">${guests.length}/${state.guests.length}</strong>
+      </div>
+
+      <div class="mobile-management-guest-tools">
+        <div>
+          <label for="mobileManagementGuestSearch">Search names</label>
+          <input id="mobileManagementGuestSearch" type="search" value="${esc(state.mobileManagementGuestSearch)}" placeholder="Search guest names..." oninput="updateMobileManagementGuestSearch(this.value)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        </div>
+        <div>
+          <label for="mobileManagementGuestScope">List or party</label>
+          <select id="mobileManagementGuestScope" onchange="setMobileManagementGuestScope(this.value)">
+            ${renderMobileManagementGuestScopeOptions()}
+          </select>
+        </div>
+      </div>
+
+      <div id="mobileManagementGuestList" class="mobile-management-guest-list" role="region" aria-label="Guests for ${esc(state.activeDay)} ${esc(state.activeDate)}" tabindex="0">
+        ${renderMobileManagementGuestRows(guests)}
+      </div>
+    </section>
+  `;
+}
+
+function refreshMobileManagementGuestSurface() {
+  const panel = document.getElementById("mobileManagementGuestList");
+  if (!panel) return false;
+
+  const anchor = pendingManagementGuestAnchor?.view === state.view
+    ? pendingManagementGuestAnchor
+    : captureManagementGuestAnchor();
+  const guests = mobileManagementGuests();
+  const count = document.getElementById("mobileManagementGuestCount");
+  const scope = document.getElementById("mobileManagementGuestScope");
+
+  if (count) count.textContent = `${guests.length}/${state.guests.length}`;
+  if (scope) {
+    scope.innerHTML = renderMobileManagementGuestScopeOptions();
+    scope.value = resolvedMobileManagementGuestScope();
+  }
+  panel.innerHTML = renderMobileManagementGuestRows(guests);
+  restoreManagementGuestAnchor(anchor);
+  return true;
+}
+
+function updateMobileManagementGuestSearch(value) {
+  state.mobileManagementGuestSearch = String(value || "");
+  refreshMobileManagementGuestSurface();
+}
+
+function setMobileManagementGuestScope(value) {
+  state.mobileManagementGuestScope = String(value || "ALL");
+  refreshMobileManagementGuestSurface();
+}
+
+async function deleteMobileManagementGuest(event, id) {
+  const actionKey = `mobile-delete:${id}`;
+  if (isActionBusy(actionKey)) return;
+
+  setActionBusy(actionKey, true);
+  const snapshot = prepareManagementGuestAction(event, id, "delete");
+  let failed = false;
+
+  try {
+    await deleteGuest(id);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    setActionBusy(actionKey, false);
+    const guestStillExists = state.guests.some(guest => guest.id === id);
+    if (
+      pendingManagementGuestAnchor?.generation === snapshot?.generation
+        && ((guestStillExists && !failed) || state.view !== snapshot?.view)
+    ) {
+      pendingManagementGuestAnchor = null;
+    }
+    if (failed && guestStillExists && state.view === snapshot?.view) {
+      refreshMobileManagementGuestSurface();
+    }
+  }
+}
+
 function renderMobileManagerView() {
+  if (!canManageData()) return "";
+
   const stats = dayStats();
   const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
   const latestNote = state.shiftNotes[0];
@@ -5044,7 +5394,7 @@ function renderMobileManagerView() {
         </div>
       </section>
 
-      ${renderMobileManagerServiceDateCard()}
+      ${renderMobileManageGuests()}
 
       <section class="mobile-manager-card">
         <div class="mobile-manager-title-row">
@@ -6835,7 +7185,7 @@ function syncClassName() {
   return "good";
 }
 
-function renderSyncPill(surface = "pill") {
+function currentSyncPresentation() {
   const status = state.error ? "Error" : state.loading ? "Syncing" : (state.syncStatus || "Live");
   const statusKey = String(status).toLowerCase();
   const last = formatClock(state.lastSyncAt);
@@ -6849,6 +7199,103 @@ function renderSyncPill(surface = "pill") {
     : state.loading || statusKey.includes("saving") || statusKey.includes("syncing") || statusKey.includes("pending") || statusKey.includes("polling") || statusKey.includes("reconnect") || statusKey.includes("connecting")
       ? "warn"
       : syncClassName();
+
+  return { status, last, message, tone };
+}
+
+function formatServiceControlsDate(dateString) {
+  if (!isValidISODate(dateString)) return String(dateString || "Date unavailable");
+  const date = new Date(`${dateString}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(dateString || "Date unavailable");
+  return date.toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" });
+}
+
+function serviceControlsAccessibleLabel(expanded = state.serviceControlsExpanded) {
+  const { status } = currentSyncPresentation();
+  const action = expanded ? "Hide service controls" : "Show service controls";
+  const day = String(state.activeDay || dayNameFromDate(state.activeDate) || "Day").slice(0, 3);
+  const date = formatServiceControlsDate(state.activeDate);
+  return `${action}. ${day} · ${date} · ${status}.`;
+}
+
+function renderServiceControlsSummary() {
+  const { status, tone } = currentSyncPresentation();
+  const day = String(state.activeDay || dayNameFromDate(state.activeDate) || "Day").slice(0, 3);
+  const date = formatServiceControlsDate(state.activeDate);
+  return `
+    <span id="df-service-controls-summary" class="df-service-controls-summary">
+      <span class="df-service-controls-summary__date">${esc(day)} <span aria-hidden="true">&middot;</span> ${esc(date)}</span>
+      <span class="df-service-controls-summary__status ${tone}"><span class="sync-dot" aria-hidden="true"></span>${esc(status)}</span>
+    </span>
+  `;
+}
+
+function refreshServiceControlsSummary() {
+  const button = document.getElementById("df-service-controls-toggle");
+  const summary = document.getElementById("df-service-controls-summary");
+  if (button) button.setAttribute("aria-label", serviceControlsAccessibleLabel());
+  if (!summary) return Boolean(button);
+  summary.outerHTML = renderServiceControlsSummary().trim();
+  return true;
+}
+
+function syncServiceControlsDisclosure() {
+  const expanded = Boolean(state.serviceControlsExpanded);
+  const shell = document.querySelector(".df-shell-service");
+  const button = document.getElementById("df-service-controls-toggle");
+
+  if (shell) {
+    shell.dataset.serviceControlsExpanded = expanded ? "true" : "false";
+    shell.dataset.serviceControlsMobileLayout = serviceControlsPhoneLayout ? "true" : "false";
+  }
+  if (button) {
+    const label = expanded ? "Hide service controls" : "Show service controls";
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    button.setAttribute("aria-label", serviceControlsAccessibleLabel(expanded));
+    button.setAttribute("title", label);
+  }
+  refreshServiceControlsSummary();
+}
+
+function focusServiceControlsToggleBeforeHide() {
+  const button = document.getElementById("df-service-controls-toggle");
+  const controls = document.getElementById("df-service-controls");
+  if (!controls?.contains(document.activeElement) || !button) return false;
+
+  try {
+    button.focus({ preventScroll:true });
+  } catch {
+    button.focus();
+  }
+  return true;
+}
+
+function syncServiceControlsResponsiveLayout(matches = serviceControlsPhoneMedia?.matches) {
+  const nextPhoneLayout = Boolean(matches);
+  if (nextPhoneLayout && !serviceControlsPhoneLayout && !state.serviceControlsExpanded) {
+    focusServiceControlsToggleBeforeHide();
+  }
+
+  serviceControlsPhoneLayout = nextPhoneLayout;
+  const shell = document.querySelector(".df-shell-service");
+  if (shell) shell.dataset.serviceControlsMobileLayout = nextPhoneLayout ? "true" : "false";
+}
+
+function handleServiceControlsBreakpointChange(event) {
+  syncServiceControlsResponsiveLayout(event.matches);
+}
+
+function toggleServiceControls() {
+  const nextExpanded = !state.serviceControlsExpanded;
+
+  if (!nextExpanded) focusServiceControlsToggleBeforeHide();
+
+  state.serviceControlsExpanded = nextExpanded;
+  syncServiceControlsDisclosure();
+}
+
+function renderSyncPill(surface = "pill") {
+  const { status, last, message, tone } = currentSyncPresentation();
 
   if (surface === "notice") {
     return `<div class="notice df-door-system-state df-door-live-sync-notice ${tone}" role="${tone === "bad" ? "alert" : "status"}"><strong>${esc(status)}</strong><span>${esc(message)}</span></div>`;
@@ -6909,22 +7356,28 @@ function renderTopbar() {
           </div>
         </div>
 
-        <div class="df-shell-service" aria-label="Service context">
-          <div class="df-service-context-row">
-            <label class="df-service-field">
-              <span class="df-utility-label">Day</span>
-              <select onchange="setActiveDay(this.value)">
-                ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
-              </select>
-            </label>
-            <label class="df-service-field">
-              <span class="df-utility-label">Service date</span>
-              <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-            </label>
-          </div>
-          <div class="df-service-sync-row">
-            ${renderSyncPill()}
-            <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span><span class="df-refresh-label">Refresh</span></button>
+        <div class="df-shell-service" data-service-controls-expanded="${state.serviceControlsExpanded ? "true" : "false"}" data-service-controls-mobile-layout="${serviceControlsPhoneLayout ? "true" : "false"}" aria-label="Service context">
+          <button id="df-service-controls-toggle" class="df-service-controls-toggle" type="button" aria-controls="df-service-controls" aria-expanded="${state.serviceControlsExpanded ? "true" : "false"}" aria-label="${esc(serviceControlsAccessibleLabel())}" title="${state.serviceControlsExpanded ? "Hide" : "Show"} service controls" onclick="toggleServiceControls()">
+            ${renderServiceControlsSummary()}
+            <span class="df-service-controls-chevron" aria-hidden="true">&#8964;</span>
+          </button>
+          <div id="df-service-controls" class="df-service-controls">
+            <div class="df-service-context-row">
+              <label class="df-service-field">
+                <span class="df-utility-label">Day</span>
+                <select onchange="setActiveDay(this.value)">
+                  ${days.map(day => `<option ${day === state.activeDay ? "selected" : ""}>${day}</option>`).join("")}
+                </select>
+              </label>
+              <label class="df-service-field">
+                <span class="df-utility-label">Service date</span>
+                <input id="df-service-date" type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
+              </label>
+            </div>
+            <div class="df-service-sync-row">
+              ${renderSyncPill()}
+              <button type="button" class="btn secondary small df-refresh-button" onclick="manualRefreshData()" aria-label="Refresh live data" title="Refresh live data"><span class="df-refresh-icon" aria-hidden="true">RF</span><span class="df-refresh-label">Refresh</span></button>
+            </div>
           </div>
         </div>
 
@@ -6995,52 +7448,6 @@ function renderDateBar() {
           </select>
         </div>
       </div>
-    </section>
-  `;
-}
-
-function renderManagerServiceDateCard() {
-  return `
-    <div class="card">
-      <h2>Service Date</h2>
-      <p class="subtle">Adding to: <strong>${esc(state.activeDay)} ${esc(state.activeDate)}</strong></p>
-
-      <div class="form two">
-        <div>
-          <label>Service Date</label>
-          <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-        </div>
-
-        <div>
-          <label>Quick Action</label>
-          <button class="btn secondary" type="button" onclick="useTodayDate()">Use Today</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderMobileManagerServiceDateCard() {
-  return `
-    <section class="mobile-manager-card mobile-manager-service-date">
-      <details id="mobileManagerServiceDateDetails" class="mobile-manager-details">
-        <summary>
-          <div>
-            <h2>Change Service Date</h2>
-            <p>Current: ${esc(state.activeDate)}</p>
-          </div>
-          <strong aria-hidden="true">⌄</strong>
-        </summary>
-
-        <div class="mobile-manager-form">
-          <div>
-            <label>Service Date</label>
-            <input type="date" value="${esc(state.activeDate)}" onchange="setActiveDate(this.value)" />
-          </div>
-
-          <button class="btn secondary mobile-manager-primary-btn" type="button" onclick="useTodayDate()">Use Today</button>
-        </div>
-      </details>
     </section>
   `;
 }
@@ -7383,7 +7790,7 @@ function syncSortControls() {
 }
 
 function refreshSyncStatusSurface() {
-  let touched = false;
+  let touched = refreshServiceControlsSummary();
   const syncPill = document.querySelector(".sync-pill");
   if (syncPill) {
     const template = document.createElement("template");
@@ -7515,9 +7922,10 @@ function refreshLiveSurfaces() {
   const touchedSync = refreshSyncStatusSurface();
   const touchedStats = refreshStatsSurface();
   const touchedGuests = refreshVisibleGuestSurface();
+  const touchedMobileManagementGuests = refreshMobileManagementGuestSurface();
   const touchedGroups = refreshGroupListSurface();
   const touchedSelectedGroup = refreshSelectedGroupPanelSurface();
-  return touchedSync || touchedStats || touchedGuests || touchedGroups || touchedSelectedGroup;
+  return touchedSync || touchedStats || touchedGuests || touchedMobileManagementGuests || touchedGroups || touchedSelectedGroup;
 }
 
 function shouldPatchLiveRefresh() {
@@ -7769,12 +8177,9 @@ function renderManagement() {
         meta:[
           { label:"Venue", value:venueContext.parentVenue },
           ...(venueContext.operatingSpace ? [{ label:"Operating space", value:venueContext.operatingSpace }] : []),
-          { label:"Guest-list scope", value:venueContext.guestListScope },
-          { label:"Service date", value:`${state.activeDay} ${state.activeDate}` }
+          { label:"Guest-list scope", value:venueContext.guestListScope }
         ]
       })}
-
-      ${renderManagerServiceDateCard()}
 
       <section class="card df-admin-card df-management-actions" aria-labelledby="management-controls-title">
         <header class="df-admin-section-header">
@@ -8494,6 +8899,7 @@ Object.assign(window, {
   logout,
   toggleShellNav,
   closeShellNav,
+  toggleServiceControls,
   shellNavigate,
   switchView,
   setActiveDay,
@@ -8506,9 +8912,12 @@ Object.assign(window, {
   updateMainSearch,
   updateGroupSearch,
   updateTabletSearch,
+  updateMobileManagementGuestSearch,
+  setMobileManagementGuestScope,
   clearMainSearch,
   clearTabletSearchFilter,
   prepareLiveRosterAction,
+  prepareManagementGuestAction,
   checkInOneGuest,
   undoOneGuest,
   toggleGuest,
@@ -8527,6 +8936,7 @@ Object.assign(window, {
   manualRefreshData,
   updateGuest,
   deleteGuest,
+  deleteMobileManagementGuest,
   clearGeneralGuestList,
   updateStaffProfile,
   refreshStaffProfiles,
@@ -8547,10 +8957,14 @@ Object.assign(window, {
 document.addEventListener("keydown", handleModalKeydown);
 document.addEventListener("keydown", handleShellKeydown);
 window.matchMedia("(min-width: 1081px)").addEventListener("change", () => closeShellNav(false));
+if (serviceControlsPhoneMedia?.addEventListener) {
+  serviceControlsPhoneMedia.addEventListener("change", handleServiceControlsBreakpointChange);
+} else {
+  serviceControlsPhoneMedia?.addListener?.(handleServiceControlsBreakpointChange);
+}
 
 render();
 initAuth();
-
 </script>
 
 <script>

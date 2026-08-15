@@ -38,6 +38,8 @@ The current database context still exposes only the `EVE` venue row. An isolated
 
 Phase P6 prepares an uncommitted release-hardening candidate. It preserves the P5 visual system, moves the service worker to a scoped `doorflow-cache-v30` strategy, adds dependency-free release smoke coverage, and documents manual acceptance, release, and rollback procedures. P6.1 synchronizes a narrow rapid check-in/load race fix across the inline runtime and `app.js` mirror and adds deterministic delayed-write coverage. Release status remains blocked pending authenticated live mutation, duplicate-log, two-device realtime, responsive, low-light, and installed-PWA owner sign-off.
 
+Phase 8.1 adds a permission-gated phone `Manage Guests` list for Admin and Manager roles. It derives search and All/General/party filtering from the already-loaded guest/group state, keeps Edit and Delete on the existing CRUD handlers, and preserves the edited or neighboring record through rerenders and intermediate realtime paints. Management's redundant desktop and mobile Service Date cards are removed. The one shared utility bar now provides a truthful Day/date/sync disclosure at 540px and below, collapsed by default and backed only by authenticated-session memory; its accessible name tracks the visible summary, breakpoint collapse transfers focus before hiding, and expanded controls retain the P6.9/P6.10 native-date geometry. The operational theme URL advances to `?v=p8.1`, while `sw.js`, `cache-v30`, the manifest, SQL, RLS, and policy files remain unchanged.
+
 ## Run locally
 
 From the repository root:
@@ -81,6 +83,10 @@ Before integration, the owner should approve:
 - low-light readability and the desktop, tablet, phone, zoom, and reduced-motion matrix
 - authenticated role, check-in, undo, duplicate-prevention, error-recovery, and realtime regression results
 - the P6 service-worker/cache-version and controlled release plan
+- Manager and Admin phone access to every current guest name, local search/list filtering, Edit, Delete, and neighboring-record scroll retention
+- Door and Viewer confirmation that no Management guest Edit/Delete surface is available
+- the shared phone service summary's current Day, Service Date, and connection wording in collapsed and expanded states across tab switches
+- 320-430px portrait, short landscape, 150%/200% zoom, native calendar gutter, keyboard focus, and no-horizontal-scroll behavior for Phase 8.1
 - whether sanitized screenshots are needed for future design reviews
 
 ## Live-service boundary
