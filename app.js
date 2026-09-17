@@ -190,11 +190,12 @@ let pendingLiveRosterAnchor = null;
 let managementGuestAnchorGeneration = 0;
 let pendingManagementGuestAnchor = null;
 const serviceControlsPhoneMedia = typeof window.matchMedia === "function"
-  ? window.matchMedia("(max-width: 540px)")
+  ? window.matchMedia("(max-width: 540px), (orientation: landscape) and (max-height: 500px) and (max-width: 900px)")
   : null;
 let serviceControlsPhoneLayout = serviceControlsPhoneMedia
   ? serviceControlsPhoneMedia.matches
-  : window.innerWidth <= 540;
+  : window.innerWidth <= 540
+    || (window.innerWidth <= 900 && window.innerHeight <= 500 && window.innerWidth > window.innerHeight);
 let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
 let modalFocusOpen = false;
@@ -6901,10 +6902,9 @@ function renderStaffManagement() {
               </div>
             </header>
 
-            <div class="scroll-panel df-data-table-region">
+            <div class="scroll-panel df-data-table-region df-staff-directory-region">
               ${state.staffProfiles.length ? `
-                <table class="df-data-table df-staff-table">
-                  <caption class="sr-only">Current DoorFlow staff profiles and editable access settings</caption>
+                <table class="df-data-table df-staff-table" aria-label="Current DoorFlow staff profiles and editable access settings">
                   <thead>
                     <tr>
                       <th scope="col">Name</th>
@@ -6936,7 +6936,7 @@ function renderStaffManagement() {
                           </select>
                         </td>
                         <td data-label="Created">${profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}</td>
-                        <td data-label="Action"><button form="staff-${profile.id}" class="btn small" type="submit">Save</button></td>
+                        <td class="df-staff-action-cell" data-label="Action"><button form="staff-${profile.id}" class="btn small df-staff-save-button" type="submit">Save</button></td>
                       </tr>
                     `).join("")}
                   </tbody>
@@ -6947,13 +6947,13 @@ function renderStaffManagement() {
         </main>
 
         <aside class="stack" aria-label="Staff administration guidance">
-          <section class="card df-admin-card">
+          <section class="card df-admin-card df-staff-guidance-card">
             <p class="df-admin-kicker">Provisioning</p>
             <h2>How to Add Staff</h2>
             <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
           </section>
 
-          <section class="card df-admin-card df-role-guide">
+          <section class="card df-admin-card df-role-guide df-staff-guidance-card">
             <p class="df-admin-kicker">Permission reference</p>
             <h2>Role Guide</h2>
             <dl>

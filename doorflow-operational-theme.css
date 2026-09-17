@@ -5426,7 +5426,7 @@ body.df-shell-nav-open {
   text-align: center;
 }
 
-@media (max-width: 540px) {
+@media (max-width: 540px), (orientation: landscape) and (max-height: 500px) and (max-width: 900px) {
   .df-shell-service,
   .df-shell-live .df-shell-service {
     grid-row: 2;
@@ -5545,5 +5545,241 @@ body.df-shell-nav-open {
 
   .df-shell-live .df-service-controls-summary__status.bad {
     color: #ffb9c2;
+  }
+}
+
+/* Phase P8.1A: mobile Staff layout repair. */
+@media (max-width: 860px) {
+  .df-staff-page .df-staff-workspace .scroll-panel.df-data-table-region.df-staff-directory-region {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: none;
+    padding-right: 0;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+
+  .df-staff-page .df-staff-table,
+  .df-staff-page .df-staff-table tbody,
+  .df-staff-page .df-staff-table tbody tr,
+  .df-staff-page .df-staff-table tbody td,
+  .df-staff-page .df-staff-table tbody td > form {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .df-staff-page .df-staff-table tbody td,
+  .df-staff-page .df-staff-table tbody td:last-child,
+  .df-staff-page .df-staff-table tbody .df-staff-action-cell {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .df-staff-page .df-staff-table tbody td input,
+  .df-staff-page .df-staff-table tbody td select {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    max-width: 100%;
+  }
+
+  .df-staff-page .df-staff-table tbody .df-staff-save-button {
+    display: inline-flex;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 5rem;
+    min-height: 44px;
+    max-width: 100%;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .df-staff-page .df-staff-workspace > aside {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    align-self: stretch;
+  }
+}
+
+@media (max-width: 680px), (max-height: 520px) and (orientation: landscape) {
+  .df-staff-page .df-staff-table tbody td {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 430px), (max-height: 520px) and (orientation: landscape) {
+  .df-staff-page .df-staff-guidance-card {
+    padding: 15px 16px;
+  }
+
+  .df-staff-page .df-staff-guidance-card > h2 {
+    font-size: 1.08rem;
+  }
+
+  .df-staff-page .df-role-guide dl {
+    margin-top: 8px;
+  }
+
+  .df-staff-page .df-role-guide dl > div {
+    padding-block: 8px;
+  }
+}
+
+/* Phase P8.1B: compact shared service controls in short mobile landscape. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 900px) {
+  .df-utility-inner {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 0;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 7px 8px;
+    padding: calc(8px + var(--df-safe-top)) calc(24px + var(--df-safe-right)) 8px max(10px, calc(var(--df-safe-left) + 10px));
+  }
+
+  .df-shell-venue {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .df-venue-monogram {
+    width: 38px;
+    height: 38px;
+  }
+
+  .df-venue-hierarchy__compact .df-utility-label,
+  .df-user-copy,
+  .df-logout-label {
+    display: none;
+  }
+
+  .df-venue-hierarchy__compact strong {
+    margin-top: 0;
+    font-size: 0.74rem;
+  }
+
+  .df-venue-scope {
+    font-size: 0.58rem;
+  }
+
+  .df-user-context {
+    grid-template-columns: 38px;
+  }
+
+  .df-logout-icon {
+    display: inline;
+    font-size: 0.62rem;
+    font-weight: 850;
+  }
+
+  .df-utility-user {
+    gap: 5px;
+  }
+
+  .df-utility-user .df-logout-button {
+    width: var(--df-control-height);
+    min-width: var(--df-control-height);
+    padding: 0;
+  }
+
+  .df-shell-service,
+  .df-shell-live .df-shell-service {
+    display: grid;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .df-service-context-row,
+  .df-service-sync-row {
+    display: grid;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    gap: 6px;
+  }
+
+  .df-service-context-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-service-sync-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .df-service-context-row > .df-service-field,
+  .df-service-context-row > .df-service-field > select,
+  .df-service-context-row > .df-service-field > input,
+  .df-shell-service .sync-pill {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #df-service-date {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  .df-service-context-row > .df-service-field:last-child {
+    --df-mobile-overlay-gutter: 20px;
+
+    justify-self: start;
+    width: calc(100% - var(--df-mobile-overlay-gutter));
+    max-width: calc(100% - var(--df-mobile-overlay-gutter));
+    inline-size: calc(100% - var(--df-mobile-overlay-gutter));
+    max-inline-size: calc(100% - var(--df-mobile-overlay-gutter));
+  }
+
+  .df-shell-service .sync-pill {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+    padding-inline: 10px;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+
+  .df-shell-service .df-refresh-button,
+  .df-shell-live .df-shell-service .df-refresh-button {
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    min-width: 88px;
+    padding-inline: 12px;
+  }
+
+  .df-refresh-icon {
+    display: none;
+  }
+
+  .df-refresh-label {
+    display: inline;
   }
 }

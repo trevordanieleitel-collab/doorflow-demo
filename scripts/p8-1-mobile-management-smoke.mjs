@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 
 const baselineCommit = "ead1060";
 const requiredBranch = "codex/phase-8-1-mobile-management";
+const productionBranch = "main";
+const compactServiceControlsQuery = "(max-width: 540px), (orientation: landscape) and (max-height: 500px) and (max-width: 900px)";
 const root = resolve(import.meta.dirname, "..");
 
 function read(path) {
@@ -96,7 +98,11 @@ const p81Marker = "/* Phase P8.1: mobile guest management and collapsible shared
 const p81Index = themeSource.indexOf(p81Marker);
 const p81Css = p81Index >= 0 ? themeSource.slice(p81Index) : "";
 
-check(git(["branch", "--show-current"]).trim() === requiredBranch, "required Phase 8.1 branch is checked out");
+const currentBranch = git(["branch", "--show-current"]).trim();
+check(
+  currentBranch === requiredBranch || currentBranch === productionBranch,
+  "Phase 8.1 smoke runs on its original feature branch or production main"
+);
 let baselineIsAncestor = true;
 try {
   execFileSync("git", ["merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
@@ -114,7 +120,9 @@ try {
   check(false, "inline runtime JavaScript parses: " + error.message);
 }
 
-check(count(indexSource, /\/doorflow-operational-theme\.css\?v=p8\.1/g) === 1, "index uses exactly one deterministic p8.1 stylesheet URL");
+check(count(indexSource, /\/doorflow-operational-theme\.css\?v=p8\.1b/g) === 1, "index uses exactly one deterministic p8.1b stylesheet URL");
+check(!/\/doorflow-operational-theme\.css\?v=p8\.1a(?=["'])/.test(indexSource), "active stylesheet link no longer uses the exact p8.1a key");
+check(!/\/doorflow-operational-theme\.css\?v=p8\.1(?=["'])/.test(indexSource), "active stylesheet link no longer uses the exact p8.1 key");
 check(!/\/doorflow-operational-theme\.css\?v=p6\.10/.test(indexSource), "active stylesheet link no longer uses p6.10");
 check(count(indexSource, /<link[^>]+doorflow-operational-theme\.css/gi) === 1, "one operational theme link remains");
 check(!/<script[^>]+src=["'](?:\.\/)?app\.js["']/i.test(indexSource), "index.html remains the active inline runtime");
@@ -129,7 +137,11 @@ check(
   /\.mobile-management-guest-actions\s+\.btn\s*\{[^}]*\bmin-height:\s*44px\s*;/s.test(p81Css),
   "mobile Edit/Delete controls retain approximately 44px touch targets"
 );
-check(p81Css.includes("@media (max-width: 540px)") && p81Css.includes(".df-service-controls-toggle"), "phone service-control disclosure styles use the 540px breakpoint");
+check(
+  p81Css.includes(`@media ${compactServiceControlsQuery}`)
+    && p81Css.includes(".df-service-controls-toggle"),
+  "service-control disclosure styles cover phone width and bounded short landscape"
+);
 check(
   p81Css.includes('[data-service-controls-mobile-layout="true"][data-service-controls-expanded="false"] .df-service-controls'),
   "only the focus-synchronized collapsed phone layout hides the controlled service panel"
@@ -308,7 +320,7 @@ check(
     && responsiveServiceControls.indexOf("focusServiceControlsToggleBeforeHide()") < responsiveServiceControls.indexOf("serviceControlsPhoneLayout = nextPhoneLayout")
     && appSource.includes('serviceControlsPhoneMedia.addEventListener("change", handleServiceControlsBreakpointChange)')
     && appSource.includes("serviceControlsPhoneMedia?.addListener?.(handleServiceControlsBreakpointChange)"),
-  "desktop-to-phone breakpoint moves focus before enabling collapsed-layout CSS"
+  "desktop-to-compact breakpoint moves focus before enabling collapsed-layout CSS"
 );
 check(
   exportsBlock.includes("toggleServiceControls") && refreshSync.includes("refreshServiceControlsSummary()"),
@@ -393,7 +405,8 @@ const intentionallyChangedBaselineFunctions = new Set([
   "renderMobileManagerServiceDateCard",
   "refreshSyncStatusSurface",
   "refreshLiveSurfaces",
-  "renderManagement"
+  "renderManagement",
+  "renderStaffManagement"
 ]);
 const expectedNewFunctions = new Set([
   "captureManagementGuestAnchor",
@@ -439,7 +452,7 @@ check(
     && unexpectedRemovedFunctions.length === 0
     && unexpectedNewFunctions.length === 0
     && missingExpectedNewFunctions.length === 0,
-  "every baseline function outside the explicit Phase 8.1 allowlist is byte-identical"
+  "every baseline function outside the explicit Phase 8.1/8.1A/8.1B allowlist is byte-identical"
 );
 if (protectedMismatches.length) console.error("       Unexpectedly changed functions: " + protectedMismatches.join(", "));
 if (unexpectedRemovedFunctions.length) console.error("       Unexpectedly removed functions: " + unexpectedRemovedFunctions.join(", "));
@@ -468,12 +481,12 @@ try {
 } catch (error) {
   check(false, "manifest JSON parses: " + error.message);
 }
-const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.1").pathname;
+const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.1b").pathname;
 check(
   swSource.includes('const CACHE_NAME = "doorflow-cache-v30";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "p8.1 stylesheet pathname remains in unchanged cache-v30 shell allowlist"
+  "p8.1b stylesheet pathname remains in unchanged cache-v30 shell allowlist"
 );
 check(
   swSource.includes('request.method !== "GET"')
@@ -531,6 +544,8 @@ const allowedChanges = new Set([
   "app.js",
   "doorflow-operational-theme.css",
   "scripts/p8-1-mobile-management-smoke.mjs",
+  "scripts/p8-1a-staff-mobile-smoke.mjs",
+  "scripts/p8-1b-landscape-header-smoke.mjs",
   "docs/OPERATIONAL_UI_DESIGN_SYSTEM.md",
   "ui-redesign/README.md"
 ]);
