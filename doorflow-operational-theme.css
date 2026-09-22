@@ -5783,3 +5783,151 @@ body.df-shell-nav-open {
     display: inline;
   }
 }
+
+/* Phase P8.2A: in-app Staff invitations and provisioning status. */
+.df-staff-directory-actions {
+  justify-content: flex-end;
+}
+
+.df-staff-invitations-card {
+  min-width: 0;
+}
+
+.df-staff-invitation-region {
+  max-height: 34rem;
+}
+
+.df-invitation-table td > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--df-muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.df-invitation-status {
+  display: inline-flex;
+  min-height: 26px;
+  padding: 5px 9px;
+  border: 1px solid var(--df-border);
+  border-radius: 999px;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.df-invitation-status--ok {
+  border-color: #86efac;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.df-invitation-status--info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.df-invitation-status--warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.df-invitation-status--bad {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.df-invitation-failure {
+  max-width: 26rem;
+}
+
+.df-staff-invitation-actions {
+  min-width: 9rem;
+}
+
+.df-staff-invitation-actions .btn {
+  width: 100%;
+  min-height: 40px;
+  margin-block: 3px;
+  white-space: normal;
+}
+
+.df-staff-manual-fallback {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--df-border);
+}
+
+.df-staff-manual-fallback summary {
+  min-height: 44px;
+  color: var(--df-ink);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.df-staff-manual-fallback p {
+  margin: 6px 0 0;
+  color: var(--df-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.df-shell-modal-scope .df-staff-invite-modal {
+  width: min(42rem, calc(100vw - 32px));
+}
+
+.df-staff-invite-form {
+  margin-top: 18px;
+}
+
+.df-staff-admin-warning,
+.df-staff-invite-actions {
+  grid-column: 1 / -1;
+}
+
+.df-staff-admin-warning p {
+  margin: 5px 0 0;
+}
+
+@media (max-width: 860px) {
+  .df-staff-page .df-invitation-table,
+  .df-staff-page .df-invitation-table tbody,
+  .df-staff-page .df-invitation-table tbody tr,
+  .df-staff-page .df-invitation-table tbody td {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .df-staff-page .df-invitation-table tbody td::before {
+    content: attr(data-label);
+  }
+
+  .df-staff-page .df-staff-invitation-actions .btn {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 680px), (max-height: 520px) and (orientation: landscape) {
+  .df-staff-directory-actions,
+  .df-staff-invite-actions {
+    width: 100%;
+  }
+
+  .df-staff-directory-actions .btn,
+  .df-staff-invite-actions .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .df-staff-page .df-invitation-table tbody td {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    align-items: stretch;
+  }
+}

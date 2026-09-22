@@ -6,6 +6,41 @@
   <title>DoorFlow</title>
   <!-- DoorFlow build: launch stability v21 / party host plus-one create-edit -->
 
+  <script>
+  (() => {
+    const AUTH_CREDENTIAL_KEYS = new Set([
+      "access_token",
+      "refresh_token",
+      "provider_token",
+      "provider_refresh_token",
+      "token_hash",
+      "token",
+      "code",
+      "error",
+      "error_code",
+      "error_description",
+      "type"
+    ]);
+    const hasCredentialKey = key => {
+      const normalized = String(key || "").toLowerCase();
+      return AUTH_CREDENTIAL_KEYS.has(normalized) || normalized.endsWith("_token");
+    };
+    const query = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
+    const hasCredentialMaterial = [query, fragment]
+      .some(parameters => [...parameters.keys()].some(hasCredentialKey));
+
+    if (!hasCredentialMaterial) return;
+
+    const credentialFreePath = window.location.pathname || "/";
+    try {
+      window.history.replaceState(null, document.title, credentialFreePath);
+    } catch {
+      window.location.replace(credentialFreePath);
+    }
+  })();
+  </script>
+
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -1336,7 +1371,7 @@
 
   </style>
 
-  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p8.1b">
+  <link rel="stylesheet" href="/doorflow-operational-theme.css?v=p8.2">
 
   <!-- DoorFlow PWA install support -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -1362,6 +1397,13 @@ const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
 const DOORFLOW_ACTION_SESSION_CHECK_MS = 15000;
 const DOORFLOW_WAKE_ACTION_WINDOW_MS = 10000;
 const DOORFLOW_STUCK_ACTION_RESET_MS = 25000;
+const STAFF_INVITATION_FUNCTION = "staff-invitations";
+const STAFF_INVITATION_AUDIT_REPAIR_CODES = new Set([
+  "provider_audit_pending",
+  "profile_audit_pending",
+  "provisioning_audit_pending",
+  "accepted_audit_pending"
+]);
 const DEFAULT_VENUE_NAME = "EVE";
 const BOB_BRAND = {
   appName:"The B.O.B. DoorFlow",
@@ -1432,7 +1474,7 @@ function doorFlowFetch(input, init = {}) {
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
   global:{ fetch:doorFlowFetch },
-  auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+  auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:false }
 });
 
 const roles = {
@@ -1492,6 +1534,20 @@ let state = {
   logs:[],
   shiftNotes:[],
   staffProfiles:[],
+  staffInvitations:[],
+  staffInvitationsLoading:false,
+  staffInvitationsLoadFailed:false,
+  staffInvitationSetupRequired:false,
+  staffInvitationNotice:null,
+  staffInvitationModalNotice:null,
+  staffInviteSubmitting:false,
+  staffInvitationBusyId:"",
+  staffInviteDraft:{
+    full_name:"",
+    email:"",
+    role:"door",
+    idempotency_key:""
+  },
   view:"door",
   shellNavOpen:false,
   activeDate:initialActiveDate,
@@ -1556,6 +1612,9 @@ let visibleGuestCache = { key:"", rows:[] };
 let visibleGroupCache = { key:"", rows:[] };
 let modalFocusOpen = false;
 let modalReturnFocus = null;
+let staffInvitationLoadGeneration = 0;
+let staffInvitationContextGeneration = 0;
+let staffInvitationContextKey = "";
 
 function isValidISODate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -2098,9 +2157,11 @@ function syncModalFocus(opening) {
 
   if (dialog) {
     modalFocusOpen = true;
-    if (opening) {
+    if (opening || !dialog.contains(document.activeElement)) {
       requestAnimationFrame(() => {
-        (dialog.querySelector(".df-modal-close") || dialog)?.focus();
+        const currentDialog = document.querySelector(".df-shell-modal-scope [role='dialog']");
+        if (!currentDialog || currentDialog.contains(document.activeElement)) return;
+        ((opening ? currentDialog.querySelector(".df-modal-close:not([disabled])") : null) || currentDialog).focus();
       });
     }
     return;
@@ -2157,6 +2218,7 @@ function handleModalKeydown(event) {
 }
 
 function render() {
+  syncStaffInvitationContext();
   const ui = captureTransientUiState();
   const root = document.getElementById("app");
   const modalOpening = Boolean(state.modal) && !modalFocusOpen;
@@ -2339,6 +2401,234 @@ function normalizeStaffProfile(row = {}) {
     active:row.active !== false && row.active !== "false" && row.active !== 0 && row.active !== "0",
     created_at:normalizeText(row.created_at),
     updated_at:normalizeText(row.updated_at)
+  };
+}
+
+function normalizeStaffInvitation(row = {}) {
+  row = row || {};
+  return {
+    id:normalizeText(row.id),
+    full_name:normalizeText(row.full_name),
+    email:normalizeText(row.email),
+    role:normalizeText(row.role || "door"),
+    status:normalizeText(row.status || "reserved"),
+    send_state:normalizeText(row.send_state || "not_attempted"),
+    profile_state:normalizeText(row.profile_state || "pending"),
+    attempt_count:Math.max(0, normalizeNumber(row.attempt_count, 0)),
+    created_at:normalizeText(row.created_at),
+    last_attempt_at:normalizeNullableText(row.last_attempt_at),
+    last_sent_at:normalizeNullableText(row.last_sent_at),
+    accepted_at:normalizeNullableText(row.accepted_at),
+    failure_code:normalizeNullableText(row.failure_code),
+    failure_message:normalizeNullableText(row.failure_message),
+    can_retry:normalizeBoolean(row.can_retry),
+    can_resend:normalizeBoolean(row.can_resend),
+    retry_after_seconds:Math.max(0, normalizeNumber(row.retry_after_seconds, 0))
+  };
+}
+
+function validStaffInvitationTimestamp(value, required = false) {
+  if (value === null) return !required;
+  return typeof value === "string"
+    && Boolean(value.trim())
+    && Number.isFinite(Date.parse(value));
+}
+
+function coherentStaffInvitationReceipt(row) {
+  const createdAt = Date.parse(row.created_at);
+  const lastAttemptAt = row.last_attempt_at ? Date.parse(row.last_attempt_at) : null;
+  const lastSentAt = row.last_sent_at ? Date.parse(row.last_sent_at) : null;
+  const acceptedAt = row.accepted_at ? Date.parse(row.accepted_at) : null;
+  const provisionedProfile = ["created", "existing"].includes(row.profile_state);
+
+  if (
+    (lastAttemptAt !== null && lastAttemptAt < createdAt)
+    || (lastSentAt !== null && lastSentAt < createdAt)
+    || (acceptedAt !== null && acceptedAt < createdAt)
+    || (acceptedAt !== null && lastSentAt !== null && acceptedAt < lastSentAt)
+  ) {
+    return false;
+  }
+
+  if (
+    STAFF_INVITATION_AUDIT_REPAIR_CODES.has(row.failure_code)
+    && (row.can_retry !== false || row.can_resend !== false || row.retry_after_seconds !== 0)
+  ) {
+    return false;
+  }
+
+  if (row.status === "sent") {
+    return row.send_state === "provider_accepted"
+      && provisionedProfile
+      && lastSentAt !== null
+      && acceptedAt === null
+      && row.can_retry === false;
+  }
+
+  if (row.status === "accepted") {
+    return row.send_state === "provider_accepted"
+      && provisionedProfile
+      && lastSentAt !== null
+      && acceptedAt !== null
+      && row.can_retry === false
+      && row.can_resend === false
+      && row.retry_after_seconds === 0;
+  }
+
+  if (row.status === "profile_pending") {
+    const profileAuditPending = ["created", "existing"].includes(row.profile_state);
+    return lastSentAt !== null
+      && (
+        profileAuditPending
+          ? row.send_state === "provider_accepted"
+            && row.failure_code === "profile_audit_pending"
+            && acceptedAt === null
+            && row.can_retry === false
+            && row.can_resend === false
+            && row.retry_after_seconds === 0
+          : ["provider_accepted", "failed", "unknown"].includes(row.send_state)
+            && ["pending", "failed"].includes(row.profile_state)
+            && (acceptedAt === null || row.profile_state === "failed")
+      );
+  }
+
+  if (acceptedAt !== null) {
+    return ["provider_accepted", "failed"].includes(row.send_state)
+      && lastSentAt !== null
+      && ["processing", "profile_pending", "failed"].includes(row.status);
+  }
+
+  return true;
+}
+
+function validatedStaffInvitation(row) {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const id = normalizeText(row.id);
+  const fullName = normalizeText(row.full_name);
+  const email = normalizeText(row.email);
+  const role = normalizeText(row.role);
+  const status = normalizeText(row.status);
+  const sendState = normalizeText(row.send_state);
+  const profileState = normalizeText(row.profile_state);
+  const invitation = normalizeStaffInvitation(row);
+  const validStatuses = new Set([
+    "reserved",
+    "processing",
+    "profile_pending",
+    "sent",
+    "accepted",
+    "failed",
+    "reconciliation_required"
+  ]);
+  const optionalStrings = [
+    row.last_attempt_at,
+    row.last_sent_at,
+    row.accepted_at,
+    row.failure_code,
+    row.failure_message
+  ];
+  const requiredStrings = [
+    row.id,
+    row.full_name,
+    row.email,
+    row.role,
+    row.status,
+    row.send_state,
+    row.profile_state,
+    row.created_at
+  ];
+  return requiredStrings.every(value => typeof value === "string")
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+    && fullName
+    && email
+    && optionalStrings.every(value => value === null || typeof value === "string")
+    && validStaffInvitationTimestamp(row.created_at, true)
+    && [row.last_attempt_at, row.last_sent_at, row.accepted_at]
+      .every(value => validStaffInvitationTimestamp(value))
+    && ["admin", "manager", "door", "viewer"].includes(role)
+    && validStatuses.has(status)
+    && ["not_attempted", "provider_accepted", "failed", "unknown"].includes(sendState)
+    && ["pending", "created", "existing", "failed"].includes(profileState)
+    && typeof row.attempt_count === "number"
+    && Number.isFinite(row.attempt_count)
+    && Number.isInteger(row.attempt_count)
+    && row.attempt_count >= 0
+    && typeof row.can_retry === "boolean"
+    && typeof row.can_resend === "boolean"
+    && typeof row.retry_after_seconds === "number"
+    && Number.isFinite(row.retry_after_seconds)
+    && Number.isInteger(row.retry_after_seconds)
+    && row.retry_after_seconds >= 0
+    && coherentStaffInvitationReceipt(row)
+    ? invitation
+    : null;
+}
+
+function newStaffInvitationIdempotencyKey() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
+    const random = window.crypto?.getRandomValues
+      ? window.crypto.getRandomValues(new Uint8Array(1))[0] % 16
+      : Math.floor(Math.random() * 16);
+    const value = character === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function emptyStaffInviteDraft() {
+  return {
+    full_name:"",
+    email:"",
+    role:"door",
+    idempotency_key:newStaffInvitationIdempotencyKey()
+  };
+}
+
+function staffInvitationContextIdentity() {
+  const user = auth.currentUser;
+  const profile = auth.profile;
+  if (!auth.session?.user?.id || user?.id !== auth.session.user.id || profile?.id !== user.id
+      || user.role !== "admin" || profile.role !== "admin" || !user.active || !profile.active) return "";
+  return JSON.stringify([user.id, profile.venue_id || null, state.venue?.id || null]);
+}
+
+function syncStaffInvitationContext(renderChanged = false) {
+  const key = staffInvitationContextIdentity();
+  if (key !== staffInvitationContextKey) {
+    resetStaffInvitationState();
+    staffInvitationContextKey = key;
+    if (renderChanged) render();
+  }
+}
+
+function captureStaffInvitationContext() {
+  syncStaffInvitationContext();
+  return { generation:staffInvitationContextGeneration, key:staffInvitationContextKey };
+}
+
+function ownsStaffInvitationContext(owner) {
+  syncStaffInvitationContext();
+  return Boolean(owner?.key && owner.key === staffInvitationContextKey
+    && owner.generation === staffInvitationContextGeneration);
+}
+
+function resetStaffInvitationState() {
+  staffInvitationContextGeneration += 1;
+  staffInvitationLoadGeneration += 1;
+  if (state.modal === "staffInvite") state.modal = null;
+  state.staffInvitations = [];
+  state.staffInvitationsLoading = false;
+  state.staffInvitationsLoadFailed = false;
+  state.staffInvitationSetupRequired = false;
+  state.staffInvitationNotice = null;
+  state.staffInvitationModalNotice = null;
+  state.staffInviteSubmitting = false;
+  state.staffInvitationBusyId = "";
+  state.staffInviteDraft = {
+    full_name:"",
+    email:"",
+    role:"door",
+    idempotency_key:""
   };
 }
 
@@ -2642,6 +2932,7 @@ async function ensureFreshAuthSession(reason = "session") {
     auth.session = null;
     auth.currentUser = null;
     auth.profile = null;
+    syncStaffInvitationContext(true);
     stopAutoRefresh();
     unsubscribeRealtime();
     return null;
@@ -2661,6 +2952,7 @@ async function ensureFreshAuthSession(reason = "session") {
   }
 
   auth.session = session;
+  syncStaffInvitationContext();
 
   if (!auth.currentUser || auth.currentUser.id !== session.user.id) {
     await loadStaffProfile(session.user, { preserveView:true });
@@ -2981,6 +3273,7 @@ async function initAuth() {
 
   db.auth.onAuthStateChange(async (event, session) => {
     auth.session = session || null;
+    syncStaffInvitationContext();
 
     if (session?.user) {
       if (event === "TOKEN_REFRESHED" && auth.currentUser?.id === session.user.id) {
@@ -3009,6 +3302,7 @@ async function initAuth() {
       state.guests = [];
       state.logs = [];
       state.staffProfiles = [];
+      resetStaffInvitationState();
       state.selectedGroupId = null;
       state.currentMode = "GENERAL";
       state.searchText = "";
@@ -3026,6 +3320,7 @@ async function initAuth() {
 }
 
 async function loadStaffProfile(user, options = {}) {
+  syncStaffInvitationContext();
   const previousView = state.view;
 
   const { data, error } = await db
@@ -3076,6 +3371,7 @@ async function loadStaffProfile(user, options = {}) {
     role:profile.role,
     active:profile.active
   };
+  syncStaffInvitationContext();
 
   state.error = "";
   state.view = options.preserveView && viewAllowedForRole(profile.role, previousView)
@@ -3124,6 +3420,7 @@ async function login(event) {
 }
 
 async function logout() {
+  resetStaffInvitationState();
   try {
     await db.auth.signOut({ scope:"local" });
   } catch (error) {
@@ -3142,6 +3439,7 @@ async function logout() {
   state.logs = [];
   state.shiftNotes = [];
   state.staffProfiles = [];
+  resetStaffInvitationState();
   state.selectedGroupId = null;
   state.currentMode = "GENERAL";
   state.searchText = "";
@@ -3271,6 +3569,7 @@ async function ensureServiceDay(dateString) {
   }
 
   state.venue = venue;
+  syncStaffInvitationContext();
   state.serviceDay = serviceDay;
   return serviceDay;
 }
@@ -4078,7 +4377,369 @@ function lateAddBadge(guest) {
 
 /* STAFF MANAGEMENT */
 
-async function loadStaffProfilesForAdmin() {
+function staffInvitationEndpointUrl() {
+  return `${SUPABASE_URL}/functions/v1/${STAFF_INVITATION_FUNCTION}`;
+}
+
+function staffInvitationSetupError(error) {
+  return Boolean(
+    error?.setupRequired
+      || [
+        "provisioning_disabled",
+        "redirect_not_configured",
+        "server_configuration_error"
+      ].includes(error?.code)
+  );
+}
+
+async function callStaffInvitationEndpoint(method = "GET", body = null, owner = captureStaffInvitationContext()) {
+  if (!ownsStaffInvitationContext(owner)) throw new Error("Invitation context changed.");
+  const session = await ensureFreshAuthSession("staff invitation");
+  // A refreshed session may belong to a different login. Never dispatch its
+  // predecessor's form with the replacement user's credentials.
+  if (!ownsStaffInvitationContext(owner)) throw new Error("Invitation context changed.");
+  if (!session?.access_token) {
+    const error = new Error("Your staff session expired. Sign in again before managing invitations.");
+    error.code = "missing_credentials";
+    error.status = 401;
+    throw error;
+  }
+
+  let response;
+  try {
+    response = await doorFlowFetch(staffInvitationEndpointUrl(), {
+      method,
+      headers:{
+        authorization:`Bearer ${session.access_token}`,
+        apikey:SUPABASE_PUBLIC_KEY,
+        ...(body ? { "content-type":"application/json" } : {})
+      },
+      ...(body ? { body:JSON.stringify(body) } : {})
+    });
+  } catch (cause) {
+    const error = new Error("The staff invitation service is unavailable. No invitation result was confirmed.");
+    error.code = cause?.name === "AbortError" ? "invitation_request_timeout" : "invitation_service_unavailable";
+    error.status = 0;
+    error.setupRequired = false;
+    throw error;
+  }
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || !payload?.ok) {
+    const error = new Error(payload?.error?.message || "The staff invitation service could not complete the request.");
+    error.code = payload?.error?.code || (response.status === 404 ? "invitation_service_not_deployed" : "invitation_request_failed");
+    error.status = response.status;
+    error.retryAfterSeconds = normalizeNumber(payload?.error?.retry_after_seconds, 0);
+    error.invitation = payload?.invitation ? validatedStaffInvitation(payload.invitation) : null;
+    error.setupRequired = error.code === "invitation_service_not_deployed" || staffInvitationSetupError(error);
+    throw error;
+  }
+
+  if (method === "GET") {
+    const invitations = Array.isArray(payload.invitations)
+      ? payload.invitations.map(validatedStaffInvitation)
+      : null;
+    if (!invitations || invitations.some(invitation => !invitation)) {
+      const error = new Error("The invitation service returned an invalid status response. No status change was assumed.");
+      error.code = "invalid_invitation_response";
+      error.status = response.status;
+      error.setupRequired = false;
+      throw error;
+    }
+    return { ...payload, invitations };
+  }
+
+  const invitation = validatedStaffInvitation(payload.invitation);
+  if (!invitation) {
+    const error = new Error("The invitation service did not return a valid invitation receipt. No completed result was assumed.");
+    error.code = "invalid_invitation_response";
+    error.status = response.status;
+    error.setupRequired = false;
+    throw error;
+  }
+
+  return { ...payload, invitation };
+}
+
+function mergeStaffInvitation(invitation) {
+  const normalized = normalizeStaffInvitation(invitation);
+  if (!normalized.id) return;
+  const index = state.staffInvitations.findIndex(item => item.id === normalized.id);
+  if (index >= 0) state.staffInvitations[index] = normalized;
+  else state.staffInvitations.unshift(normalized);
+}
+
+async function loadStaffInvitationsForAdmin(owner = captureStaffInvitationContext()) {
+  if (!ownsStaffInvitationContext(owner)) return;
+  const loadGeneration = ++staffInvitationLoadGeneration;
+  state.staffInvitationsLoading = true;
+  if (state.view === "users") render();
+
+  try {
+    const payload = await callStaffInvitationEndpoint("GET", null, owner);
+    if (!ownsStaffInvitationContext(owner) || loadGeneration !== staffInvitationLoadGeneration) return;
+    state.staffInvitations = normalizeRows(payload.invitations, normalizeStaffInvitation);
+    state.staffInvitationSetupRequired = false;
+    state.staffInvitationsLoadFailed = false;
+    if (state.staffInvitationNotice?.source === "load") state.staffInvitationNotice = null;
+  } catch (error) {
+    if (!ownsStaffInvitationContext(owner) || loadGeneration !== staffInvitationLoadGeneration) return;
+    state.staffInvitationSetupRequired = staffInvitationSetupError(error);
+    state.staffInvitationsLoadFailed = true;
+    state.staffInvitationNotice = {
+      tone:state.staffInvitationSetupRequired ? "warning" : "error",
+      title:state.staffInvitationSetupRequired ? "Invitation setup required" : "Invitation status unavailable",
+      message:error?.message || "DoorFlow could not load invitation status.",
+      setup:state.staffInvitationSetupRequired,
+      source:"load"
+    };
+  } finally {
+    if (ownsStaffInvitationContext(owner) && loadGeneration === staffInvitationLoadGeneration) {
+      state.staffInvitationsLoading = false;
+      if (state.view === "users") render();
+    }
+  }
+}
+
+function updateStaffInviteDraft(event) {
+  const field = event?.target;
+  if (!field?.name || !(field.name in state.staffInviteDraft)) return;
+  state.staffInviteDraft[field.name] = String(field.value || "");
+}
+
+function handleStaffInviteRoleChange(event) {
+  updateStaffInviteDraft(event);
+  const warning = document.getElementById("staffInviteAdminWarning");
+  if (warning) warning.hidden = event?.target?.value !== "admin";
+}
+
+function openStaffInviteModal() {
+  if (!requirePerm("users")) return;
+  state.staffInviteDraft = emptyStaffInviteDraft();
+  state.staffInvitationModalNotice = null;
+  state.modal = "staffInvite";
+  render();
+}
+
+function staffInvitationOutcomeNotice(invitation, action) {
+  const status = invitation?.status || "unknown";
+  if (STAFF_INVITATION_AUDIT_REPAIR_CODES.has(invitation?.failure_code)) {
+    return {
+      tone:"warning",
+      title:"Invitation audit needs repair",
+      message:invitation?.failure_message || "The invitation result is preserved, but required audit evidence still needs repair."
+    };
+  }
+  if (status === "accepted") {
+    return {
+      tone:"success",
+      title:"Staff setup confirmed",
+      message:"DoorFlow verified invitation acceptance and the matching staff profile."
+    };
+  }
+  if (status === "sent") {
+    return {
+      tone:"success",
+      title:action === "resend" ? "Resend request accepted" : "Invitation request accepted",
+      message:"The provider accepted the invitation request and the staff profile is provisioned. Email delivery is not confirmed."
+    };
+  }
+  if (["reserved", "processing"].includes(status)) {
+    return {
+      tone:"warning",
+      title:"Invitation request still processing",
+      message:"The server has the request, but has not confirmed provider acceptance or staff profile setup. Refresh status before trying again."
+    };
+  }
+  if (status === "profile_pending") {
+    return {
+      tone:"warning",
+      title:invitation?.accepted_at ? "Accepted account needs setup" : "Staff profile setup needed",
+      message:invitation?.failure_message || "The invitation record exists, but DoorFlow has not confirmed complete staff profile setup."
+    };
+  }
+  if (["failed", "reconciliation_required"].includes(status)) {
+    return {
+      tone:"error",
+      title:status === "reconciliation_required" ? "Invitation needs reconciliation" : "Invitation needs attention",
+      message:invitation?.failure_message || "The server did not confirm a completed invitation. Review the status before retrying."
+    };
+  }
+  return {
+    tone:"warning",
+    title:"Invitation status needs review",
+    message:"The server returned the request, but did not confirm a completed invitation. Refresh the status before continuing."
+  };
+}
+
+async function submitStaffInvitation(event) {
+  event.preventDefault();
+  const owner = captureStaffInvitationContext();
+  if (!requirePerm("users") || !ownsStaffInvitationContext(owner) || state.staffInviteSubmitting || state.staffInvitationBusyId) return;
+
+  const form = new FormData(event.target);
+  const fullName = String(form.get("full_name") || "").trim().replace(/\s+/g, " ");
+  const email = String(form.get("email") || "").trim();
+  const role = String(form.get("role") || "door");
+  const idempotencyKey = String(form.get("idempotency_key") || state.staffInviteDraft.idempotency_key || "");
+  state.staffInviteDraft = { full_name:fullName, email, role, idempotency_key:idempotencyKey };
+
+  const emailControl = event.target.elements?.email;
+  if (!fullName || !email || !["admin", "manager", "door", "viewer"].includes(role) || !emailControl?.checkValidity()) {
+    state.staffInvitationModalNotice = {
+      tone:"error",
+      title:"Check invitation details",
+      message:"Enter a full name, a valid email address, and a DoorFlow role."
+    };
+    render();
+    return;
+  }
+
+  staffInvitationLoadGeneration += 1;
+  state.staffInvitationsLoading = false;
+  state.staffInviteSubmitting = true;
+  state.staffInvitationModalNotice = {
+    tone:"loading",
+    title:"Sending invitation request",
+    message:"DoorFlow is securely provisioning this staff account."
+  };
+  render();
+
+  try {
+    const payload = await callStaffInvitationEndpoint("POST", {
+      action:"invite",
+      full_name:fullName,
+      email,
+      role,
+      idempotency_key:idempotencyKey
+    }, owner);
+    if (!ownsStaffInvitationContext(owner)) return;
+    staffInvitationLoadGeneration += 1;
+    state.staffInvitationsLoading = false;
+    const invitation = payload.invitation ? normalizeStaffInvitation(payload.invitation) : null;
+    if (invitation) mergeStaffInvitation(invitation);
+    state.staffInvitationSetupRequired = false;
+    state.staffInvitationNotice = staffInvitationOutcomeNotice(invitation, "invite");
+    state.staffInvitationModalNotice = null;
+    state.staffInviteDraft = emptyStaffInviteDraft();
+    state.modal = null;
+    await Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]);
+  } catch (error) {
+    if (!ownsStaffInvitationContext(owner)) return;
+    staffInvitationLoadGeneration += 1;
+    state.staffInvitationsLoading = false;
+    if (error?.invitation) mergeStaffInvitation(error.invitation);
+    state.staffInvitationSetupRequired = staffInvitationSetupError(error);
+    state.staffInvitationModalNotice = {
+      tone:state.staffInvitationSetupRequired ? "warning" : "error",
+      title:state.staffInvitationSetupRequired ? "Invitation setup required" : "Invitation not completed",
+      message:error?.message || "DoorFlow could not complete the invitation. Your entries have been preserved."
+    };
+  } finally {
+    if (ownsStaffInvitationContext(owner)) {
+      state.staffInviteSubmitting = false;
+      render();
+    }
+  }
+}
+
+async function runStaffInvitationAction(invitationId, action) {
+  const owner = captureStaffInvitationContext();
+  if (!requirePerm("users") || !ownsStaffInvitationContext(owner) || state.staffInvitationBusyId || state.staffInviteSubmitting) return;
+  const invitation = state.staffInvitations.find(item => item.id === invitationId);
+  if (!invitation || !["retry", "resend"].includes(action)) return;
+
+  staffInvitationLoadGeneration += 1;
+  state.staffInvitationsLoading = false;
+  state.staffInvitationBusyId = invitationId;
+  state.staffInvitationNotice = {
+    tone:"loading",
+    title:action === "resend" ? "Requesting a new invitation email" : "Retrying staff setup",
+    message:"DoorFlow is checking the existing server-owned invitation before continuing."
+  };
+  render();
+
+  try {
+    const payload = await callStaffInvitationEndpoint("POST", {
+      action,
+      invitation_id:invitationId
+    }, owner);
+    if (!ownsStaffInvitationContext(owner)) return;
+    staffInvitationLoadGeneration += 1;
+    state.staffInvitationsLoading = false;
+    const updatedInvitation = payload.invitation ? normalizeStaffInvitation(payload.invitation) : null;
+    if (updatedInvitation) mergeStaffInvitation(updatedInvitation);
+    state.staffInvitationSetupRequired = false;
+    state.staffInvitationNotice = staffInvitationOutcomeNotice(updatedInvitation, action);
+    await Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]);
+  } catch (error) {
+    if (!ownsStaffInvitationContext(owner)) return;
+    staffInvitationLoadGeneration += 1;
+    state.staffInvitationsLoading = false;
+    if (error?.invitation) mergeStaffInvitation(error.invitation);
+    state.staffInvitationSetupRequired = staffInvitationSetupError(error);
+    state.staffInvitationNotice = {
+      tone:state.staffInvitationSetupRequired ? "warning" : "error",
+      title:state.staffInvitationSetupRequired ? "Invitation setup required" : "Invitation action stopped",
+      message:error?.message || "DoorFlow did not confirm the invitation action."
+    };
+  } finally {
+    if (ownsStaffInvitationContext(owner)) {
+      state.staffInvitationBusyId = "";
+      render();
+    }
+  }
+}
+
+function retryStaffInvitation(invitationId) {
+  return runStaffInvitationAction(invitationId, "retry");
+}
+
+function resendStaffInvitation(invitationId) {
+  return runStaffInvitationAction(invitationId, "resend");
+}
+
+function staffInvitationStatusLabel(invitation) {
+  if (STAFF_INVITATION_AUDIT_REPAIR_CODES.has(invitation.failure_code)) return "Audit repair needed";
+  if (invitation.accepted_at && invitation.status === "profile_pending") return "Accepted · Setup needed";
+  const labels = {
+    reserved:"Reserved",
+    processing:"Processing",
+    profile_pending:"Setup needed",
+    sent:"Provider accepted",
+    accepted:"Accepted",
+    failed:"Failed",
+    reconciliation_required:"Reconciliation required"
+  };
+  return labels[invitation.status] || "Needs review";
+}
+
+function staffInvitationStatusClass(invitation) {
+  if (STAFF_INVITATION_AUDIT_REPAIR_CODES.has(invitation.failure_code)) return "warn";
+  if (invitation.status === "accepted") return "ok";
+  if (invitation.status === "sent") return "info";
+  if (["reserved", "processing"].includes(invitation.status)) return "warn";
+  return "bad";
+}
+
+function staffInvitationLastActivity(invitation) {
+  const value = invitation.accepted_at || invitation.last_sent_at || invitation.last_attempt_at || invitation.created_at;
+  if (!value) return "Not recorded";
+  try {
+    return new Date(value).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+  } catch {
+    return value;
+  }
+}
+
+async function loadStaffProfilesForAdmin(invitationOwner = null) {
+  if (invitationOwner && !ownsStaffInvitationContext(invitationOwner)) return;
   if (!auth.currentUser || auth.currentUser.role !== "admin") return;
 
   const result = await withDoorFlowTimeout(
@@ -4089,6 +4750,7 @@ async function loadStaffProfilesForAdmin() {
     "Loading staff profiles",
     15000
   );
+  if (invitationOwner && !ownsStaffInvitationContext(invitationOwner)) return;
 
   if (result.error) {
     state.error = result.error.message;
@@ -4132,7 +4794,7 @@ async function updateStaffProfile(event) {
 
 async function refreshStaffProfiles() {
   if (!requirePerm("users")) return;
-  await loadStaffProfilesForAdmin();
+  await Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]);
   render();
 }
 
@@ -4205,6 +4867,7 @@ function switchView(view) {
 
   if (view === "users") {
     loadStaffProfilesForAdmin();
+    loadStaffInvitationsForAdmin();
   }
 
   render();
@@ -7050,6 +7713,8 @@ function openBulkPasteModal() {
 }
 
 function closeModal() {
+  if (state.modal === "staffInvite" && state.staffInviteSubmitting) return;
+  if (state.modal === "staffInvite") state.staffInvitationModalNotice = null;
   state.modal = null;
   state.editingGroupId = null;
   state.editingGuestId = null;
@@ -8243,18 +8908,27 @@ function renderStaffManagement() {
               <div>
                 <p class="df-admin-kicker">Directory controls</p>
                 <h2 id="staff-management-title">Staff Management</h2>
-                <p>Manage DoorFlow roles and active status for users already created in Supabase Authentication.</p>
+                <p>Invite new staff, then manage roles and active access independently.</p>
               </div>
-              <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+              <div class="row-actions df-staff-directory-actions">
+                <button id="addStaffButton" type="button" class="btn" onclick="openStaffInviteModal()">Add Staff</button>
+                <button type="button" class="btn secondary" onclick="refreshStaffProfiles()">Refresh Staff List</button>
+              </div>
             </header>
           </section>
+
+          ${state.staffInvitationNotice ? renderAdminState(
+            state.staffInvitationNotice.tone,
+            state.staffInvitationNotice.title,
+            state.staffInvitationNotice.message
+          ) : ""}
 
           <section class="card df-admin-card" aria-labelledby="current-staff-title">
             <header class="df-admin-section-header">
               <div>
                 <p class="df-admin-kicker">Authorized profiles</p>
                 <h2 id="current-staff-title">Current Staff</h2>
-                <p>Change a staff member's role or active access. New email/password users must be created in Supabase Authentication first.</p>
+                <p>Change a staff member's role or active access. Invitation status is tracked separately below.</p>
               </div>
             </header>
 
@@ -8300,13 +8974,90 @@ function renderStaffManagement() {
               ` : renderAdminState("empty", "No staff profiles loaded", "Use Refresh Staff List to load the current staff directory.")}
             </div>
           </section>
+
+          <section class="card df-admin-card df-staff-invitations-card" aria-labelledby="staff-invitations-title">
+            <header class="df-admin-section-header">
+              <div>
+                <p class="df-admin-kicker">Provisioning record</p>
+                <h2 id="staff-invitations-title">Invitation Status</h2>
+                <p>Provider acceptance is not proof of email delivery. Active or inactive access remains in Current Staff.</p>
+              </div>
+            </header>
+
+            ${state.staffInvitationsLoading
+              ? renderAdminState("loading", "Loading invitations", "DoorFlow is checking server-owned invitation records.")
+              : state.staffInvitations.length ? `
+                <div class="scroll-panel df-data-table-region df-staff-invitation-region">
+                  <table class="df-data-table df-invitation-table" aria-label="Staff invitation provisioning status">
+                    <thead>
+                      <tr>
+                        <th scope="col">Employee</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Invitation</th>
+                        <th scope="col">Last Activity</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${state.staffInvitations.map(invitation => {
+                        const busy = Boolean(state.staffInvitationBusyId);
+                        const rowBusy = state.staffInvitationBusyId === invitation.id;
+                        const retryLabel = invitation.failure_code === "profile_write_failed" || invitation.profile_state === "failed"
+                          ? "Retry Setup"
+                          : "Retry";
+                        return `
+                          <tr>
+                            <td data-label="Employee">
+                              <strong>${esc(invitation.full_name)}</strong>
+                              <small>${esc(invitation.email)}</small>
+                            </td>
+                            <td data-label="Role">${esc(roleLabel(invitation.role))}</td>
+                            <td data-label="Invitation">
+                              <span class="df-invitation-status df-invitation-status--${staffInvitationStatusClass(invitation)}">${esc(staffInvitationStatusLabel(invitation))}</span>
+                              ${invitation.failure_message ? `<small class="df-invitation-failure">${esc(invitation.failure_message)}</small>` : ""}
+                            </td>
+                            <td data-label="Last Activity">
+                              ${esc(staffInvitationLastActivity(invitation))}
+                              <small>${invitation.attempt_count} attempt${invitation.attempt_count === 1 ? "" : "s"}</small>
+                            </td>
+                            <td data-label="Action" class="df-staff-invitation-actions">
+                              ${invitation.can_retry ? `<button type="button" class="btn small secondary" onclick="retryStaffInvitation('${esc(invitation.id)}')" ${busy ? "disabled" : ""}>${rowBusy ? "Working..." : retryLabel}</button>` : ""}
+                              ${invitation.can_resend ? `<button type="button" class="btn small secondary" onclick="resendStaffInvitation('${esc(invitation.id)}')" ${busy ? "disabled" : ""}>${rowBusy ? "Working..." : "Resend Invite"}</button>` : ""}
+                              ${!invitation.can_retry && !invitation.can_resend ? `<span class="subtle">${invitation.retry_after_seconds ? `Available in ${invitation.retry_after_seconds}s` : "No action available"}</span>` : ""}
+                            </td>
+                          </tr>
+                        `;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              ` : state.staffInvitationsLoadFailed
+                ? renderAdminState(
+                  state.staffInvitationSetupRequired ? "warning" : "error",
+                  state.staffInvitationSetupRequired ? "Invitation setup required" : "Invitation status not confirmed",
+                  state.staffInvitationSetupRequired
+                    ? "Deploy and configure the reviewed invitation backend before using Add Staff. Manual Supabase provisioning remains available."
+                    : "DoorFlow could not confirm whether invitation records exist. Refresh Staff List before relying on this status."
+                )
+                : renderAdminState(
+                state.staffInvitationSetupRequired ? "warning" : "empty",
+                state.staffInvitationSetupRequired ? "Invitation setup required" : "No in-app invitations yet",
+                state.staffInvitationSetupRequired
+                  ? "Deploy and configure the reviewed invitation backend before using Add Staff. Manual Supabase provisioning remains available."
+                  : "New in-app invitation records will appear here."
+              )}
+          </section>
         </main>
 
         <aside class="stack" aria-label="Staff administration guidance">
           <section class="card df-admin-card df-staff-guidance-card">
             <p class="df-admin-kicker">Provisioning</p>
             <h2>How to Add Staff</h2>
-            <p class="subtle">Create the email/password user in Supabase Authentication first, then add that user's UID to staff_profiles.</p>
+            <p class="subtle">Use Add Staff after the reviewed invitation backend is deployed. The employee sets their own password from the invitation link.</p>
+            <details class="df-staff-manual-fallback">
+              <summary>Manual setup fallback</summary>
+              <p>Until the in-app workflow is deployed and accepted, continue the existing process: create the user in Supabase Authentication, then add that exact Auth UID to staff_profiles.</p>
+            </details>
           </section>
 
           <section class="card df-admin-card df-role-guide df-staff-guidance-card">
@@ -8492,6 +9243,69 @@ function renderReports() {
           ${renderSelectedGroupPanel()}
         </aside>
       </div>
+    </div>
+  `;
+}
+
+function renderStaffInviteModal() {
+  const draft = state.staffInviteDraft?.idempotency_key ? state.staffInviteDraft : emptyStaffInviteDraft();
+  if (!state.staffInviteDraft?.idempotency_key) state.staffInviteDraft = draft;
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueLabel = venueContext.operatingSpace
+    ? `${venueContext.parentVenue} / ${venueContext.operatingSpace}`
+    : venueContext.parentVenue;
+
+  return `
+    <div class="modal-backdrop df-admin-modal-backdrop">
+      <article class="modal df-admin-modal df-staff-invite-modal" role="dialog" aria-modal="true" aria-labelledby="staff-invite-title" aria-describedby="staff-invite-description" tabindex="-1">
+        <button class="df-modal-close" type="button" onclick="closeModal()" aria-label="Close Add Staff form" title="Close" ${state.staffInviteSubmitting ? "disabled" : ""}>&times;</button>
+        <p class="df-admin-kicker">Secure provisioning</p>
+        <h2 id="staff-invite-title">Add Staff</h2>
+        <p id="staff-invite-description" class="subtle">DoorFlow will send an invitation request through the protected server endpoint. The employee creates their own password.</p>
+
+        ${state.staffInvitationModalNotice ? renderAdminState(
+          state.staffInvitationModalNotice.tone,
+          state.staffInvitationModalNotice.title,
+          state.staffInvitationModalNotice.message
+        ) : ""}
+
+        <form id="staffInviteForm" onsubmit="submitStaffInvitation(event)" class="form df-admin-form df-staff-invite-form">
+          <input type="hidden" name="idempotency_key" value="${esc(draft.idempotency_key)}" />
+
+          <div>
+            <label for="staffInviteFullName">Full name</label>
+            <input id="staffInviteFullName" name="full_name" value="${esc(draft.full_name)}" autocomplete="name" maxlength="120" oninput="updateStaffInviteDraft(event)" required />
+          </div>
+
+          <div>
+            <label for="staffInviteEmail">Email</label>
+            <input id="staffInviteEmail" name="email" type="email" value="${esc(draft.email)}" autocomplete="email" maxlength="320" inputmode="email" oninput="updateStaffInviteDraft(event)" required />
+          </div>
+
+          <div>
+            <label for="staffInviteRole">Role</label>
+            <select id="staffInviteRole" name="role" onchange="handleStaffInviteRoleChange(event)" required>
+              ${["admin", "manager", "door", "viewer"].map(role => `<option value="${role}" ${role === draft.role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
+            </select>
+          </div>
+
+          <div>
+            <label for="staffInviteVenue">Current venue</label>
+            <input id="staffInviteVenue" value="${esc(venueLabel)}" readonly aria-describedby="staffInviteVenueHelp" />
+            <p id="staffInviteVenueHelp" class="subtle">The server derives the permitted venue from your verified Admin profile. It is not submitted from this form.</p>
+          </div>
+
+          <div id="staffInviteAdminWarning" class="notice warn df-staff-admin-warning" role="status" ${draft.role === "admin" ? "" : "hidden"}>
+            <strong>Admin grants full staff-management access.</strong>
+            <p>Only invite a trusted administrator who should manage roles, access status, and future invitations.</p>
+          </div>
+
+          <div class="row-actions df-staff-invite-actions">
+            <button class="btn" type="submit" ${state.staffInviteSubmitting ? "disabled" : ""}>${state.staffInviteSubmitting ? "Sending..." : "Send Invitation"}</button>
+            <button class="btn secondary" type="button" onclick="closeModal()" ${state.staffInviteSubmitting ? "disabled" : ""}>Cancel</button>
+          </div>
+        </form>
+      </article>
     </div>
   `;
 }
@@ -8841,6 +9655,7 @@ function renderShiftNoteModal() {
 
 
 function renderModal() {
+  if (state.modal === "staffInvite") return renderStaffInviteModal();
   if (state.modal === "group") return renderGroupModal();
   if (state.modal === "guest") return renderGuestModal();
   if (state.modal === "plusOnes") return renderPlusOnesModal();
@@ -8940,6 +9755,12 @@ Object.assign(window, {
   clearGeneralGuestList,
   updateStaffProfile,
   refreshStaffProfiles,
+  openStaffInviteModal,
+  updateStaffInviteDraft,
+  handleStaffInviteRoleChange,
+  submitStaffInvitation,
+  retryStaffInvitation,
+  resendStaffInvitation,
   bulkAddNames,
   handleFileUpload,
   exportCsv,

@@ -1,0 +1,5 @@
+# Review-only local function configuration for DoorFlow Phase 8.2A.
+# This file does not deploy or enable the function. Keep JWT verification on.
+
+[functions.staff-invitations]
+verify_jwt = true

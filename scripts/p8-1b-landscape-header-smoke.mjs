@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const baselineCommit = "062fbe9";
+const phase82BaselineCommit = "7144c3d6a19e81ac2b5df191958171242b4ea5e9";
 const requiredBranch = "main";
 const baselineCompactQuery = "(max-width: 540px)";
 const compactQuery = "(max-width: 540px), (orientation: landscape) and (max-height: 500px) and (max-width: 900px)";
@@ -24,6 +26,7 @@ let serviceControlsPhoneLayout = serviceControlsPhoneMedia
 const p81Marker = "/* Phase P8.1: mobile guest management and collapsible shared service controls. */";
 const p81aMarker = "/* Phase P8.1A: mobile Staff layout repair. */";
 const p81bMarker = "/* Phase P8.1B: compact shared service controls in short mobile landscape. */";
+const p82aMarker = "/* Phase P8.2A: in-app Staff invitations and provisioning status. */";
 const root = resolve(import.meta.dirname, "..");
 
 function read(path) {
@@ -38,12 +41,103 @@ function fromBaseline(path) {
   return git(["show", `${baselineCommit}:${path}`]);
 }
 
+function fromPhase82Baseline(path) {
+  return git(["show", `${phase82BaselineCommit}:${path}`]);
+}
+
 function hash(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
 function count(source, pattern) {
   return (source.match(pattern) || []).length;
+}
+function withoutCredentialNavigationHardening(source) {
+  const declarations = `const AUTH_CREDENTIAL_KEYS = new Set([
+  "access_token",
+  "refresh_token",
+  "provider_token",
+  "provider_refresh_token",
+  "token_hash",
+  "token",
+  "code",
+  "error",
+  "error_code",
+  "error_description",
+  "type"
+]);
+
+function hasAuthCredentialParameters(url) {
+  return [...url.searchParams.keys()].some(key => {
+    const normalized = String(key || "").toLowerCase();
+    return AUTH_CREDENTIAL_KEYS.has(normalized) || normalized.endsWith("_token");
+  });
+}
+
+async function purgeCredentialBearingCacheEntries(cacheName) {
+  const cache = await caches.open(cacheName);
+  const requests = await cache.keys();
+  await Promise.all(
+    requests
+      .filter(request => hasAuthCredentialParameters(new URL(request.url)))
+      .map(request => cache.delete(request))
+  );
+}
+`;
+  const navigationGuard = `  const isNavigation = request.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html";
+
+  // Credential-bearing navigations stay network-owned and never enter or read
+  // the shell cache. URL fragments are not visible to service workers; the
+  // root document synchronously scrubs both query and fragment credentials.
+  if (isNavigation && hasAuthCredentialParameters(url)) return;
+
+`;
+
+  return source
+    .replace(declarations, "")
+    .replace("      .then(() => purgeCredentialBearingCacheEntries(CACHE_NAME))\n", "")
+    .replace(navigationGuard, "")
+    .replace("  if (isNavigation) {", '  if (request.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html") {');
+}
+const ROOT_CREDENTIAL_SCRUB = `
+  <script>
+  (() => {
+    const AUTH_CREDENTIAL_KEYS = new Set([
+      "access_token",
+      "refresh_token",
+      "provider_token",
+      "provider_refresh_token",
+      "token_hash",
+      "token",
+      "code",
+      "error",
+      "error_code",
+      "error_description",
+      "type"
+    ]);
+    const hasCredentialKey = key => {
+      const normalized = String(key || "").toLowerCase();
+      return AUTH_CREDENTIAL_KEYS.has(normalized) || normalized.endsWith("_token");
+    };
+    const query = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
+    const hasCredentialMaterial = [query, fragment]
+      .some(parameters => [...parameters.keys()].some(hasCredentialKey));
+
+    if (!hasCredentialMaterial) return;
+
+    const credentialFreePath = window.location.pathname || "/";
+    try {
+      window.history.replaceState(null, document.title, credentialFreePath);
+    } catch {
+      window.location.replace(credentialFreePath);
+    }
+  })();
+  </script>
+`;
+
+function withoutRootCredentialScrub(source) {
+  return source.replace(ROOT_CREDENTIAL_SCRUB, "");
 }
 
 function extractFunction(source, name) {
@@ -53,6 +147,17 @@ function extractFunction(source, name) {
   const rest = source.slice(startMatch.index);
   const close = /^}\s*$/m.exec(rest);
   return close ? rest.slice(0, close.index + close[0].length).trim() : "";
+}
+
+function sameFunction(current, baseline, name) {
+  const currentBlock = withoutInvitationContextHooks(extractFunction(current, name));
+  const baselineBlock = extractFunction(baseline, name);
+  return Boolean(currentBlock && baselineBlock && hash(currentBlock) === hash(baselineBlock));
+}
+
+function functionNames(source) {
+  return [...source.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)]
+    .map(match => match[1]);
 }
 
 function extractRuntime(source) {
@@ -170,6 +275,7 @@ function check(condition, label) {
 }
 
 const appSource = read("app.js");
+check(hasInvitationContextHooks(appSource, extractFunction), "all narrowly authorized invitation ownership/reset hooks remain present at their exact boundaries");
 const indexSource = read("index.html");
 const themeSource = read("doorflow-operational-theme.css");
 const swSource = read("sw.js");
@@ -178,17 +284,24 @@ const p81SmokeSource = read("scripts/p8-1-mobile-management-smoke.mjs");
 const p81aSmokeSource = read("scripts/p8-1a-staff-mobile-smoke.mjs");
 const baselineApp = fromBaseline("app.js");
 const baselineIndex = fromBaseline("index.html");
+const phase82BaselineApp = fromPhase82Baseline("app.js");
+const phase82BaselineIndex = fromPhase82Baseline("index.html");
 const baselineTheme = fromBaseline("doorflow-operational-theme.css");
 const baselineSw = fromBaseline("sw.js");
 const baselineManifest = fromBaseline("manifest.webmanifest");
 const runtimeSource = extractRuntime(indexSource);
 const currentStaffRenderer = extractFunction(appSource, "renderStaffManagement");
 const baselineStaffRenderer = extractFunction(baselineApp, "renderStaffManagement");
+const phase82BaselineStaffRenderer = extractFunction(phase82BaselineApp, "renderStaffManagement");
+const phase82BaselineRuntime = extractRuntime(phase82BaselineIndex);
 const p81Index = themeSource.indexOf(p81Marker);
 const p81aIndex = themeSource.indexOf(p81aMarker);
 const p81bIndex = themeSource.indexOf(p81bMarker);
+const p82aIndex = themeSource.indexOf(p82aMarker);
 const p81aCss = p81aIndex >= 0 && p81bIndex > p81aIndex ? themeSource.slice(p81aIndex, p81bIndex) : "";
-const p81bCss = p81bIndex >= 0 ? themeSource.slice(p81bIndex) : "";
+const p81bCss = p81bIndex >= 0
+  ? themeSource.slice(p81bIndex, p82aIndex > p81bIndex ? p82aIndex : undefined)
+  : "";
 
 check(git(["branch", "--show-current"]).trim() === requiredBranch, "required production main branch is checked out");
 let baselineIsAncestor = true;
@@ -198,6 +311,13 @@ try {
   baselineIsAncestor = false;
 }
 check(baselineIsAncestor, "HEAD descends from production baseline 062fbe9");
+let phase82BaselineIsAncestor = true;
+try {
+  execFileSync("git", ["merge-base", "--is-ancestor", phase82BaselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+} catch {
+  phase82BaselineIsAncestor = false;
+}
+check(phase82BaselineIsAncestor, "HEAD descends from approved Phase 8.2A baseline 7144c3d");
 
 check(Boolean(runtimeSource), "active inline runtime is present");
 check(runtimeSource === appSource.trim(), "entire inline runtime and app.js mirror are synchronized");
@@ -251,21 +371,25 @@ for (const scenario of viewportCases) {
   );
 }
 
-const normalizedRuntime = appSource
+const normalizedRuntime = phase82BaselineApp
   .replace(currentServiceControlsBootstrap, baselineServiceControlsBootstrap)
-  .replace(currentStaffRenderer, baselineStaffRenderer);
+  .replace(phase82BaselineStaffRenderer, baselineStaffRenderer);
 check(
-  hash(normalizeStaffRenderer(currentStaffRenderer)) === hash(baselineStaffRenderer),
-  "Phase 8.1A Staff renderer still differs only by its authorized accessibility and layout hooks"
+  hash(normalizeStaffRenderer(phase82BaselineStaffRenderer)) === hash(baselineStaffRenderer),
+  "approved 7144c3d Phase 8.1A Staff renderer differs only by its authorized accessibility and layout hooks"
 );
 check(
   hash(normalizedRuntime) === hash(baselineApp),
-  "app.js differs from 062fbe9 only by Phase 8.1A Staff hooks and the Phase 8.1B compact media bootstrap"
+  "approved 7144c3d app.js differs from 062fbe9 only by Phase 8.1A Staff hooks and the Phase 8.1B compact media bootstrap"
 );
-const normalizedIndex = indexSource
-  .replace(runtimeSource, baselineApp.trim())
+const historicalNormalizedIndex = phase82BaselineIndex
+  .replace(phase82BaselineRuntime, baselineApp.trim())
   .replace("/doorflow-operational-theme.css?v=p8.1b", "/doorflow-operational-theme.css?v=p8.1");
-check(hash(normalizedIndex) === hash(baselineIndex), "index differs from 062fbe9 only by the mirrored authorized runtime and p8.1b cache key");
+check(hash(historicalNormalizedIndex) === hash(baselineIndex), "approved 7144c3d index differs from 062fbe9 only by the mirrored authorized runtime and p8.1b cache key");
+const phase82NormalizedIndex = withoutRootCredentialScrub(indexSource)
+  .replace(runtimeSource, phase82BaselineRuntime)
+  .replace("/doorflow-operational-theme.css?v=p8.2", "/doorflow-operational-theme.css?v=p8.1b");
+check(hash(phase82NormalizedIndex) === hash(phase82BaselineIndex), "current index differs from 7144c3d only by the exact root credential scrub, authorized P8.2A runtime, and cache key");
 
 for (const name of [
   "renderTopbar",
@@ -278,7 +402,6 @@ for (const name of [
   "toggleServiceControls",
   "updateStaffProfile",
   "loadStaffProfilesForAdmin",
-  "refreshStaffProfiles",
   "requirePerm",
   "checkInOneGuest",
   "undoOneGuest",
@@ -286,10 +409,81 @@ for (const name of [
   "subscribeRealtime"
 ]) {
   check(
-    hash(extractFunction(appSource, name)) === hash(extractFunction(baselineApp, name)),
-    `${name} remains byte-identical to 062fbe9`
+    hash(withoutInvitationContextHooks(extractFunction(appSource, name))) === hash(extractFunction(baselineApp, name)),
+    `${name} matches 062fbe9 after exact invitation-only ownership hooks`
   );
 }
+const refreshStaffProfiles = extractFunction(appSource, "refreshStaffProfiles");
+check(
+  refreshStaffProfiles.includes('if (!requirePerm("users")) return;')
+    && refreshStaffProfiles.includes("await Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]);")
+    && count(refreshStaffProfiles, /loadStaffProfilesForAdmin\(\)/g) === 1
+    && count(refreshStaffProfiles, /loadStaffInvitationsForAdmin\(\)/g) === 1
+    && refreshStaffProfiles.indexOf("await Promise.all") < refreshStaffProfiles.indexOf("render();"),
+  "refreshStaffProfiles retains the permission gate, refreshes both Staff surfaces once, awaits them, then renders"
+);
+
+const phase82ChangedFunctions = new Set([
+  "initAuth",
+  "logout",
+  "syncModalFocus",
+  "refreshStaffProfiles",
+  "switchView",
+  "closeModal",
+  "renderStaffManagement",
+  "renderModal"
+]);
+const phase82ExpectedNewFunctions = new Set([
+  "staffInvitationContextIdentity",
+  "syncStaffInvitationContext",
+  "captureStaffInvitationContext",
+  "ownsStaffInvitationContext",
+  "normalizeStaffInvitation",
+  "validStaffInvitationTimestamp",
+  "coherentStaffInvitationReceipt",
+  "validatedStaffInvitation",
+  "newStaffInvitationIdempotencyKey",
+  "emptyStaffInviteDraft",
+  "resetStaffInvitationState",
+  "staffInvitationEndpointUrl",
+  "staffInvitationSetupError",
+  "callStaffInvitationEndpoint",
+  "mergeStaffInvitation",
+  "loadStaffInvitationsForAdmin",
+  "updateStaffInviteDraft",
+  "handleStaffInviteRoleChange",
+  "openStaffInviteModal",
+  "submitStaffInvitation",
+  "runStaffInvitationAction",
+  "retryStaffInvitation",
+  "resendStaffInvitation",
+  "staffInvitationStatusLabel",
+  "staffInvitationStatusClass",
+  "staffInvitationLastActivity",
+  "staffInvitationOutcomeNotice",
+  "renderStaffInviteModal"
+]);
+const phase82BaselineFunctionNames = [...new Set(functionNames(phase82BaselineApp))];
+const phase82CurrentFunctionNames = new Set(functionNames(appSource));
+const phase82ProtectedMismatches = phase82BaselineFunctionNames.filter(name => (
+  !phase82ChangedFunctions.has(name) && !sameFunction(appSource, phase82BaselineApp, name)
+));
+const phase82UnexpectedRemovedFunctions = phase82BaselineFunctionNames.filter(name => !phase82CurrentFunctionNames.has(name));
+const phase82UnexpectedNewFunctions = [...phase82CurrentFunctionNames].filter(name => (
+  !phase82BaselineFunctionNames.includes(name) && !phase82ExpectedNewFunctions.has(name)
+));
+const phase82MissingExpectedNewFunctions = [...phase82ExpectedNewFunctions].filter(name => !phase82CurrentFunctionNames.has(name));
+check(
+  phase82ProtectedMismatches.length === 0
+    && phase82UnexpectedRemovedFunctions.length === 0
+    && phase82UnexpectedNewFunctions.length === 0
+    && phase82MissingExpectedNewFunctions.length === 0,
+  "every function outside the exact Phase 8.2A allowlist remains byte-identical to 7144c3d"
+);
+if (phase82ProtectedMismatches.length) console.error(`       Unexpected Phase 8.2A changes: ${phase82ProtectedMismatches.join(", ")}`);
+if (phase82UnexpectedRemovedFunctions.length) console.error(`       Unexpected Phase 8.2A removals: ${phase82UnexpectedRemovedFunctions.join(", ")}`);
+if (phase82UnexpectedNewFunctions.length) console.error(`       Unexpected Phase 8.2A additions: ${phase82UnexpectedNewFunctions.join(", ")}`);
+if (phase82MissingExpectedNewFunctions.length) console.error(`       Missing Phase 8.2A functions: ${phase82MissingExpectedNewFunctions.join(", ")}`);
 
 const compactBlock = compactMediaBlocks[0]?.body || "";
 const toggleRule = cssRule(compactBlock, ".df-service-controls-toggle");
@@ -321,8 +515,9 @@ check(
   p81Index >= 0
     && p81aIndex > p81Index
     && p81bIndex > p81aIndex
+    && p82aIndex > p81bIndex
     && count(themeSource, new RegExp(p81bMarker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 1,
-  "P8.1, P8.1A, and one P8.1B CSS section remain in cumulative order"
+  "P8.1, P8.1A, P8.1B, and P8.2A CSS sections remain in cumulative order"
 );
 check(
   themeSource.slice(0, p81aIndex).includes(compactHeader)
@@ -420,12 +615,16 @@ check(
   "P8.1B adds no horizontal-overflow masking, viewport-width hack, native-date suppression, or overlap workaround"
 );
 
-check(count(indexSource, /\/doorflow-operational-theme\.css\?v=p8\.1b(?=["'])/g) === 1, "index uses exactly one p8.1b stylesheet URL");
+check(count(indexSource, /\/doorflow-operational-theme\.css\?v=p8\.2(?=["'])/g) === 1, "index uses exactly one p8.2 stylesheet URL");
+check(!/\/doorflow-operational-theme\.css\?v=p8\.1b(?=["'])/.test(indexSource), "no exact p8.1b stylesheet URL remains active");
 check(!/\/doorflow-operational-theme\.css\?v=p8\.1a(?=["'])/.test(indexSource), "no exact p8.1a stylesheet URL remains active");
 check(!/\/doorflow-operational-theme\.css\?v=p8\.1(?=["'])/.test(indexSource), "no exact p8.1 stylesheet URL remains active");
 check(count(indexSource, /<link[^>]+doorflow-operational-theme\.css/gi) === 1, "one operational theme link remains");
 
-check(hash(swSource) === hash(baselineSw), "service worker remains byte-identical to 062fbe9");
+check(
+  hash(withoutCredentialNavigationHardening(swSource)) === hash(baselineSw),
+  "service worker differs from 062fbe9 only by credential-navigation bypass and purge"
+);
 check(hash(manifestSource) === hash(baselineManifest), "manifest remains byte-identical to 062fbe9");
 try {
   JSON.parse(manifestSource);
@@ -433,12 +632,15 @@ try {
 } catch (error) {
   check(false, `manifest JSON parses: ${error.message}`);
 }
-const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.1b").pathname;
+const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
   swSource.includes('const CACHE_NAME = "doorflow-cache-v30";')
     && swSource.includes('"/doorflow-operational-theme.css"')
+    && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
+    && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
+    && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "p8.1b stylesheet pathname remains in the unchanged cache-v30 shell allowlist"
+  "cache-v30 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 
 const currentRuntimeSurface = `${appSource}\n${indexSource}\n${swSource}`;
@@ -452,7 +654,8 @@ for (const [label, pattern] of [
   ["localStorage", /\blocalStorage\b/g],
   ["sessionStorage", /\bsessionStorage\b/g]
 ]) {
-  check(count(currentRuntimeSurface, pattern) === count(baselineRuntimeSurface, pattern), `no new ${label} sites`);
+  const wording = label === "fetch" ? "no new low-level fetch implementation sites" : `no new ${label} sites`;
+  check(count(currentRuntimeSurface, pattern) === count(baselineRuntimeSurface, pattern), wording);
 }
 check(!/\b(?:navigator\.userAgent|userAgentData|platform)\b/.test(appSource), "no user-agent detection is introduced");
 check(!/\b(?:google-analytics|googletagmanager|segment|mixpanel|posthog|sentry)\b/i.test(`${appSource}\n${indexSource}\n${themeSource}`), "no analytics integration is introduced");
@@ -461,19 +664,25 @@ check(externalAssets(indexSource).join("|") === externalAssets(baselineIndex).jo
 
 const baselineTracked = git(["ls-tree", "-r", "--name-only", baselineCommit]).trim().split("\n").filter(Boolean).sort();
 const currentTracked = git(["ls-files"]).trim().split("\n").filter(Boolean).sort();
+const currentUntracked = git(["ls-files", "--others", "--exclude-standard"]).trim().split("\n").filter(Boolean);
+const currentWorkingFiles = [...new Set([...currentTracked, ...currentUntracked])].sort();
 const databaseGuarded = path => path.toLowerCase().endsWith(".sql") || /policy_snapshot\.csv$/i.test(path);
 const baselineDatabaseFiles = baselineTracked.filter(databaseGuarded);
-const currentDatabaseFiles = currentTracked.filter(databaseGuarded);
+const currentDatabaseFiles = currentWorkingFiles.filter(databaseGuarded);
+const allowedPhase82DatabaseFiles = new Set(["supabase/review/phase_8_2a_staff_invitations_review.sql"]);
+const unexpectedDatabaseFiles = currentDatabaseFiles.filter(path => (
+  !baselineDatabaseFiles.includes(path) && !allowedPhase82DatabaseFiles.has(path)
+));
 check(
-  baselineDatabaseFiles.join("|") === currentDatabaseFiles.join("|")
-    && baselineDatabaseFiles.every(path => hash(read(path)) === hash(fromBaseline(path))),
-  "SQL, RLS, policy, migration, and policy-snapshot files remain unchanged"
+  unexpectedDatabaseFiles.length === 0
+    && baselineDatabaseFiles.every(path => currentDatabaseFiles.includes(path) && hash(read(path)) === hash(fromBaseline(path))),
+  "pre-existing SQL, RLS, policy, migration, and policy-snapshot files remain unchanged; only the P8.2A review SQL may be added"
 );
 const dependencyFile = path => /(^|\/)(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i.test(path);
 check(currentTracked.filter(dependencyFile).join("|") === baselineTracked.filter(dependencyFile).join("|"), "no dependency manifest or lockfile is added");
 
 check(
-  p81SmokeSource.includes("p8.1b stylesheet URL")
+  p81SmokeSource.includes("p8.2 stylesheet URL")
     && p81SmokeSource.includes("compactServiceControlsQuery")
     && p81SmokeSource.includes('"scripts/p8-1b-landscape-header-smoke.mjs"'),
   "Phase 8.1 cumulative smoke recognizes the p8.1b query, cache key, and focused smoke"
@@ -481,7 +690,7 @@ check(
 check(
   p81aSmokeSource.includes("currentServiceControlsBootstrap")
     && p81aSmokeSource.includes("normalizedThemePrefix")
-    && p81aSmokeSource.includes("p8.1b stylesheet URL")
+    && p81aSmokeSource.includes("p8.2 stylesheet URL")
     && p81aSmokeSource.includes('"scripts/p8-1b-landscape-header-smoke.mjs"'),
   "Phase 8.1A smoke narrowly normalizes P8.1B while retaining runtime and CSS-prefix guards"
 );
@@ -489,10 +698,34 @@ check(
 const allowedChanges = new Set([
   "app.js",
   "index.html",
+  "sw.js",
   "doorflow-operational-theme.css",
   "scripts/p8-1-mobile-management-smoke.mjs",
   "scripts/p8-1a-staff-mobile-smoke.mjs",
-  "scripts/p8-1b-landscape-header-smoke.mjs"
+  "scripts/p8-1b-landscape-header-smoke.mjs",
+  "scripts/p8-2a-edge-function.test.mjs",
+  "scripts/p8-2a-adapter-validation.test.ts",
+  "scripts/p8-2a-audit-contract.test.ts",
+  "scripts/p8-2a-invitation-context.browser.test.mjs",
+  "scripts/p8-2a-browser-resources.mjs",
+  "scripts/p8-2a-context-comparison.mjs",
+  "supabase/functions/staff-invitations/audit.ts",
+  "supabase/functions/staff-invitations/rpc-validation.ts",
+  "scripts/p8-2a-staff-invitations-smoke.mjs",
+  "docs/PHASE_8_2A_STAFF_INVITATIONS_DEPLOYMENT.md",
+  "_headers",
+  "vercel.json",
+  "auth/index.html",
+  "auth/accept-invite.css",
+  "auth/accept-invite.js",
+  "auth/accept-invite.browser.test.mjs",
+  "auth/invite-acceptance-core.mjs",
+  "auth/invite-acceptance-core.test.mjs",
+  "supabase/config.toml",
+  "supabase/functions/staff-invitations/core.ts",
+  "supabase/functions/staff-invitations/index.ts",
+  "supabase/functions/staff-invitations/deno.json",
+  "supabase/review/phase_8_2a_staff_invitations_review.sql"
 ]);
 const statusRecords = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]).split("\0").filter(Boolean);
 const statusPaths = statusRecords.map(record => record.slice(3).replaceAll("\\", "/"));
