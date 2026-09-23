@@ -1,3 +1,4 @@
+import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
 import { execFileSync } from "node:child_process";
@@ -94,7 +95,7 @@ function extractFunction(source, name) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.indexOf("const SUPABASE_URL");
+  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
   const open = indexSource.lastIndexOf("<script>", runtimeStart);
   const close = indexSource.indexOf("</script>", runtimeStart);
   return runtimeStart >= 0 && open >= 0 && close >= 0
@@ -608,8 +609,8 @@ check(
 );
 
 check(
-  hash(withoutCredentialNavigationHardening(swSource)) === hash(baselineSw),
-  "service worker differs from production baseline only by credential-navigation bypass and purge"
+  hash(withoutCredentialNavigationHardening(withoutEnvironmentCacheSafety(swSource))) === hash(baselineSw),
+  "service worker differs from production baseline only by credential-navigation and exact environment-cache safeguards"
 );
 check(hash(manifestSource) === hash(baselineManifest), "manifest remains byte-identical to production baseline");
 try {
@@ -620,13 +621,13 @@ try {
 }
 const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
-  swSource.includes('const CACHE_NAME = "doorflow-cache-v30";')
+  swSource.includes('const CACHE_NAME = "doorflow-cache-v31";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "cache-v30 ordinary shell behavior remains while credential navigations bypass and purge"
+  "cache-v31 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 check(
   swSource.includes('request.method !== "GET"')
@@ -638,7 +639,7 @@ check(
   "service-worker request exclusions, network-first navigation, and lifecycle safeguards remain"
 );
 
-const currentSurface = appSource + "\n" + indexSource + "\n" + themeSource + "\n" + swSource;
+const currentSurface = withoutConfigRestoreListener(appSource + "\n" + indexSource + "\n" + themeSource + "\n" + swSource);
 const baselineSurface = baselineApp + "\n" + baselineIndex + "\n" + baselineTheme + "\n" + baselineSw;
 for (const [label, pattern] of [
   ["Supabase client creation", /\.createClient\s*\(/g],
@@ -671,14 +672,14 @@ const currentWorkingFiles = [...new Set([...currentTracked, ...currentUntracked]
 const isDatabaseGuarded = path => path.toLowerCase().endsWith(".sql") || /policy_snapshot\.csv$/i.test(path);
 const baselineDatabaseFiles = baselineTracked.filter(isDatabaseGuarded);
 const currentDatabaseFiles = currentWorkingFiles.filter(isDatabaseGuarded);
-const allowedPhase82DatabaseFiles = new Set(["supabase/review/phase_8_2a_staff_invitations_review.sql"]);
+const allowedPhase82DatabaseFiles = new Set(["supabase/review/phase_8_2a_staff_invitations_review.sql", "supabase/review/phase_8_2b_single_venue_staff_review.sql"]);
 const unexpectedDatabaseFiles = currentDatabaseFiles.filter(path => (
   !baselineDatabaseFiles.includes(path) && !allowedPhase82DatabaseFiles.has(path)
 ));
 check(
   unexpectedDatabaseFiles.length === 0
     && baselineDatabaseFiles.every(path => currentDatabaseFiles.includes(path) && hash(read(path)) === hash(fromBaseline(path))),
-  "pre-existing SQL, RLS, policy, migration, and policy-snapshot files are unchanged; only the P8.2A review SQL may be added"
+  "pre-existing SQL, RLS, policy, migration, and policy-snapshot files are unchanged; only the exact invitation and single-venue review SQL may be added"
 );
 const dependencyFile = path => /(^|\/)(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i.test(path);
 check(
@@ -687,6 +688,8 @@ check(
 );
 
 const allowedChanges = new Set([
+  ...stagingSafetyFiles,
+  "scripts/p6-checkin-race-smoke.mjs",
   "index.html",
   "app.js",
   "sw.js",

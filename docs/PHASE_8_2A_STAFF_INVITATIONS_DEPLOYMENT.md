@@ -1151,3 +1151,33 @@ Dropping functions, the private schema, or tables is not normal rollback. A
 future retention-driven removal requires verified evidence export, resolution
 of every partial operation, explicit data-destruction approval, and a separate
 reviewed change.
+
+## Phase 8.2B Step 3A local staging safeguards
+
+See [single-venue and browser build contract](PHASE_8_2B_STAGING_SAFETY.md).
+The reviewed profile policies now use the existing single staff-profile venue
+for same-venue Admin CRUD; no membership-based authority is introduced. The
+separate policy script is review-only and was applied only to a fresh fictional
+local PostgreSQL fixture. Its 223 real policy assertions passed and its owned
+database/listener were shut down. The earlier full invitation database result
+(414 groups / 5,929 assertions / 10 genuine lock waits) is prior evidence, not a
+new run in Step 3A; invitation SQL remains unchanged from the verified
+`auth_user.email::text` correction.
+
+The shared public configuration/build checks passed 33 cases; new browser
+configuration checks passed 30 cases; cache/parity checks passed 9. The existing
+187 invitation, 579 adapter, 8 audit, 20 acceptance-core, 16 invitation-context
+browser and complete acceptance-browser checks passed locally. The four Phase 8
+smokes and P6 race checks retain their original behavior assertions with exact
+documented startup/cache/inventory maintenance. The final lab report records
+fresh repeat runs and native exits, including any preliminary test-fixture
+failures rather than hiding them.
+
+Raw Deno checking remains FAILED on the same two external declaration errors;
+there are zero application/test-source and zero unexpected diagnostics. This
+does not establish hosted runtime/provider compatibility. Runtime-only Deno
+mock tests use disclosed `--no-check`; genuine checking does not. Nothing was
+deployed, no host environment values were changed, and provisioning remains
+disabled by default. A new deployment without its complete explicit public
+configuration must fail its build. Never roll staging back to a legacy
+hardcoded-production bundle or reuse an existing production browser origin.

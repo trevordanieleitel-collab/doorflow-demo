@@ -1,5 +1,19 @@
 {
+  "buildCommand": "node scripts/build-public.mjs",
+  "outputDirectory": "dist",
   "headers": [
+    {
+      "source": "/api/doorflow-public-config.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/public-config.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }]
+    },
     {
       "source": "/",
       "headers": [

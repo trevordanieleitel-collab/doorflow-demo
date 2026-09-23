@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fixtureConfig, bindFixtureHtml } from "./p8-2b-config-fixture.mjs";
 import { bounded, disposeBrowser, evaluate, launchBrowser } from "./p8-2a-browser-resources.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -63,13 +64,20 @@ const SDK = `window.supabase = { createClient() {
 
 async function fixture(options = {}) {
   const allowed = new Set(["index.html", "sw.js", "manifest.webmanifest", "doorflow-operational-theme.css",
+    "public-config.js",
     "branding/bob-logo.png", "branding/bob-logo-dark.png", "branding/bob-icon-192.png", "branding/bob-icon-512.png", "branding/bob-icon-maskable-512.png"]);
   const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://127.0.0.1").pathname.slice(1) || "index.html";
+    const config = await fixtureConfig(`http://127.0.0.1:${server.address().port}`);
+    if (path === "api/doorflow-public-config.json") {
+      response.writeHead(200, {"Cache-Control":"no-store", "Content-Type":"application/json"});
+      response.end(JSON.stringify(config)); return;
+    }
     if (!allowed.has(path)) { response.writeHead(404); response.end(); return; }
     try {
       response.writeHead(200, { "Cache-Control":"no-store", "Content-Type":({".html":"text/html", ".js":"text/javascript", ".css":"text/css"})[extname(path)] || "application/octet-stream" });
-      response.end(await readFile(join(ROOT, path)));
+      const body = await readFile(join(ROOT, path));
+      response.end(path.endsWith(".html") ? bindFixtureHtml(body.toString(), config) : body);
     } catch { response.writeHead(500); response.end(); }
   });
   await bounded(new Promise(resolve => server.listen(0, "127.0.0.1", resolve)), "Loopback server");

@@ -2703,7 +2703,7 @@ begin
   end if;
 
   return query
-  select auth_user.id, auth_user.email, auth_user.email_confirmed_at,
+  select auth_user.id, auth_user.email::text, auth_user.email_confirmed_at,
          auth_user.invited_at
   from auth.users as auth_user
   where pg_catalog.lower(pg_catalog.btrim(auth_user.email)) = p_normalized_email

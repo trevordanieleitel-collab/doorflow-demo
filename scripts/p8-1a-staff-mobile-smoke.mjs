@@ -1,3 +1,4 @@
+import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
 import { execFileSync } from "node:child_process";
@@ -156,7 +157,7 @@ function functionNames(source) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.indexOf("const SUPABASE_URL");
+  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
   const open = indexSource.lastIndexOf("<script>", runtimeStart);
   const close = indexSource.indexOf("</script>", runtimeStart);
   return runtimeStart >= 0 && open >= 0 && close >= 0
@@ -276,7 +277,7 @@ const historicalNormalizedIndex = phase82BaselineIndex
   .replace(phase82BaselineRuntime, baselineApp.trim())
   .replace("/doorflow-operational-theme.css?v=p8.1b", "/doorflow-operational-theme.css?v=p8.1");
 check(hash(historicalNormalizedIndex) === hash(baselineIndex), "approved 7144c3d index changes are limited to the mirrored authorized runtime and p8.1b cache key");
-const phase82NormalizedIndex = withoutRootCredentialScrub(indexSource)
+const phase82NormalizedIndex = withoutRootCredentialScrub(withoutConfigBootstrapHeader(indexSource))
   .replace(runtimeSource, phase82BaselineRuntime)
   .replace("/doorflow-operational-theme.css?v=p8.2", "/doorflow-operational-theme.css?v=p8.1b");
 check(hash(phase82NormalizedIndex) === hash(phase82BaselineIndex), "current index differs from 7144c3d only by the exact root credential scrub, authorized P8.2A runtime, and cache key");
@@ -476,8 +477,8 @@ check(!/\/doorflow-operational-theme\.css\?v=p8\.1(?=["'])/.test(indexSource), "
 check(count(indexSource, /<link[^>]+doorflow-operational-theme\.css/gi) === 1, "one operational theme link remains");
 
 check(
-  hash(withoutCredentialNavigationHardening(swSource)) === hash(baselineSw),
-  "service worker differs from 062fbe9 only by credential-navigation bypass and purge"
+  hash(withoutCredentialNavigationHardening(withoutEnvironmentCacheSafety(swSource))) === hash(baselineSw),
+  "service worker differs from 062fbe9 only by credential-navigation and exact environment-cache safeguards"
 );
 check(hash(manifestSource) === hash(baselineManifest), "manifest remains byte-identical to 062fbe9");
 try {
@@ -488,16 +489,16 @@ try {
 }
 const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
-  swSource.includes('const CACHE_NAME = "doorflow-cache-v30";')
+  swSource.includes('const CACHE_NAME = "doorflow-cache-v31";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "cache-v30 ordinary shell behavior remains while credential navigations bypass and purge"
+  "cache-v31 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 
-const currentRuntimeSurface = `${appSource}\n${indexSource}\n${swSource}`;
+const currentRuntimeSurface = withoutConfigRestoreListener(`${appSource}\n${indexSource}\n${swSource}`);
 const baselineRuntimeSurface = `${baselineApp}\n${baselineIndex}\n${baselineSw}`;
 for (const [label, pattern] of [
   ["Supabase client", /\.createClient\s*\(/g],
@@ -522,14 +523,14 @@ const currentWorkingFiles = [...new Set([...currentTracked, ...currentUntracked]
 const databaseGuarded = path => path.toLowerCase().endsWith(".sql") || /policy_snapshot\.csv$/i.test(path);
 const baselineDatabaseFiles = baselineTracked.filter(databaseGuarded);
 const currentDatabaseFiles = currentWorkingFiles.filter(databaseGuarded);
-const allowedPhase82DatabaseFiles = new Set(["supabase/review/phase_8_2a_staff_invitations_review.sql"]);
+const allowedPhase82DatabaseFiles = new Set(["supabase/review/phase_8_2a_staff_invitations_review.sql", "supabase/review/phase_8_2b_single_venue_staff_review.sql"]);
 const unexpectedDatabaseFiles = currentDatabaseFiles.filter(path => (
   !baselineDatabaseFiles.includes(path) && !allowedPhase82DatabaseFiles.has(path)
 ));
 check(
   unexpectedDatabaseFiles.length === 0
     && baselineDatabaseFiles.every(path => currentDatabaseFiles.includes(path) && hash(read(path)) === hash(fromBaseline(path))),
-  "pre-existing SQL, RLS, policy, migration, and policy-snapshot files remain unchanged; only the P8.2A review SQL may be added"
+  "pre-existing SQL, RLS, policy, migration, and policy-snapshot files remain unchanged; only the exact invitation and single-venue review SQL may be added"
 );
 const dependencyFile = path => /(^|\/)(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i.test(path);
 check(currentTracked.filter(dependencyFile).join("|") === baselineTracked.filter(dependencyFile).join("|"), "no dependency manifest or lockfile is added");
@@ -544,6 +545,8 @@ check(
 );
 
 const allowedChanges = new Set([
+  ...stagingSafetyFiles,
+  "scripts/p6-checkin-race-smoke.mjs",
   "app.js",
   "index.html",
   "sw.js",

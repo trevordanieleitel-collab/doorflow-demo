@@ -1,5 +1,5 @@
-const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
-const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
+let SUPABASE_URL;
+let SUPABASE_PUBLIC_KEY;
 const DOORFLOW_FETCH_TIMEOUT_MS = 18000;
 const DOORFLOW_SESSION_REFRESH_WINDOW_MS = 120000;
 const DOORFLOW_REALTIME_RECONNECT_MS = 120000;
@@ -81,10 +81,7 @@ function doorFlowFetch(input, init = {}) {
   }).finally(() => clearTimeout(timer));
 }
 
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
-  global:{ fetch:doorFlowFetch },
-  auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:false }
-});
+let db;
 
 const roles = {
   admin:   { label:"Admin",      door:true,  manage:true,  users:true,  reports:true },
@@ -8393,5 +8390,26 @@ if (serviceControlsPhoneMedia?.addEventListener) {
   serviceControlsPhoneMedia?.addListener?.(handleServiceControlsBreakpointChange);
 }
 
-render();
-initAuth();
+// No client, login or operational work is started until the shared public
+// configuration matches this document's build binding and actual origin.
+(async () => {
+  try {
+    const config = await window.DoorFlowConfig.load();
+    SUPABASE_URL = config.supabaseUrl;
+    SUPABASE_PUBLIC_KEY = config.publishableKey;
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+      global:{ fetch:doorFlowFetch },
+      auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:false }
+    });
+  } catch {
+    const root = document.getElementById("app");
+    root.setAttribute("role", "alert");
+    root.textContent = "DoorFlow configuration is unavailable. Contact your administrator.";
+    return;
+  }
+  render();
+  initAuth();
+})();
+window.addEventListener("pageshow", event => {
+  if (event.persisted) window.location.reload();
+});

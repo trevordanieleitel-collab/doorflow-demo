@@ -2,7 +2,7 @@
 // Operational data always requires a live Supabase connection and is never cached here.
 
 const CACHE_PREFIX = "doorflow-cache-";
-const CACHE_NAME = "doorflow-cache-v30";
+const CACHE_NAME = "doorflow-cache-v31";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -77,7 +77,8 @@ async function networkFirstNavigation(request, pathname) {
     }
     return response;
   } catch (error) {
-    return (await caches.match(request)) || (await caches.match("/index.html")) || Response.error();
+    const cache = await caches.open(CACHE_NAME);
+    return (await cache.match(request)) || (await cache.match("/index.html")) || Response.error();
   }
 }
 
@@ -104,6 +105,9 @@ self.addEventListener("fetch", event => {
   // root document synchronously scrubs both query and fragment credentials.
   if (isNavigation && hasAuthCredentialParameters(url)) return;
 
+  // Shared config and its validator stay network-only; no offline backend default.
+  if (url.pathname === "/public-config.js" || url.pathname === "/api/doorflow-public-config.json") return;
+
   // Same-origin API-style paths remain network-owned and never enter the shell cache.
   if (
     url.pathname.includes("/rest/")
@@ -123,7 +127,7 @@ self.addEventListener("fetch", event => {
   if (!APP_SHELL_PATHS.has(url.pathname)) return;
 
   event.respondWith(
-    caches.match(request).then(cached => {
+    caches.open(CACHE_NAME).then(cache => cache.match(request)).then(cached => {
       const refresh = refreshStaticAsset(request);
       if (cached) {
         event.waitUntil(refresh.catch(() => undefined));

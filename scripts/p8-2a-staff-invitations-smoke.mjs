@@ -1,3 +1,4 @@
+import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
 import { execFileSync } from "node:child_process";
@@ -38,7 +39,7 @@ function extractFunction(source, name) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.indexOf("const SUPABASE_URL");
+  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
   const open = indexSource.lastIndexOf("<script>", runtimeStart);
   const close = indexSource.indexOf("</script>", runtimeStart);
   return runtimeStart >= 0 && open >= 0 && close >= 0
@@ -174,8 +175,8 @@ try {
 check(count(index, /\/doorflow-operational-theme\.css\?v=p8\.2(?=["'])/g) === 1, "one fresh p8.2 stylesheet URL is active");
 check(count(css, new RegExp(p82Marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) === 1, "one scoped Phase 8.2A CSS appendix exists");
 check(
-  hash(withoutCredentialNavigationHardening(sw)) === hash(baselineSw),
-  "service worker differs from the approved baseline only by credential-navigation bypass and purge"
+  hash(withoutCredentialNavigationHardening(withoutEnvironmentCacheSafety(sw))) === hash(baselineSw),
+  "service worker differs from the approved baseline only by credential-navigation and exact environment-cache safeguards"
 );
 check(hash(manifest) === hash(baselineManifest), "manifest remains byte-identical to the approved baseline");
 try {
@@ -186,13 +187,13 @@ try {
   check(false, `manifest and Vercel configuration JSON parse: ${error.message}`);
 }
 check(
-  sw.includes('const CACHE_NAME = "doorflow-cache-v30";')
+  sw.includes('const CACHE_NAME = "doorflow-cache-v31";')
     && sw.includes('url.pathname.includes("/auth/")')
     && sw.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && sw.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && sw.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && !sw.includes('"/auth/index.html"'),
-  "cache-v30, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
+  "cache-v31, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
 );
 
 const firstExternalScript = index.indexOf('<script src="https://');
@@ -539,7 +540,7 @@ check(
     && acceptanceBrowserTest.includes('Network.setBlockedURLs')
     && acceptanceBrowserTest.includes('updateUserCalls, 0')
     && acceptanceBrowserTest.includes('existing-admin-session-sentinel')
-    && acceptanceBrowserTest.includes('doorflow-cache-v30')
+    && acceptanceBrowserTest.includes('doorflow-cache-v31')
     && acceptanceBrowserTest.includes('misrouted provider error details')
     && acceptanceBrowserTest.includes('credential and provider-error URLs must never enter CacheStorage'),
   "acceptance bounds Auth calls, rechecks identity, isolates root credentials/errors from CacheStorage, and has pre-navigation browser interception"
@@ -705,6 +706,7 @@ const tracked = lines(git(["ls-files"]));
 const untracked = lines(git(["ls-files", "--others", "--exclude-standard"]));
 const workingFiles = [...new Set([...tracked, ...untracked])].filter(path => !path.startsWith(".codex/")).sort();
 const expectedNewFiles = [
+  ...stagingSafetyFiles,
   "auth/accept-invite.css",
   "auth/accept-invite.js",
   "auth/accept-invite.browser.test.mjs",
@@ -731,6 +733,7 @@ const actualNewFiles = workingFiles.filter(path => !baselineFiles.includes(path)
 check(actualNewFiles.join("|") === expectedNewFiles.join("|"), "new Phase 8.2A file inventory is exact and review SQL stays outside migrations");
 
 const authorizedBaselineChanges = new Set([
+  "scripts/p6-checkin-race-smoke.mjs",
   "_headers", "app.js", "doorflow-operational-theme.css", "index.html", "sw.js", "vercel.json",
   "scripts/p8-1-mobile-management-smoke.mjs",
   "scripts/p8-1a-staff-mobile-smoke.mjs",

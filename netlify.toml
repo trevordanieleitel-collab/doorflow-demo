@@ -1,0 +1,3 @@
+[build]
+  command = "node scripts/build-public.mjs"
+  publish = "dist"

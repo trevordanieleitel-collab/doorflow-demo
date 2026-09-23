@@ -1,8 +1,6 @@
 (() => {
   "use strict";
 
-  const SUPABASE_URL = "https://wdlgkwzowapzhurbbavf.supabase.co";
-  const SUPABASE_PUBLIC_KEY = "sb_publishable_FiasS5c034YR4w_72bBUqQ_dzcCJ5ME";
   const SUPABASE_SDK_MODULE = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/+esm";
   const MAX_VERIFICATION_ATTEMPTS = 3;
   const AUTH_REQUEST_TIMEOUT_MS = 12000;
@@ -358,6 +356,19 @@
       return;
     }
 
+    let config;
+    try {
+      config = await window.DoorFlowConfig.load();
+      if (lifecycleVersion !== startVersion) return;
+    } catch {
+      if ("accessToken" in parsed) parsed.accessToken = "";
+      if ("refreshToken" in parsed) parsed.refreshToken = "";
+      if ("tokenHash" in parsed) parsed.tokenHash = "";
+      if (lifecycleVersion !== startVersion) return;
+      showInvitationFailure("unavailable");
+      statusMessage.textContent = "DoorFlow configuration is unavailable. Contact your administrator.";
+      return;
+    }
     try {
       const { createClient } = await import(SUPABASE_SDK_MODULE);
       if (lifecycleVersion !== startVersion) return;
@@ -366,7 +377,7 @@
         window.fetch.bind(window),
         AUTH_REQUEST_TIMEOUT_MS
       );
-      authClient = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+      authClient = createClient(config.supabaseUrl, config.publishableKey, {
         auth: core.isolatedAuthOptions(memoryStorage),
         global: { fetch: boundedAuthFetch }
       });

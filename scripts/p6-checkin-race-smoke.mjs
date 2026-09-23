@@ -1,3 +1,4 @@
+import { extractAppRuntime } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -6,8 +7,7 @@ import vm from "node:vm";
 const root = resolve(import.meta.dirname, "..");
 const appSource = readFileSync(resolve(root, "app.js"), "utf8").replaceAll("\r\n", "\n");
 const indexSource = readFileSync(resolve(root, "index.html"), "utf8").replaceAll("\r\n", "\n");
-const runtimeMatch = indexSource.match(/<script>\s*([\s\S]*?)\s*render\(\);\s*initAuth\(\);\s*<\/script>/);
-const runtimeSource = runtimeMatch ? `${runtimeMatch[1]}\nrender();\ninitAuth();` : "";
+const runtimeSource = extractAppRuntime(indexSource);
 const exercisedFunctions = [
   "setActionBusy",
   "isActionBusy",

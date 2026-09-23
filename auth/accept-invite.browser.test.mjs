@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fixtureConfig, bindFixtureHtml } from "../scripts/p8-2b-config-fixture.mjs";
 import { disposeBrowser, observeExit } from "../scripts/p8-2a-browser-resources.mjs";
 
 const AUTH_DIRECTORY = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,7 @@ const FILES = new Map([
 ]);
 
 const APP_FILES = new Map([
+  ["/public-config.js", "public-config.js"],
   ["/", "index.html"],
   ["/index.html", "index.html"],
   ["/sw.js", "sw.js"],
@@ -300,6 +302,11 @@ test("isolated browser flow blocks identity drift before password mutation", asy
 
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    const config = await fixtureConfig(`http://127.0.0.1:${server.address().port}`);
+    if (pathname === "/api/doorflow-public-config.json") {
+      response.writeHead(200, {"Cache-Control":"no-store", "Content-Type":"application/json"});
+      response.end(JSON.stringify(config)); return;
+    }
     const authFilename = FILES.get(pathname);
     const appFilename = APP_FILES.get(pathname);
     const filename = authFilename || appFilename;
@@ -316,7 +323,7 @@ test("isolated browser flow blocks identity drift before password mutation", asy
         "Content-Type": CONTENT_TYPES.get(extname(filename)) || "application/octet-stream",
         "Referrer-Policy": "no-referrer"
       });
-      response.end(body);
+      response.end(filename.endsWith(".html") ? bindFixtureHtml(body.toString(), config) : body);
     } catch {
       response.writeHead(500, { "Cache-Control": "no-store" });
       response.end("Unavailable");
@@ -459,8 +466,8 @@ test("isolated browser flow blocks identity drift before password mutation", asy
       }
       return result;
     })()`);
-    assert.ok(Array.isArray(cacheState["doorflow-cache-v30"]));
-    assert.ok(cacheState["doorflow-cache-v30"].some(url => url.includes("?view=door")));
+    assert.ok(Array.isArray(cacheState["doorflow-cache-v31"]));
+    assert.ok(cacheState["doorflow-cache-v31"].some(url => url.includes("?view=door")));
     assert.equal(
       Object.values(cacheState).flat().some(url => /(?:access_token|refresh_token|token_hash|error_description|[?&]type=invite)/i.test(url)),
       false,
