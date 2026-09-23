@@ -37,7 +37,9 @@
       const expected = document.querySelector('meta[name="doorflow-config-binding"]')?.content;
       if (!/^[a-f0-9]{64}$/.test(expected || "")) throw new Error(FAILURE);
       const response = await fetch("/api/doorflow-public-config.json", {
-        cache:"no-store", credentials:"omit", redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal
+        // Protected hosting may require its own HttpOnly session cookie. Send
+        // credentials only to this origin; redirects remain forbidden.
+        cache:"no-store", credentials:"same-origin", redirect:"error", referrerPolicy:"no-referrer", signal:controller.signal
       });
       if (!response.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("application/json")) throw new Error(FAILURE);
       const text = await response.text();
