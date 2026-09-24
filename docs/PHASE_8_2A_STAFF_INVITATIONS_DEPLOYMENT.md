@@ -1,5 +1,7 @@
 # DoorFlow Phase 8.2A.1 Staff Invitations: Deployment and Recovery
 
+> Historical record: the status and permission statements below describe the Phase 8.2A work when written. Hosted staging has since completed; see [Phase 8.2B hosted provenance](PHASE_8_2B_HOSTED_EVIDENCE.md). Use [Phase 8.2C disabled production deployment](PHASE_8_2C_DISABLED_PRODUCTION_DEPLOYMENT.md) for the current gated release plan. Its production deployment is not yet claimed complete, and production provisioning must remain disabled. The historical text below is preserved rather than rewritten as new evidence.
+
 ## Status and non-production boundary
 
 Phase 8.2A is local, uncommitted work. The SQL in

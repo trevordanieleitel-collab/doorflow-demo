@@ -101,7 +101,7 @@ async function fixture(options = {}) {
     const action = async () => {
       const url = new URL(request.request.url);
       if (url.origin === origin) return cdp.send("Fetch.continueRequest", {requestId:request.requestId}, sessionId);
-      if (request.request.url === "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2") return fulfill(request, SDK, 200, "text/javascript");
+      if (request.request.url === "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0") return fulfill(request, SDK, 200, "text/javascript");
       if (url.hostname === "cdn.sheetjs.com") return fulfill(request, "", 200, "text/javascript");
       if (url.pathname === "/functions/v1/staff-invitations") {
         if (request.request.method === "OPTIONS") return fulfill(request, "");

@@ -1,5 +1,7 @@
 # Single-venue isolation and public browser configuration
 
+> Historical local-safety record: hosted staging subsequently completed, as documented in [Phase 8.2B hosted provenance](PHASE_8_2B_HOSTED_EVIDENCE.md). The local-only status below describes its original checkpoint. The current gated release plan is [Phase 8.2C disabled production deployment](PHASE_8_2C_DISABLED_PRODUCTION_DEPLOYMENT.md); it does not yet claim a completed production deployment. The authorization and browser configuration contracts below remain relevant.
+
 Local review only. No hosted installation, deployment, account creation or invitation enablement is authorized by these files.
 
 ## Staff-management rule
