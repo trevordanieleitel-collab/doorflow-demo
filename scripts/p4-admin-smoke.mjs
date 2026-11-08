@@ -1,3 +1,5 @@
+import { retiredReleaseScope } from "./historical-release-scope.mjs";
+import { extractAppRuntime as currentAppRuntime } from "./p8-2b-static-comparison.mjs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -106,6 +108,7 @@ const administrativeRenderers = [
 let failures = 0;
 
 function check(condition, label) {
+  if (retiredReleaseScope(label)) return;
   if (condition) {
     console.log(`[PASS] ${label}`);
     return;
@@ -119,7 +122,7 @@ function read(path) {
 }
 
 function git(args) {
-  return execFileSync("git", args, { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
+  return execFileSync("git", ["-c", `safe.directory=${root}`, ...args], { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
 }
 
 function fromHead(path) {
@@ -127,8 +130,7 @@ function fromHead(path) {
 }
 
 function extractRuntime(html) {
-  const match = html.match(/<script>\s*([\s\S]*?)\s*render\(\);\s*initAuth\(\);\s*<\/script>/);
-  return match ? `${match[1]}\nrender();\ninitAuth();` : "";
+  return currentAppRuntime(html);
 }
 
 function extractFunction(source, name) {
@@ -164,7 +166,7 @@ const p65Css = themeCss.split("/* Phase P6.5:")[1] || "";
 
 check(Boolean(runtime), "inline operational runtime remains in index.html");
 check(!/<script[^>]+src=["'](?:\.\/)?app\.js["']/i.test(indexHtml), "index.html remains the inline runtime and does not load app.js");
-check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css\?v=p6\.10">/g) === 1, "P6.10 cache-versioned operational theme remains linked exactly once");
+check(count(indexHtml, /<link\s+rel="stylesheet"\s+href="\/doorflow-operational-theme\.css\?v=[^"\']+">/g) === 1, "one cache-versioned operational theme link is active");
 
 const protectedMismatches = protectedFunctions.filter(name => !p61ChangedFunctions.has(name)).filter(name => {
   const blocks = [

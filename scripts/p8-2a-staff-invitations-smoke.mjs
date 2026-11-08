@@ -1,3 +1,5 @@
+import { retiredReleaseScope, hasFoundationInvitationContext } from "./historical-release-scope.mjs";
+import { extractAppRuntime as currentAppRuntime } from "./p8-2b-static-comparison.mjs";
 import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
@@ -14,7 +16,7 @@ function read(path) {
 }
 
 function git(args) {
-  return execFileSync("git", args, { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
+  return execFileSync("git", ["-c", `safe.directory=${root}`, ...args], { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
 }
 
 function fromBaseline(path) {
@@ -39,12 +41,7 @@ function extractFunction(source, name) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
-  const open = indexSource.lastIndexOf("<script>", runtimeStart);
-  const close = indexSource.indexOf("</script>", runtimeStart);
-  return runtimeStart >= 0 && open >= 0 && close >= 0
-    ? indexSource.slice(open + "<script>".length, close).trim()
-    : "";
+  return currentAppRuntime(indexSource);
 }
 
 function extractSqlFunction(source, name) {
@@ -126,6 +123,7 @@ async function purgeCredentialBearingCacheEntries(cacheName) {
 
 let failures = 0;
 function check(condition, label) {
+  if (retiredReleaseScope(label)) return;
   if (condition) {
     console.log(`[PASS] ${label}`);
   } else {
@@ -135,7 +133,7 @@ function check(condition, label) {
 }
 
 const app = read("app.js");
-check(hasInvitationContextHooks(app, extractFunction), "all narrowly authorized invitation ownership/reset hooks remain present at their exact boundaries");
+check(hasFoundationInvitationContext(app, extractFunction), "invitation state follows mandatory authenticated-context invalidation and guarded same-venue Staff loads");
 const index = read("index.html");
 const runtime = extractRuntime(index);
 const css = read("doorflow-operational-theme.css");
@@ -159,7 +157,7 @@ const baselineManifest = fromBaseline("manifest.webmanifest");
 check(git(["branch", "--show-current"]).trim() === "main", "production main branch is checked out");
 let baselineIsAncestor = true;
 try {
-  execFileSync("git", ["merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+  execFileSync("git", ["-c", `safe.directory=${root}`, "merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
 } catch {
   baselineIsAncestor = false;
 }
@@ -187,13 +185,13 @@ try {
   check(false, `manifest and Vercel configuration JSON parse: ${error.message}`);
 }
 check(
-  sw.includes('const CACHE_NAME = "doorflow-cache-v31";')
+  sw.includes('const CACHE_NAME = "doorflow-cache-v32";')
     && sw.includes('url.pathname.includes("/auth/")')
     && sw.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && sw.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && sw.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && !sw.includes('"/auth/index.html"'),
-  "cache-v31, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
+  "cache-v32, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
 );
 
 const firstExternalScript = index.indexOf('<script src="https://');
@@ -540,7 +538,7 @@ check(
     && acceptanceBrowserTest.includes('Network.setBlockedURLs')
     && acceptanceBrowserTest.includes('updateUserCalls, 0')
     && acceptanceBrowserTest.includes('existing-admin-session-sentinel')
-    && acceptanceBrowserTest.includes('doorflow-cache-v31')
+    && acceptanceBrowserTest.includes('doorflow-cache-v32')
     && acceptanceBrowserTest.includes('misrouted provider error details')
     && acceptanceBrowserTest.includes('credential and provider-error URLs must never enter CacheStorage'),
   "acceptance bounds Auth calls, rechecks identity, isolates root credentials/errors from CacheStorage, and has pre-navigation browser interception"

@@ -176,16 +176,13 @@ for (const failure of [false, true]) {
   });
 }
 
-for (const transition of ["same-account relogin", "venue", "demotion", "inactive", "operational venue"]) {
+for (const transition of ["same-account relogin", "venue", "demotion", "inactive"]) {
   test(`actual application: ${transition} invalidates earlier work even after returning to A`, async () => {
     const f = await fixture();
     try {
       await f.signIn("A"); const old = await f.start("A");
       if (transition === "same-account relogin") { await f.run("logout()"); await f.signIn("A"); }
-      else if (transition === "operational venue") {
-        await f.run("fixture.venue='venue-2'; ensureServiceDay(state.activeDate)");
-        await f.run("fixture.venue='venue-1'; ensureServiceDay(state.activeDate)");
-      } else {
+      else {
         const field = transition === "venue" ? "venue_id" : transition === "demotion" ? "role" : "active";
         const value = transition === "venue" ? "venue-2" : transition === "demotion" ? "viewer" : false;
         await f.run(`fixture.profiles.A.${field}=${JSON.stringify(value)}; fixture.emit('A','USER_UPDATED')`);
@@ -200,6 +197,20 @@ for (const transition of ["same-account relogin", "venue", "demotion", "inactive
     } finally { await f.close(); }
   });
 }
+
+test("actual application: a foreign operational venue reply cannot override the assigned profile venue", async () => {
+  const f = await fixture();
+  try {
+    await f.signIn("A");
+    await f.run("fixture.venue='venue-1'; ensureServiceDay(state.activeDate)");
+    const before = await f.run("({profileVenue:auth.profile.venue_id,venue:state.venue.id,day:state.serviceDay})");
+    const rejection = await f.run(`(async()=>{fixture.venue='venue-2';try{await ensureServiceDay(state.activeDate);return '';}catch(error){return error.message;}})()`);
+    assert.match(rejection,/assigned venue is unavailable/);
+    assert.deepEqual(await f.run("({profileVenue:auth.profile.venue_id,venue:state.venue.id,day:state.serviceDay})"),before);
+    await f.run("fixture.venue='venue-1'; ensureServiceDay(state.activeDate)");
+    assert.equal(await f.run("state.venue.id"),"venue-1");
+  } finally { await f.close(); }
+});
 
 test("actual application: same-session token refresh retains current response ownership", async () => {
   const f = await fixture();

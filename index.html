@@ -694,7 +694,7 @@
       color:var(--muted);
     }
 
-    
+
     .shift-note-list {
       display:grid;
       gap:10px;
@@ -714,7 +714,7 @@
       white-space:pre-wrap;
     }
 
-    
+
     .late-add-detail {
       color:var(--amber);
       font-size:13px;
@@ -723,7 +723,7 @@
       font-weight:700;
     }
 
-    
+
     .mobile-summary-bar {
       display:none;
     }
@@ -823,7 +823,7 @@
       .tablet-actions { grid-template-columns:1fr; }
       .tablet-check-btn, .tablet-undo-btn { min-height:56px; }
     }
-  
+
     @media(max-width:760px) {
       .page {
         padding:14px 10px 32px;
@@ -1580,6 +1580,136 @@ let state = {
   actionBusy:{}
 };
 
+// One authority version owns all browser data, requests, drafts and subscriptions.
+const initialVenueUiState = JSON.parse(JSON.stringify(state));
+let authenticatedContextGeneration = 0;
+let authenticatedContextKey = "";
+let profileRequestSequence = 0;
+
+function captureAuthenticatedContext() {
+  return { generation:authenticatedContextGeneration, userId:auth.session?.user?.id || "",
+    venueId:auth.profile?.venue_id || "", key:authenticatedContextKey };
+}
+
+function ownsAuthenticatedContext(owner) {
+  return Boolean(owner && owner.generation === authenticatedContextGeneration
+    && owner.userId === (auth.session?.user?.id || "") && owner.key === authenticatedContextKey);
+}
+
+function staleAuthenticatedContext() {
+  const error = new Error("Your account or venue changed. Repeat this action in the current venue.");
+  error.code = "stale_authenticated_context";
+  return error;
+}
+
+function contextRequest(promise, owner) {
+  return Promise.resolve(promise).then(value => {
+    assertAuthenticatedContext(owner); return value;
+  }, error => { assertAuthenticatedContext(owner); throw error; });
+}
+
+function assertAuthenticatedContext(owner) {
+  if (!ownsAuthenticatedContext(owner)) throw staleAuthenticatedContext();
+}
+
+function invalidateAuthenticatedContext(key = "") {
+  authenticatedContextGeneration += 1;
+  authenticatedContextKey = key;
+  liveDataLoadSequence += 1;
+  guestCheckStateVersion += 1;
+  stopAutoRefresh();
+  unsubscribeRealtime();
+  Object.assign(state, JSON.parse(JSON.stringify(initialVenueUiState)));
+  state.activeDate = getLocalTodayDateString();
+  state.activeDay = dayNameFromDate(state.activeDate);
+  resetStaffInvitationState();
+  resetManagementSessionUiState();
+  pendingLiveRosterAnchor = null;
+  liveRosterAnchorGeneration += 1;
+  resetDerivedListCaches();
+  modalFocusOpen = false;
+  modalReturnFocus = null;
+  window.__doorFlowMobileSubmitting = false;
+  activeDoorFlowAction = false;
+  isAutoRefreshing = false;
+  isResumeRecovering = false;
+  isBootingDatabase = false;
+  lastAutoRefreshAt = null;
+  lastActionSessionCheckAt = null;
+  lastHiddenAt = null;
+  // Drop DOM-only drafts too, before render can capture and restore inputs.
+  const root = document.getElementById("app");
+  if (root) root.innerHTML = "";
+}
+
+function acceptAuthSession(session) {
+  const userChanged = (auth.session?.user?.id || "") !== (session?.user?.id || "");
+  auth.session = session || null;
+  if (userChanged || (!session && authenticatedContextKey)) {
+    profileRequestSequence += 1;
+    auth.currentUser = null;
+    auth.profile = null;
+    invalidateAuthenticatedContext();
+    render();
+  }
+}
+
+function authorizedVenueId() {
+  if (!auth.session?.user || !auth.currentUser || !auth.profile?.active
+      || !roles[auth.profile.role] || !auth.profile.venue_id
+      || auth.profile.id !== auth.session.user.id) {
+    throw new Error("Venue setup required. Ask your administrator to assign this active account to a venue.");
+  }
+  return auth.profile.venue_id;
+}
+
+// All operational builders capture authority before dispatch, scope every read,
+// update and delete, and reject late responses before callers can mutate UI state.
+// RLS remains the security boundary; this also prevents accidental client misuse.
+function venueTable(table) {
+  const owner = captureAuthenticatedContext();
+  const venueId = authorizedVenueId();
+  let query = db.from(table);
+  let operation = "";
+  let scoped = false;
+  function scope() {
+    if (!scoped && operation !== "insert") {
+      query = query.eq(table === "venues" ? "id" : "venue_id", venueId);
+      scoped = true;
+    }
+  }
+  const builder = new Proxy({}, { get(_target, method) {
+    if (method === "then") return (resolve, reject) => Promise.resolve().then(() => {
+      assertAuthenticatedContext(owner);
+      scope();
+      return query;
+    }).then(result => { assertAuthenticatedContext(owner); return result; }).then(resolve, reject);
+    return (...args) => {
+      assertAuthenticatedContext(owner);
+      if (["insert", "update", "delete", "select", "upsert"].includes(method)) {
+        if (method === "insert" || method === "upsert") {
+          if (table === "venues") throw new Error("Venue creation is managed by the server.");
+          const rows = Array.isArray(args[0]) ? args[0] : [args[0]];
+          const values = rows.map(row => {
+            if (row.venue_id != null && row.venue_id !== venueId) throw new Error("The row belongs to another venue.");
+            return { ...row, venue_id:venueId };
+          });
+          args[0] = Array.isArray(args[0]) ? values : values[0];
+          operation = "insert";
+        } else if (method !== "select" || !operation) operation = method;
+        if (method === "update" && Object.hasOwn(args[0] || {}, "venue_id")) {
+          throw new Error("A row's venue cannot be changed in the browser.");
+        }
+      }
+      query = query[method](...args);
+      // PostgREST exposes filters after select/update/delete, before maybeSingle.
+      if (["select", "update", "delete"].includes(method)) scope();
+      return builder;
+    };
+  }});
+  return builder;
+}
+
 let realtimeChannel = null;
 let realtimeDebounceTimer = null;
 let realtimeHealthTimer = null;
@@ -2230,12 +2360,19 @@ function render() {
     return;
   }
 
+  if (!state.venue || state.venue.id !== auth.profile?.venue_id) {
+    root.innerHTML = `<main class="page"><div class="notice" role="status">${esc(state.error || "Loading your assigned venue…")}</div><button type="button" onclick="logout()">Sign out</button></main>`;
+    syncModalFocus(false);
+    return;
+  }
+
   root.innerHTML = renderApp();
   restoreTransientUiState(ui);
   syncModalFocus(modalOpening);
 }
 
 async function runDb(label, fn) {
+  const operationOwner = captureAuthenticatedContext();
   const isAction = Boolean(auth.session?.user && label !== "Loading live data");
 
   try {
@@ -2246,11 +2383,12 @@ async function runDb(label, fn) {
       activeDoorFlowAction = true;
       lastDoorFlowActionAt = Date.now();
       updateSyncStatus("Saving", `${label}...`);
-      await prepareDatabaseAction(label);
+      await contextRequest(prepareDatabaseAction(label), operationOwner);
     }
 
-    return await fn();
+    return await contextRequest(fn(), operationOwner);
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     state.loading = false;
     state.error = label + " failed: " + (error.message || error);
@@ -2258,9 +2396,12 @@ async function runDb(label, fn) {
     render();
     throw error;
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     if (isAction) {
       activeDoorFlowAction = false;
       lastDoorFlowActionAt = Date.now();
+    }
+
     }
   }
 }
@@ -2397,7 +2538,8 @@ function normalizeStaffProfile(row = {}) {
     user_id:normalizeNullableText(row.user_id),
     full_name:normalizeText(row.full_name),
     role:normalizeText(row.role || "door"),
-    active:row.active !== false && row.active !== "false" && row.active !== 0 && row.active !== "0",
+    active:row.active === true,
+    venue_id:normalizeNullableText(row.venue_id),
     created_at:normalizeText(row.created_at),
     updated_at:normalizeText(row.updated_at)
   };
@@ -2694,6 +2836,7 @@ function markGuestCheckStateChanged() {
 
 function beginLiveDataSnapshot() {
   return {
+    context:captureAuthenticatedContext(),
     sequence:++liveDataLoadSequence,
     guestCheckStateVersion,
     guestCheckActionsPending:hasPendingGuestCheckActions()
@@ -2703,6 +2846,7 @@ function beginLiveDataSnapshot() {
 function shouldApplyLiveDataSnapshot(snapshot) {
   return Boolean(
     snapshot
+    && ownsAuthenticatedContext(snapshot.context)
     && snapshot.sequence === liveDataLoadSequence
     && snapshot.guestCheckStateVersion === guestCheckStateVersion
     && !snapshot.guestCheckActionsPending
@@ -2725,11 +2869,12 @@ function guestCheckStatePayload(guest) {
 }
 
 async function restoreGuestCheckState(id, guest) {
-  const result = await withDoorFlowTimeout(
-    db.from("guests").update(guestCheckStatePayload(guest)).eq("id", id),
+  const operationOwner = captureAuthenticatedContext();
+  const result = await contextRequest(withDoorFlowTimeout(
+    venueTable("guests").update(guestCheckStatePayload(guest)).eq("id", id),
     "Restoring guest check-in state",
     8000
-  );
+  ), operationOwner);
 
   must(result.data, result.error);
 }
@@ -2895,7 +3040,10 @@ function liveGroupListVersion() {
 }
 
 function realtimePayloadAppliesToActiveDate(table, payload = {}) {
-  if (!state.serviceDay?.id) return true;
+  if (!auth.currentUser || !auth.profile?.venue_id) return false;
+  const eventVenue = payload.new?.venue_id || payload.old?.venue_id;
+  if (eventVenue && eventVenue !== auth.profile.venue_id) return false;
+  if (!state.serviceDay?.id) return false;
 
   const row = payload.new || payload.old || {};
 
@@ -2922,41 +3070,26 @@ function realtimePayloadAppliesToActiveDate(table, payload = {}) {
 }
 
 async function ensureFreshAuthSession(reason = "session") {
+  const owner = captureAuthenticatedContext();
   const { data, error } = await db.auth.getSession();
+  assertAuthenticatedContext(owner);
   if (error) throw error;
-
   let session = data.session || null;
-
   if (!session?.user) {
-    auth.session = null;
-    auth.currentUser = null;
-    auth.profile = null;
-    syncStaffInvitationContext(true);
-    stopAutoRefresh();
-    unsubscribeRealtime();
+    acceptAuthSession(null);
     return null;
   }
-
   const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0;
-  const expiresSoon = expiresAtMs && expiresAtMs - Date.now() < DOORFLOW_SESSION_REFRESH_WINDOW_MS;
-
-  if (expiresSoon) {
-    const refreshed = await withDoorFlowTimeout(
-      db.auth.refreshSession(),
-      "Refreshing DoorFlow session",
-      10000
-    );
+  if (expiresAtMs && expiresAtMs - Date.now() < DOORFLOW_SESSION_REFRESH_WINDOW_MS) {
+    const refreshed = await withDoorFlowTimeout(db.auth.refreshSession(), "Refreshing DoorFlow session", 10000);
+    assertAuthenticatedContext(owner);
     if (refreshed.error) throw refreshed.error;
     session = refreshed.data.session || session;
   }
-
-  auth.session = session;
-  syncStaffInvitationContext();
-
-  if (!auth.currentUser || auth.currentUser.id !== session.user.id) {
-    await loadStaffProfile(session.user, { preserveView:true });
-  }
-
+  acceptAuthSession(session);
+  const profile = await loadStaffProfile(session.user, { preserveView:true });
+  if (!profile) throw staleAuthenticatedContext();
+  syncRealtimeAuth(session);
   return session;
 }
 
@@ -2979,11 +3112,12 @@ function shouldVerifyActionSession() {
 }
 
 async function verifyActionSessionWithServer() {
-  const result = await withDoorFlowTimeout(
+  const operationOwner = captureAuthenticatedContext();
+  const result = await contextRequest(withDoorFlowTimeout(
     db.auth.getUser(),
     "Reconnecting DoorFlow session",
     8000
-  );
+  ), operationOwner);
 
   if (result.error) throw result.error;
   lastActionSessionCheckAt = new Date();
@@ -2991,19 +3125,20 @@ async function verifyActionSessionWithServer() {
 }
 
 async function prepareDatabaseAction(label = "Database action") {
+  const operationOwner = captureAuthenticatedContext();
   clearStuckActionState(`starting ${label}`);
 
   if (navigator.onLine === false) {
     throw new Error("This device appears offline. Reconnect Wi-Fi/cellular, then try again.");
   }
 
-  const session = await ensureFreshAuthSession(`action:${label}`);
+  const session = await contextRequest(ensureFreshAuthSession(`action:${label}`), operationOwner);
   if (!session) throw new Error("Session expired. Log in again.");
 
   syncRealtimeAuth(session);
 
   if (shouldVerifyActionSession()) {
-    await verifyActionSessionWithServer();
+    await contextRequest(verifyActionSessionWithServer(), operationOwner);
   }
 
   if (shouldReconnectRealtimeAfterIdle()) {
@@ -3014,6 +3149,7 @@ async function prepareDatabaseAction(label = "Database action") {
 }
 
 async function refreshLiveDataSilently(reason = "auto", options = {}) {
+  const operationOwner = captureAuthenticatedContext();
   clearStuckActionState(`refresh:${reason}`);
 
   if (shouldSkipAutoRefresh(options)) {
@@ -3025,18 +3161,23 @@ async function refreshLiveDataSilently(reason = "auto", options = {}) {
     isAutoRefreshing = true;
     lastAutoRefreshAt = new Date();
     updateSyncStatus("Syncing", `Refreshing from ${reason}.`);
-    await loadDataForDate(state.activeDate);
+    await contextRequest(loadDataForDate(state.activeDate), operationOwner);
     state.pendingSync = false;
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.warn("DoorFlow live refresh failed:", reason, error);
     updateSyncStatus("Reconnect", error?.message || "Live refresh failed. Use Refresh Data if needed.");
     render();
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     isAutoRefreshing = false;
+
+    }
   }
 }
 
 function requestRealtimeRefresh(source = "database", payload = null) {
+  const owner = captureAuthenticatedContext();
   if (!auth.currentUser) return;
   if (payload && !realtimePayloadAppliesToActiveDate(source, payload)) return;
 
@@ -3047,6 +3188,7 @@ function requestRealtimeRefresh(source = "database", payload = null) {
   }
 
   realtimeDebounceTimer = setTimeout(() => {
+    if (!ownsAuthenticatedContext(owner)) return;
     refreshLiveDataSilently(`realtime:${source}`);
   }, 450);
 }
@@ -3114,7 +3256,8 @@ function stopAutoRefresh() {
 }
 
 async function manualRefreshData() {
-  await refreshLiveDataSilently("manual", { force:true });
+  const operationOwner = captureAuthenticatedContext();
+  await contextRequest(refreshLiveDataSilently("manual", { force:true }), operationOwner);
 }
 
 function flushPendingSync(reason = "resume") {
@@ -3152,6 +3295,7 @@ function scheduleResumeRecovery(reason = "resume", delayMs = 650) {
 }
 
 async function recoverFromIdle(reason = "resume") {
+  const operationOwner = captureAuthenticatedContext();
   if (!auth.currentUser || document.hidden || isResumeRecovering) return;
 
   const clearedStaleState = clearStuckActionState(reason);
@@ -3173,7 +3317,7 @@ async function recoverFromIdle(reason = "resume") {
     state.lastResumeAt = new Date();
     updateSyncStatus("Syncing", `Reconnecting after ${reason}.`);
 
-    const session = await ensureFreshAuthSession(reason);
+    const session = await contextRequest(ensureFreshAuthSession(reason), operationOwner);
 
     if (!session) {
       updateSyncStatus("Signed out", "Session expired. Log in again.");
@@ -3188,17 +3332,21 @@ async function recoverFromIdle(reason = "resume") {
     }
 
     if (shouldRefresh) {
-      await refreshLiveDataSilently(`resume:${reason}`, { force:true });
+      await contextRequest(refreshLiveDataSilently(`resume:${reason}`, { force:true }), operationOwner);
     } else {
       render();
     }
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.warn("DoorFlow idle recovery failed:", reason, error);
     updateSyncStatus("Reconnect", error?.message || "Live sync needs attention. Tap Refresh Data if needed.");
     render();
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     if (!document.hidden) lastHiddenAt = null;
     isResumeRecovering = false;
+
+    }
   }
 }
 
@@ -3243,6 +3391,7 @@ window.addEventListener("offline", () => {
 
 window.addEventListener("unhandledrejection", event => {
   const error = event.reason;
+  if (error?.code === "stale_authenticated_context") { event.preventDefault(); return; }
   if (!auth.currentUser) return;
 
   state.loading = false;
@@ -3255,136 +3404,77 @@ window.addEventListener("unhandledrejection", event => {
 
 /* AUTH */
 
+async function handleAuthenticatedSession(event, session) {
+  acceptAuthSession(session);
+  if (!session?.user) { render(); return; }
+  // TOKEN_REFRESHED must re-read database authority, including active/role/venue.
+  const profile = await loadStaffProfile(session.user, { preserveView:event !== "SIGNED_IN" });
+  if (!profile) return;
+  await bootDatabase();
+}
+
 async function initAuth() {
-  const { data, error } = await db.auth.getSession();
-
-  if (error) {
-    state.error = error.message;
-    render();
-    return;
-  }
-
-  auth.session = data.session || null;
-
-  if (auth.session?.user) {
-    await loadStaffProfile(auth.session.user);
-  }
-
-  db.auth.onAuthStateChange(async (event, session) => {
-    auth.session = session || null;
-    syncStaffInvitationContext();
-
-    if (session?.user) {
-      if (event === "TOKEN_REFRESHED" && auth.currentUser?.id === session.user.id) {
-        updateSyncStatus(state.syncStatus || "Live", "Session refreshed. Live sync is still active.");
-        return;
-      }
-
-      const preserveView = event === "TOKEN_REFRESHED" || Boolean(auth.currentUser);
-      await loadStaffProfile(session.user, { preserveView });
-
-      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-        updateSyncStatus(state.syncStatus || "Live", "Session refreshed. Live sync is still active.");
-        return;
-      }
-
-      await bootDatabase();
-    } else {
-      stopAutoRefresh();
-      unsubscribeRealtime();
-      resetManagementSessionUiState();
-
-      auth.session = null;
-      auth.currentUser = null;
-      auth.profile = null;
-      state.groups = [];
-      state.guests = [];
-      state.logs = [];
-      state.staffProfiles = [];
-      resetStaffInvitationState();
-      state.selectedGroupId = null;
-      state.currentMode = "GENERAL";
-      state.searchText = "";
-      state.groupSearchText = "";
-      state.modal = null;
-      render();
-    }
+  // Register first so an account change cannot be missed while bootstrap waits.
+  db.auth.onAuthStateChange((event, session) => {
+    acceptAuthSession(session);
+    // Leave the provider's auth lock before issuing database/profile requests.
+    const owner = captureAuthenticatedContext();
+    setTimeout(() => {
+      if (!ownsAuthenticatedContext(owner)) return;
+      handleAuthenticatedSession(event, session).catch(error => {
+        if (error?.code !== "stale_authenticated_context" && ownsAuthenticatedContext(owner)) {
+          state.error = error.message || "Session refresh failed.";
+          render();
+        }
+      });
+    }, 0);
   });
-
-  render();
-
-  if (auth.currentUser) {
-    await bootDatabase();
-  }
+  const owner = captureAuthenticatedContext();
+  const { data, error } = await db.auth.getSession();
+  if (!ownsAuthenticatedContext(owner)) return;
+  if (error) { state.error = error.message; render(); return; }
+  await handleAuthenticatedSession("INITIAL_SESSION", data.session || null);
 }
 
 async function loadStaffProfile(user, options = {}) {
-  syncStaffInvitationContext();
+  if (!user?.id || auth.session?.user?.id !== user.id) return null;
+  const request = ++profileRequestSequence;
+  const owner = captureAuthenticatedContext();
   const previousView = state.view;
-
-  const { data, error } = await db
-    .from("staff_profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (error) {
-    state.error = error.message;
+  const { data, error } = await db.from("staff_profiles").select("*").eq("id", user.id).maybeSingle();
+  if (request !== profileRequestSequence || !ownsAuthenticatedContext(owner) || auth.session?.user?.id !== user.id) return null;
+  const profile = data ? normalizeStaffProfile(data) : null;
+  const key = JSON.stringify([user.id, profile?.venue_id || null, profile?.role || null, profile?.active === true]);
+  if (key !== authenticatedContextKey) {
     auth.currentUser = null;
     auth.profile = null;
-    render();
-    return;
+    invalidateAuthenticatedContext(key);
   }
-
-  if (!data) {
-    state.error = "This login exists in Supabase Auth, but it has not been added to DoorFlow staff_profiles yet.";
+  const denial = error?.message || (!profile
+    ? "This login has not been added to DoorFlow staff yet. Contact your administrator."
+    : !profile.active ? "This DoorFlow account is inactive."
+    : !roles[profile.role] ? "This DoorFlow account has an unknown role. Contact your administrator."
+    : !profile.venue_id ? "Venue setup required. Ask your administrator to assign this account to a venue." : "");
+  if (denial) {
     auth.currentUser = null;
-    auth.profile = null;
+    auth.profile = profile;
+    state.error = denial;
     render();
-    return;
+    return null;
   }
-
-  const profile = normalizeStaffProfile(data);
-
-  if (!profile.active) {
-    state.error = "This DoorFlow account is inactive.";
-    auth.currentUser = null;
-    auth.profile = null;
-    render();
-    return;
-  }
-
-  if (!roles[profile.role]) {
-    state.error = `This DoorFlow account has an unknown role: ${profile.role || "blank"}.`;
-    auth.currentUser = null;
-    auth.profile = null;
-    render();
-    return;
-  }
-
   auth.profile = profile;
-  auth.currentUser = {
-    id:user.id,
-    email:user.email,
-    name:profile.full_name,
-    role:profile.role,
-    active:profile.active
-  };
+  auth.currentUser = { id:user.id, email:user.email, name:profile.full_name, role:profile.role,
+    active:profile.active, venue_id:profile.venue_id };
   syncStaffInvitationContext();
-
   state.error = "";
   state.view = options.preserveView && viewAllowedForRole(profile.role, previousView)
-    ? previousView
-    : defaultViewForRole(profile.role);
-
-  if (profile.role === "admin") {
-    await loadStaffProfilesForAdmin();
-  }
-
+    ? previousView : defaultViewForRole(profile.role);
   render();
+  return profile;
 }
 
 async function login(event) {
+  const owner = captureAuthenticatedContext();
   event.preventDefault();
 
   const form = new FormData(event.target);
@@ -3403,84 +3493,54 @@ async function login(event) {
       15000
     );
 
-    if (error) {
-      state.error = error.message;
-      render();
-      return;
-    }
-
-    auth.session = data.session;
-    await loadStaffProfile(data.user);
-    await bootDatabase();
+    if (!ownsAuthenticatedContext(owner) && (!data?.user?.id || auth.session?.user?.id !== data.user.id)) return;
+    if (error) { state.error = error.message; render(); return; }
+    acceptAuthSession(data.session);
+    const profile = await loadStaffProfile(data.user);
+    if (profile) await bootDatabase();
   } catch (error) {
+    if (!ownsAuthenticatedContext(owner) || error?.code === "stale_authenticated_context") return;
     state.error = error?.message || "Login failed. Check connection and try again.";
     render();
   }
 }
 
 async function logout() {
-  resetStaffInvitationState();
-  try {
-    await db.auth.signOut({ scope:"local" });
-  } catch (error) {
-    console.warn("Logout warning:", error);
-  }
-
-  stopAutoRefresh();
-  unsubscribeRealtime();
-
-  auth.session = null;
+  // Clear synchronously, even if the provider sign-out request stalls or fails.
+  acceptAuthSession(null);
+  invalidateAuthenticatedContext();
   auth.currentUser = null;
   auth.profile = null;
-
-  state.groups = [];
-  state.guests = [];
-  state.logs = [];
-  state.shiftNotes = [];
-  state.staffProfiles = [];
-  resetStaffInvitationState();
-  state.selectedGroupId = null;
-  state.currentMode = "GENERAL";
-  state.searchText = "";
-  state.groupSearchText = "";
-  state.modal = null;
-  state.editingGroupId = null;
-  state.editingGuestId = null;
-  state.editingPlusGuestId = null;
-  state.editingShiftNoteId = null;
-  state.error = "";
-  resetManagementSessionUiState();
-
-  Object.keys(localStorage).forEach(key => {
-    if (key.startsWith("sb-") || key.includes("supabase")) {
-      localStorage.removeItem(key);
-    }
-  });
-
   render();
+  try { await db.auth.signOut({ scope:"local" }); }
+  catch (error) { console.warn("Logout warning:", error); }
 }
 
 /* DATABASE LOAD */
 
 async function bootDatabase() {
+  const operationOwner = captureAuthenticatedContext();
   if (!auth.currentUser) return;
 
   if (isBootingDatabase) return;
 
   try {
     isBootingDatabase = true;
-    const session = await ensureFreshAuthSession("boot");
+    const session = await contextRequest(ensureFreshAuthSession("boot"), operationOwner);
     if (!session) {
       state.error = "Session expired. Log in again.";
       render();
       return;
     }
-    await loadDataForDate(state.activeDate);
+    await contextRequest(loadDataForDate(state.activeDate), operationOwner);
     subscribeRealtime();
     startAutoRefresh();
     startRealtimeHealthCheck();
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     isBootingDatabase = false;
+
+    }
   }
 }
 
@@ -3488,57 +3548,31 @@ function canManageData() {
   return Boolean(perms()?.manage);
 }
 
-async function findVenueByName(name) {
-  const result = await db
-    .from("venues")
-    .select("*")
-    .eq("name", name)
-    .order("created_at", { ascending:true })
-    .limit(1);
-
-  if (result.error) throw result.error;
-  return firstRow(result.data);
-}
-
-async function findFallbackVenue() {
-  const result = await db
-    .from("venues")
-    .select("*")
-    .order("created_at", { ascending:true })
-    .limit(1);
-
-  if (result.error) throw result.error;
-  return firstRow(result.data);
-}
-
 async function ensureVenue() {
-  const defaultVenue = await findVenueByName(DEFAULT_VENUE_NAME);
-  if (defaultVenue) return defaultVenue;
-
-  const fallbackVenue = await findFallbackVenue();
-  if (fallbackVenue) return fallbackVenue;
-
-  if (!canManageData()) {
-    throw new Error("Venue has not been created yet. Log in as admin/manager first.");
-  }
-
-  let result = await db.from("venues").insert({ name:DEFAULT_VENUE_NAME });
+  const operationOwner = captureAuthenticatedContext();
+  const owner = captureAuthenticatedContext();
+  const venueId = authorizedVenueId();
+  const result = await contextRequest(venueTable("venues").select("*").eq("id", venueId).limit(1), operationOwner);
+  assertAuthenticatedContext(owner);
   if (result.error) throw result.error;
-
-  return must(await findVenueByName(DEFAULT_VENUE_NAME), null);
+  const venue = firstRow(result.data);
+  if (!venue || venue.id !== venueId) throw new Error("Venue setup required. Your assigned venue is unavailable.");
+  state.venue = venue;
+  syncStaffInvitationContext();
+  return venue;
 }
 
 async function ensureServiceDay(dateString) {
-  const venue = await ensureVenue();
+  const operationOwner = captureAuthenticatedContext();
+  const venue = await contextRequest(ensureVenue(), operationOwner);
   const dayName = dayNameFromDate(dateString);
 
-  let result = await db
-    .from("service_days")
+  let result = await contextRequest(venueTable("service_days")
     .select("*")
     .eq("venue_id", venue.id)
     .eq("service_date", dateString)
     .order("created_at", { ascending:true })
-    .limit(1);
+    .limit(1), operationOwner);
 
   if (result.error) throw result.error;
 
@@ -3549,19 +3583,17 @@ async function ensureServiceDay(dateString) {
       throw new Error("This date has not been created yet. Ask management to open this date first.");
     }
 
-    result = await db
-      .from("service_days")
-      .insert({ venue_id:venue.id, service_date:dateString, day_name:dayName });
+    result = await contextRequest(venueTable("service_days")
+      .insert({ venue_id:venue.id, service_date:dateString, day_name:dayName }), operationOwner);
 
     if (result.error) throw result.error;
 
-    result = await db
-      .from("service_days")
+    result = await contextRequest(venueTable("service_days")
       .select("*")
       .eq("venue_id", venue.id)
       .eq("service_date", dateString)
       .order("created_at", { ascending:true })
-      .limit(1);
+      .limit(1), operationOwner);
 
     if (result.error) throw result.error;
     serviceDay = firstRow(result.data);
@@ -3574,41 +3606,41 @@ async function ensureServiceDay(dateString) {
 }
 
 async function findGeneralGroupForServiceDay(serviceDayId) {
+  const operationOwner = captureAuthenticatedContext();
   if (!serviceDayId) return null;
 
-  let result = await db
-    .from("groups")
+  let result = await contextRequest(venueTable("groups")
     .select("*")
     .eq("service_day_id", serviceDayId)
     .eq("name", "General Guest List")
     .order("created_at", { ascending:true })
-    .limit(1);
+    .limit(1), operationOwner);
 
   if (result.error) throw result.error;
   let group = firstRow(result.data);
   if (group) return group;
 
-  result = await db
-    .from("groups")
+  result = await contextRequest(venueTable("groups")
     .select("*")
     .eq("service_day_id", serviceDayId)
     .eq("group_type", "General Guest List")
     .order("created_at", { ascending:true })
-    .limit(1);
+    .limit(1), operationOwner);
 
   if (result.error) throw result.error;
   return firstRow(result.data);
 }
 
 async function ensureGeneralGroup(serviceDayId) {
-  const existing = await findGeneralGroupForServiceDay(serviceDayId);
+  const operationOwner = captureAuthenticatedContext();
+  const existing = await contextRequest(findGeneralGroupForServiceDay(serviceDayId), operationOwner);
   if (existing) return existing;
 
   if (!canManageData()) {
     throw new Error("General Guest List does not exist for this date yet. Ask management to open this date first.");
   }
 
-  const insertResult = await db.from("groups").insert({
+  const insertResult = await contextRequest(venueTable("groups").insert({
     service_day_id:serviceDayId,
     name:"General Guest List",
     group_type:"General Guest List",
@@ -3617,11 +3649,11 @@ async function ensureGeneralGroup(serviceDayId) {
     approved_by:"Management",
     notes:"Master guest list for this date.",
     status:"Active"
-  });
+  }), operationOwner);
 
   if (insertResult.error) throw insertResult.error;
 
-  const created = await findGeneralGroupForServiceDay(serviceDayId);
+  const created = await contextRequest(findGeneralGroupForServiceDay(serviceDayId), operationOwner);
   if (!created) {
     throw new Error("DoorFlow could not find or create the General Guest List for this date. Use Refresh Data, then try again.");
   }
@@ -3630,13 +3662,16 @@ async function ensureGeneralGroup(serviceDayId) {
 }
 
 async function loadDataForDate(dateString) {
+  const operationOwner = captureAuthenticatedContext();
   return runDb("Loading live data", async () => {
-    const liveDataSnapshot = beginLiveDataSnapshot();
+    const requestOwner = captureAuthenticatedContext();
 
     if (auth.session?.user) {
-      const session = await ensureFreshAuthSession("load-data");
+      const session = await contextRequest(ensureFreshAuthSession("load-data"), operationOwner);
       if (!session) throw new Error("Session expired. Log in again.");
     }
+    assertAuthenticatedContext(requestOwner);
+    const liveDataSnapshot = beginLiveDataSnapshot();
 
     if (!isAutoRefreshing && !state.modal && !activeDoorFlowAction && !hasUnsavedMobileManagerDraft()) {
       state.loading = true;
@@ -3647,27 +3682,26 @@ async function loadDataForDate(dateString) {
     state.activeDay = dayNameFromDate(dateString);
     saveActiveDate(dateString);
 
-    const serviceDay = normalizeServiceDay(await withDoorFlowTimeout(
+    const serviceDay = normalizeServiceDay(await contextRequest(withDoorFlowTimeout(
       ensureServiceDay(dateString),
       "Loading the active service date",
       15000
-    ));
+    ), operationOwner));
 
-    await withDoorFlowTimeout(
+    await contextRequest(withDoorFlowTimeout(
       ensureGeneralGroup(serviceDay.id),
       "Loading the General Guest List",
       15000
-    );
+    ), operationOwner);
 
-    const groupsResult = await withDoorFlowTimeout(
-      db
-        .from("groups")
+    const groupsResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("groups")
         .select("*")
         .eq("service_day_id", serviceDay.id)
         .order("created_at", { ascending:false }),
       "Loading party/group lists",
       15000
-    );
+    ), operationOwner);
 
     const nextGroups = normalizeRows(must(groupsResult.data, groupsResult.error), normalizeGroup);
 
@@ -3676,41 +3710,38 @@ async function loadDataForDate(dateString) {
     let nextLogs = [];
 
     if (groupIds.length) {
-      const guestsResult = await withDoorFlowTimeout(
-        db
-          .from("guests")
+      const guestsResult = await contextRequest(withDoorFlowTimeout(
+        venueTable("guests")
           .select("*")
           .in("group_id", groupIds)
           .order("last_name", { ascending:true }),
         "Loading guest names",
         15000
-      );
+      ), operationOwner);
 
       nextGuests = normalizeRows(must(guestsResult.data, guestsResult.error), normalizeGuest);
 
-      const logsResult = await withDoorFlowTimeout(
-        db
-          .from("check_in_logs")
+      const logsResult = await contextRequest(withDoorFlowTimeout(
+        venueTable("check_in_logs")
           .select("*")
           .in("group_id", groupIds)
           .order("created_at", { ascending:false })
           .limit(300),
         "Loading check-in history",
         15000
-      );
+      ), operationOwner);
 
       nextLogs = normalizeRows(must(logsResult.data, logsResult.error), normalizeCheckInLog);
     }
 
-    const notesResult = await withDoorFlowTimeout(
-      db
-        .from("shift_notes")
+    const notesResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("shift_notes")
         .select("*")
         .eq("service_day_id", serviceDay.id)
         .order("created_at", { ascending:false }),
       "Loading shift notes",
       15000
-    );
+    ), operationOwner);
 
     const nextShiftNotes = normalizeRows(must(notesResult.data, notesResult.error), normalizeShiftNote);
 
@@ -3740,7 +3771,7 @@ async function loadDataForDate(dateString) {
     }
 
     if (auth.currentUser?.role === "admin") {
-      await loadStaffProfilesForAdmin();
+      await contextRequest(loadStaffProfilesForAdmin(), operationOwner);
     }
 
     state.lastDataHash = newDataHash;
@@ -3780,42 +3811,53 @@ function unsubscribeRealtime() {
 
 function subscribeRealtime() {
   unsubscribeRealtime();
-
+  if (!auth.currentUser || !auth.profile?.venue_id) return;
+  const owner = captureAuthenticatedContext();
+  const venueId = authorizedVenueId();
   updateSyncStatus("Connecting", "Connecting realtime updates.");
   state.realtimeStatus = "CONNECTING";
-
-  const channelName = `doorflow-live-${state.serviceDay?.id || state.activeDate || "all"}-${Date.now()}`;
-
-  realtimeChannel = db.channel(channelName)
-    .on("postgres_changes", { event:"*", schema:"public", table:"guests" }, payload => requestRealtimeRefresh("guests", payload))
-    .on("postgres_changes", { event:"*", schema:"public", table:"groups" }, payload => requestRealtimeRefresh("groups", payload))
-    .on("postgres_changes", { event:"*", schema:"public", table:"check_in_logs" }, payload => requestRealtimeRefresh("check_in_logs", payload))
-    .on("postgres_changes", { event:"*", schema:"public", table:"shift_notes" }, payload => requestRealtimeRefresh("shift_notes", payload))
-    .on("postgres_changes", { event:"*", schema:"public", table:"service_days" }, payload => requestRealtimeRefresh("service_days", payload))
-    .on("postgres_changes", { event:"*", schema:"public", table:"staff_profiles" }, payload => {
-      if (realtimePayloadAppliesToActiveDate("staff_profiles", payload)) {
-        loadStaffProfilesForAdmin();
-      }
-    })
-    .subscribe(status => {
-      state.realtimeStatus = status;
-
-      if (status === "SUBSCRIBED") {
-        state.realtimeSubscribedAt = new Date();
-        state.lastRealtimeAt = new Date();
-        updateSyncStatus("Live", "Realtime connected. Backup refresh is active.");
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-        updateSyncStatus("Polling", "Realtime is reconnecting. Backup refresh is still active.");
-      } else {
-        updateSyncStatus("Connecting", `Realtime status: ${status}`);
-      }
-
-      if (auth.currentUser && !state.modal && shouldPatchLiveRefresh()) {
-        refreshLiveSurfaces();
-      } else if (auth.currentUser && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) {
-        render();
-      }
+  const channelName = 'doorflow-live-' + venueId + '-' + owner.generation + '-' + Date.now();
+  realtimeChannel = db.channel(channelName);
+  for (const table of ["guests", "groups", "check_in_logs", "shift_notes", "service_days", "staff_profiles"]) {
+    realtimeChannel = realtimeChannel.on("postgres_changes", {
+      event:"*", schema:"public", table, filter:'venue_id=eq.' + venueId
+    }, payload => {
+      if (!ownsAuthenticatedContext(owner)) return;
+      const row = payload.new?.id ? payload.new : payload.old || {};
+      if (row.venue_id && row.venue_id !== venueId) return;
+      // DELETE payloads can contain only a primary key. They never merge rows;
+      // the ensuing read is constrained by current authority and RLS.
+      if (table === "staff_profiles") {
+        if (row.id === auth.session?.user?.id) {
+          handleAuthenticatedSession("USER_UPDATED", auth.session).catch(error => {
+            if (error?.code !== "stale_authenticated_context") console.warn(error);
+          });
+        } else if (auth.currentUser?.role === "admin") loadStaffProfilesForAdmin();
+      } else requestRealtimeRefresh(table, payload);
     });
+  }
+  // Own-profile revalidation also covers moving this profile out of the old
+  // venue, which no longer matches the venue-filtered staff subscription.
+  realtimeChannel = realtimeChannel.on("postgres_changes", {
+    event:"UPDATE", schema:"public", table:"staff_profiles", filter:'id=eq.' + owner.userId
+  }, () => {
+    if (!ownsAuthenticatedContext(owner)) return;
+    handleAuthenticatedSession("USER_UPDATED", auth.session).catch(error => {
+      if (error?.code !== "stale_authenticated_context") console.warn(error);
+    });
+  }).subscribe(status => {
+    if (!ownsAuthenticatedContext(owner)) return;
+    state.realtimeStatus = status;
+    if (status === "SUBSCRIBED") {
+      state.realtimeSubscribedAt = new Date();
+      state.lastRealtimeAt = new Date();
+      updateSyncStatus("Live", "Realtime connected. Backup refresh is active.");
+    } else if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+      updateSyncStatus("Polling", "Realtime is reconnecting. Backup refresh is still active.");
+    } else updateSyncStatus("Connecting", 'Realtime status: ' + status);
+    if (auth.currentUser && !state.modal && shouldPatchLiveRefresh()) refreshLiveSurfaces();
+    else if (auth.currentUser && !state.modal && !isUserActivelyEditing() && !hasUnsavedMobileManagerDraft()) render();
+  });
 }
 
 /* DATA HELPERS */
@@ -3825,14 +3867,15 @@ function generalGroup() {
 }
 
 async function getGeneralGroupForActiveDate() {
+  const operationOwner = captureAuthenticatedContext();
   let group = generalGroup();
   if (group) return group;
 
   const serviceDay = state.serviceDay?.service_date === state.activeDate
     ? state.serviceDay
-    : await ensureServiceDay(state.activeDate);
+    : await contextRequest(ensureServiceDay(state.activeDate), operationOwner);
 
-  group = normalizeGroup(await ensureGeneralGroup(serviceDay.id));
+  group = normalizeGroup(await contextRequest(ensureGeneralGroup(serviceDay.id), operationOwner));
 
   if (group && !state.groups.some(item => item.id === group.id)) {
     state.groups = [group, ...state.groups];
@@ -4119,6 +4162,7 @@ function findHostGuestForGroup(group, hostName = group?.host_name || "", previou
 }
 
 async function upsertPartyHostGuest(group, hostName, hostPlusOnes, options = {}) {
+  const operationOwner = captureAuthenticatedContext();
   const name = String(hostName || "").trim();
   if (!name) return null;
 
@@ -4152,8 +4196,8 @@ async function upsertPartyHostGuest(group, hostName, hostPlusOnes, options = {})
   };
 
   const result = existingHost
-    ? await withDoorFlowTimeout(
-      db.from("guests").update({
+    ? await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").update({
         first_name:payload.first_name,
         last_name:payload.last_name,
         guest_type:payload.guest_type,
@@ -4163,12 +4207,12 @@ async function upsertPartyHostGuest(group, hostName, hostPlusOnes, options = {})
       }).eq("id", existingHost.id).select("*").limit(1),
       "Updating party host",
       15000
-    )
-    : await withDoorFlowTimeout(
-      db.from("guests").insert(payload).select("*").limit(1),
+    ), operationOwner)
+    : await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(payload).select("*").limit(1),
       "Creating party host",
       15000
-    );
+    ), operationOwner);
 
   const savedHost = normalizeGuest(firstRow(must(result.data, result.error)) || {
     ...(existingHost || {}),
@@ -4392,8 +4436,9 @@ function staffInvitationSetupError(error) {
 }
 
 async function callStaffInvitationEndpoint(method = "GET", body = null, owner = captureStaffInvitationContext()) {
+  const operationOwner = captureAuthenticatedContext();
   if (!ownsStaffInvitationContext(owner)) throw new Error("Invitation context changed.");
-  const session = await ensureFreshAuthSession("staff invitation");
+  const session = await contextRequest(ensureFreshAuthSession("staff invitation"), operationOwner);
   // A refreshed session may belong to a different login. Never dispatch its
   // predecessor's form with the replacement user's credentials.
   if (!ownsStaffInvitationContext(owner)) throw new Error("Invitation context changed.");
@@ -4406,7 +4451,7 @@ async function callStaffInvitationEndpoint(method = "GET", body = null, owner = 
 
   let response;
   try {
-    response = await doorFlowFetch(staffInvitationEndpointUrl(), {
+    response = await contextRequest(doorFlowFetch(staffInvitationEndpointUrl(), {
       method,
       headers:{
         authorization:`Bearer ${session.access_token}`,
@@ -4414,8 +4459,9 @@ async function callStaffInvitationEndpoint(method = "GET", body = null, owner = 
         ...(body ? { "content-type":"application/json" } : {})
       },
       ...(body ? { body:JSON.stringify(body) } : {})
-    });
+    }), operationOwner);
   } catch (cause) {
+    if (!ownsAuthenticatedContext(operationOwner) || cause?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     const error = new Error("The staff invitation service is unavailable. No invitation result was confirmed.");
     error.code = cause?.name === "AbortError" ? "invitation_request_timeout" : "invitation_service_unavailable";
     error.status = 0;
@@ -4425,8 +4471,9 @@ async function callStaffInvitationEndpoint(method = "GET", body = null, owner = 
 
   let payload = null;
   try {
-    payload = await response.json();
+    payload = await contextRequest(response.json(), operationOwner);
   } catch {
+    if (!ownsAuthenticatedContext(operationOwner) || null?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     payload = null;
   }
 
@@ -4475,19 +4522,21 @@ function mergeStaffInvitation(invitation) {
 }
 
 async function loadStaffInvitationsForAdmin(owner = captureStaffInvitationContext()) {
+  const operationOwner = captureAuthenticatedContext();
   if (!ownsStaffInvitationContext(owner)) return;
   const loadGeneration = ++staffInvitationLoadGeneration;
   state.staffInvitationsLoading = true;
   if (state.view === "users") render();
 
   try {
-    const payload = await callStaffInvitationEndpoint("GET", null, owner);
+    const payload = await contextRequest(callStaffInvitationEndpoint("GET", null, owner), operationOwner);
     if (!ownsStaffInvitationContext(owner) || loadGeneration !== staffInvitationLoadGeneration) return;
     state.staffInvitations = normalizeRows(payload.invitations, normalizeStaffInvitation);
     state.staffInvitationSetupRequired = false;
     state.staffInvitationsLoadFailed = false;
     if (state.staffInvitationNotice?.source === "load") state.staffInvitationNotice = null;
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") return;
     if (!ownsStaffInvitationContext(owner) || loadGeneration !== staffInvitationLoadGeneration) return;
     state.staffInvitationSetupRequired = staffInvitationSetupError(error);
     state.staffInvitationsLoadFailed = true;
@@ -4499,9 +4548,12 @@ async function loadStaffInvitationsForAdmin(owner = captureStaffInvitationContex
       source:"load"
     };
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     if (ownsStaffInvitationContext(owner) && loadGeneration === staffInvitationLoadGeneration) {
       state.staffInvitationsLoading = false;
       if (state.view === "users") render();
+    }
+
     }
   }
 }
@@ -4578,6 +4630,7 @@ function staffInvitationOutcomeNotice(invitation, action) {
 }
 
 async function submitStaffInvitation(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   const owner = captureStaffInvitationContext();
   if (!requirePerm("users") || !ownsStaffInvitationContext(owner) || state.staffInviteSubmitting || state.staffInvitationBusyId) return;
@@ -4611,13 +4664,13 @@ async function submitStaffInvitation(event) {
   render();
 
   try {
-    const payload = await callStaffInvitationEndpoint("POST", {
+    const payload = await contextRequest(callStaffInvitationEndpoint("POST", {
       action:"invite",
       full_name:fullName,
       email,
       role,
       idempotency_key:idempotencyKey
-    }, owner);
+    }, owner), operationOwner);
     if (!ownsStaffInvitationContext(owner)) return;
     staffInvitationLoadGeneration += 1;
     state.staffInvitationsLoading = false;
@@ -4628,8 +4681,9 @@ async function submitStaffInvitation(event) {
     state.staffInvitationModalNotice = null;
     state.staffInviteDraft = emptyStaffInviteDraft();
     state.modal = null;
-    await Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]);
+    await contextRequest(Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]), operationOwner);
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") return;
     if (!ownsStaffInvitationContext(owner)) return;
     staffInvitationLoadGeneration += 1;
     state.staffInvitationsLoading = false;
@@ -4641,14 +4695,18 @@ async function submitStaffInvitation(event) {
       message:error?.message || "DoorFlow could not complete the invitation. Your entries have been preserved."
     };
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     if (ownsStaffInvitationContext(owner)) {
       state.staffInviteSubmitting = false;
       render();
+    }
+
     }
   }
 }
 
 async function runStaffInvitationAction(invitationId, action) {
+  const operationOwner = captureAuthenticatedContext();
   const owner = captureStaffInvitationContext();
   if (!requirePerm("users") || !ownsStaffInvitationContext(owner) || state.staffInvitationBusyId || state.staffInviteSubmitting) return;
   const invitation = state.staffInvitations.find(item => item.id === invitationId);
@@ -4665,10 +4723,10 @@ async function runStaffInvitationAction(invitationId, action) {
   render();
 
   try {
-    const payload = await callStaffInvitationEndpoint("POST", {
+    const payload = await contextRequest(callStaffInvitationEndpoint("POST", {
       action,
       invitation_id:invitationId
-    }, owner);
+    }, owner), operationOwner);
     if (!ownsStaffInvitationContext(owner)) return;
     staffInvitationLoadGeneration += 1;
     state.staffInvitationsLoading = false;
@@ -4676,8 +4734,9 @@ async function runStaffInvitationAction(invitationId, action) {
     if (updatedInvitation) mergeStaffInvitation(updatedInvitation);
     state.staffInvitationSetupRequired = false;
     state.staffInvitationNotice = staffInvitationOutcomeNotice(updatedInvitation, action);
-    await Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]);
+    await contextRequest(Promise.allSettled([loadStaffProfilesForAdmin(owner), loadStaffInvitationsForAdmin(owner)]), operationOwner);
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") return;
     if (!ownsStaffInvitationContext(owner)) return;
     staffInvitationLoadGeneration += 1;
     state.staffInvitationsLoading = false;
@@ -4689,9 +4748,12 @@ async function runStaffInvitationAction(invitationId, action) {
       message:error?.message || "DoorFlow did not confirm the invitation action."
     };
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     if (ownsStaffInvitationContext(owner)) {
       state.staffInvitationBusyId = "";
       render();
+    }
+
     }
   }
 }
@@ -4738,18 +4800,19 @@ function staffInvitationLastActivity(invitation) {
 }
 
 async function loadStaffProfilesForAdmin(invitationOwner = null) {
+  const operationOwner = captureAuthenticatedContext();
+  const owner = captureAuthenticatedContext();
   if (invitationOwner && !ownsStaffInvitationContext(invitationOwner)) return;
   if (!auth.currentUser || auth.currentUser.role !== "admin") return;
 
-  const result = await withDoorFlowTimeout(
-    db
-      .from("staff_profiles")
+  const result = await contextRequest(withDoorFlowTimeout(
+    venueTable("staff_profiles")
       .select("*")
       .order("full_name", { ascending:true }),
     "Loading staff profiles",
     15000
-  );
-  if (invitationOwner && !ownsStaffInvitationContext(invitationOwner)) return;
+  ), operationOwner);
+  if (!ownsAuthenticatedContext(owner) || (invitationOwner && !ownsStaffInvitationContext(invitationOwner))) return;
 
   if (result.error) {
     state.error = result.error.message;
@@ -4761,6 +4824,7 @@ async function loadStaffProfilesForAdmin(invitationOwner = null) {
 }
 
 async function updateStaffProfile(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("users")) return;
 
@@ -4777,42 +4841,50 @@ async function updateStaffProfile(event) {
     return;
   }
 
-  await runDb("Update staff profile", async () => runCriticalAction("Updating staff profile...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("staff_profiles").update(payload).eq("id", id),
+  await contextRequest(runDb("Update staff profile", async () => runCriticalAction("Updating staff profile...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("staff_profiles").update(payload).eq("id", id),
       "Updating staff profile",
       15000
-    );
+    ), operationOwner);
 
     must(result.data, result.error);
-    await loadStaffProfilesForAdmin();
+    if (id === auth.session?.user?.id) {
+      await contextRequest(handleAuthenticatedSession("USER_UPDATED", auth.session), operationOwner);
+      return;
+    }
+    await contextRequest(loadStaffProfilesForAdmin(), operationOwner);
     state.lastSyncAt = new Date();
     render();
-  }));
+  })), operationOwner);
 }
 
 async function refreshStaffProfiles() {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("users")) return;
-  await Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]);
+  await contextRequest(Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]), operationOwner);
   render();
 }
 
 /* ACTIONS */
 
 async function setActiveDay(day) {
+  const operationOwner = captureAuthenticatedContext();
   const date = nextDateForDay(day);
   saveActiveDate(date);
-  await loadDataForDate(date);
+  await contextRequest(loadDataForDate(date), operationOwner);
 }
 
 async function setActiveDate(date) {
+  const operationOwner = captureAuthenticatedContext();
   if (!isValidISODate(date)) return;
   saveActiveDate(date);
-  await loadDataForDate(date);
+  await contextRequest(loadDataForDate(date), operationOwner);
 }
 
 async function useTodayDate() {
-  await setActiveDate(getLocalTodayDateString());
+  const operationOwner = captureAuthenticatedContext();
+  await contextRequest(setActiveDate(getLocalTodayDateString()), operationOwner);
 }
 
 function selectGroup(id) {
@@ -4873,6 +4945,7 @@ function switchView(view) {
 }
 
 async function checkInOneGuest(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("door")) return;
   if (isGuestCheckActionBusy(id)) return;
 
@@ -4911,11 +4984,10 @@ async function checkInOneGuest(id) {
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
-    await prepareDatabaseAction("Check in");
+    await contextRequest(prepareDatabaseAction("Check in"), operationOwner);
 
-    const updateResult = await withDoorFlowTimeout(
-      db
-        .from("guests")
+    const updateResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests")
         .update({
           checked_in_count:newCount,
           last_checked_in_at:nowIso,
@@ -4925,7 +4997,7 @@ async function checkInOneGuest(id) {
         .eq("id", id),
       "Saving check-in",
       12000
-    );
+    ), operationOwner);
 
     must(updateResult.data, updateResult.error);
     guestWriteSaved = true;
@@ -4940,11 +5012,11 @@ async function checkInOneGuest(id) {
       staff_name:user.name
     };
 
-    const logResult = await withDoorFlowTimeout(
-      db.from("check_in_logs").insert(logPayload),
+    const logResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("check_in_logs").insert(logPayload),
       "Saving check-in log",
       12000
-    );
+    ), operationOwner);
 
     must(logResult.data, logResult.error);
 
@@ -4952,11 +5024,13 @@ async function checkInOneGuest(id) {
     updateSyncStatus("Saved", "Check-in saved. Syncing devices.");
     queueBackgroundRefreshAfterWrite();
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     if (guestWriteSaved) {
       try {
-        await restoreGuestCheckState(id, previousGuest);
+        await contextRequest(restoreGuestCheckState(id, previousGuest), operationOwner);
       } catch (rollbackError) {
+    if (!ownsAuthenticatedContext(operationOwner) || rollbackError?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
         console.warn("DoorFlow check-in rollback failed:", rollbackError);
       }
     }
@@ -4966,14 +5040,18 @@ async function checkInOneGuest(id) {
     state.error = "Check in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     setActionBusy(actionKey, false);
     activeDoorFlowAction = hasPendingGuestCheckActions();
     lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
+
+    }
   }
 }
 
 async function undoOneGuest(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("door")) return;
   if (isGuestCheckActionBusy(id)) return;
 
@@ -5007,11 +5085,10 @@ async function undoOneGuest(id) {
     Object.assign(guest, optimisticGuest);
     refreshCheckActionSurfaces();
 
-    await prepareDatabaseAction("Undo check-in");
+    await contextRequest(prepareDatabaseAction("Undo check-in"), operationOwner);
 
-    const updateResult = await withDoorFlowTimeout(
-      db
-        .from("guests")
+    const updateResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests")
         .update({
           checked_in_count:newCount,
           last_checked_in_at:newCount > 0 ? guest.last_checked_in_at : null,
@@ -5021,7 +5098,7 @@ async function undoOneGuest(id) {
         .eq("id", id),
       "Saving undo check-in",
       12000
-    );
+    ), operationOwner);
 
     must(updateResult.data, updateResult.error);
     guestWriteSaved = true;
@@ -5036,11 +5113,11 @@ async function undoOneGuest(id) {
       staff_name:user.name
     };
 
-    const logResult = await withDoorFlowTimeout(
-      db.from("check_in_logs").insert(logPayload),
+    const logResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("check_in_logs").insert(logPayload),
       "Saving undo log",
       12000
-    );
+    ), operationOwner);
 
     must(logResult.data, logResult.error);
 
@@ -5048,11 +5125,13 @@ async function undoOneGuest(id) {
     updateSyncStatus("Saved", "Undo saved. Syncing devices.");
     queueBackgroundRefreshAfterWrite();
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     if (guestWriteSaved) {
       try {
-        await restoreGuestCheckState(id, previousGuest);
+        await contextRequest(restoreGuestCheckState(id, previousGuest), operationOwner);
       } catch (rollbackError) {
+    if (!ownsAuthenticatedContext(operationOwner) || rollbackError?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
         console.warn("DoorFlow undo rollback failed:", rollbackError);
       }
     }
@@ -5062,10 +5141,13 @@ async function undoOneGuest(id) {
     state.error = "Undo check-in failed: " + (error.message || error);
     updateSyncStatus("Action failed", error.message || String(error));
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     setActionBusy(actionKey, false);
     activeDoorFlowAction = hasPendingGuestCheckActions();
     lastDoorFlowActionAt = Date.now();
     refreshCheckActionSurfaces(Boolean(state.error));
+
+    }
   }
 }
 
@@ -5083,6 +5165,7 @@ function toggleGuest(id) {
 }
 
 async function createGroup(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -5109,22 +5192,23 @@ async function createGroup(event) {
   try {
     hostPlusOnes = parsePlusOnesInput(form.get("host_plus_ones"), "Host Plus Ones");
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     alert(error.message || error);
     return;
   }
 
-  await runDb("Create group", async () => runCriticalAction("Creating party/group...", async () => {
+  await contextRequest(runDb("Create group", async () => runCriticalAction("Creating party/group...", async () => {
     const serviceDay = state.serviceDay?.service_date === date
       ? state.serviceDay
-      : await withDoorFlowTimeout(ensureServiceDay(date), "Finding the active service date", 12000);
+      : await contextRequest(withDoorFlowTimeout(ensureServiceDay(date), "Finding the active service date", 12000), operationOwner);
 
     payload.service_day_id = serviceDay.id;
 
-    const insertResult = await withDoorFlowTimeout(
-      db.from("groups").insert(payload).select("*").limit(1),
+    const insertResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("groups").insert(payload).select("*").limit(1),
       "Creating party/group",
       15000
-    );
+    ), operationOwner);
 
     const createdGroup = normalizeGroup(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
@@ -5140,8 +5224,8 @@ async function createGroup(event) {
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
 
-    await upsertPartyHostGuest(createdGroup, payload.host_name, hostPlusOnes);
-    await loadDataForDate(date);
+    await contextRequest(upsertPartyHostGuest(createdGroup, payload.host_name, hostPlusOnes), operationOwner);
+    await contextRequest(loadDataForDate(date), operationOwner);
 
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
@@ -5151,10 +5235,11 @@ async function createGroup(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function updateGroup(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -5181,22 +5266,23 @@ async function updateGroup(event) {
   try {
     hostPlusOnes = parsePlusOnesInput(form.get("host_plus_ones"), "Host Plus Ones");
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     alert(error.message || error);
     return;
   }
 
-  await runDb("Update group", async () => runCriticalAction("Updating party/group...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("groups").update(payload).eq("id", group.id).select("*").limit(1),
+  await contextRequest(runDb("Update group", async () => runCriticalAction("Updating party/group...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("groups").update(payload).eq("id", group.id).select("*").limit(1),
       "Updating party/group",
       15000
-    );
+    ), operationOwner);
 
     const updatedGroup = normalizeGroup(firstRow(must(result.data, result.error)) || { ...group, ...payload });
 
     state.groups = state.groups.map(item => item.id === group.id ? updatedGroup : item);
-    await upsertPartyHostGuest(updatedGroup, payload.host_name, hostPlusOnes, { previousHostName:group.host_name });
-    await loadDataForDate(state.activeDate);
+    await contextRequest(upsertPartyHostGuest(updatedGroup, payload.host_name, hostPlusOnes, { previousHostName:group.host_name }), operationOwner);
+    await contextRequest(loadDataForDate(state.activeDate), operationOwner);
 
     state.selectedGroupId = updatedGroup.id;
     state.currentMode = "GROUP";
@@ -5207,10 +5293,11 @@ async function updateGroup(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function deleteGroup(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   const group = state.groups.find(item => item.id === id);
@@ -5223,12 +5310,12 @@ async function deleteGroup(id) {
 
   if (!confirm(`Delete "${group.name}" and all names under it?`)) return;
 
-  await runDb("Delete group", async () => runCriticalAction("Deleting party/group...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("groups").delete().eq("id", id),
+  await contextRequest(runDb("Delete group", async () => runCriticalAction("Deleting party/group...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("groups").delete().eq("id", id),
       "Deleting party/group",
       15000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.groups = state.groups.filter(item => item.id !== id);
@@ -5239,10 +5326,11 @@ async function deleteGroup(id) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function createGuest(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -5282,11 +5370,11 @@ async function createGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
-  await runDb("Create guest", async () => runCriticalAction("Adding guest...", async () => {
+  await contextRequest(runDb("Create guest", async () => runCriticalAction("Adding guest...", async () => {
     let group = null;
 
     if (target === "general") {
-      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+      group = await contextRequest(withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000), operationOwner);
     } else if (target === "selected") {
       group = selectedGroup();
     } else if (target.startsWith("group:")) {
@@ -5300,11 +5388,11 @@ async function createGuest(event) {
 
     payload.group_id = group.id;
 
-    const result = await withDoorFlowTimeout(
-      db.from("guests").insert(payload).select("*").limit(1),
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(payload).select("*").limit(1),
       "Adding guest",
       15000
-    );
+    ), operationOwner);
 
     const insertedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || {
       ...payload,
@@ -5320,7 +5408,7 @@ async function createGuest(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 
@@ -5358,6 +5446,7 @@ function readMobileField(id) {
 }
 
 function withDoorFlowTimeout(promise, label = "Database request", timeoutMs = 15000) {
+  const owner = captureAuthenticatedContext();
   let timer = null;
 
   return Promise.race([
@@ -5367,30 +5456,38 @@ function withDoorFlowTimeout(promise, label = "Database request", timeoutMs = 15
         reject(new Error(`${label} timed out. Tap Refresh Data before trying again so you do not accidentally add a duplicate.`));
       }, timeoutMs);
     })
-  ]).finally(() => {
+  ]).then(value => { assertAuthenticatedContext(owner); return value; }, error => {
+    assertAuthenticatedContext(owner); throw error;
+  }).finally(() => {
     if (timer) clearTimeout(timer);
   });
 }
 
 async function runCriticalAction(label, fn, actionKey = label) {
+  const operationOwner = captureAuthenticatedContext();
   activeDoorFlowAction = true;
   lastDoorFlowActionAt = Date.now();
   setActionBusy(actionKey, true);
 
   try {
     updateSyncStatus("Saving", label);
-    return await fn();
+    return await contextRequest(fn(), operationOwner);
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     activeDoorFlowAction = false;
     lastDoorFlowActionAt = Date.now();
     setActionBusy(actionKey, false);
+
+    }
   }
 }
 
 function queueBackgroundRefreshAfterWrite() {
+  const owner = captureAuthenticatedContext();
   window.setTimeout(() => {
-    if (!auth.currentUser) return;
+    if (!ownsAuthenticatedContext(owner) || !auth.currentUser) return;
     refreshLiveDataSilently("post-write").catch(error => {
+      if (!ownsAuthenticatedContext(owner)) return;
       console.warn("DoorFlow background refresh after write failed:", error);
       updateSyncStatus("Polling", "Saved locally. Tap Refresh Data if another device does not update.");
       render();
@@ -5458,6 +5555,7 @@ function clearMobileShiftNoteFields() {
 
 
 async function mobileQuickAddGuest() {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
   if (window.__doorFlowMobileSubmitting) return;
 
@@ -5495,10 +5593,10 @@ async function mobileQuickAddGuest() {
     activeDoorFlowAction = true;
     lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Adding guest...", "info");
-    await prepareDatabaseAction("Mobile quick add guest");
+    await contextRequest(prepareDatabaseAction("Mobile quick add guest"), operationOwner);
 
     if (target === "general") {
-      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+      group = await contextRequest(withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000), operationOwner);
     } else if (target.startsWith("group:")) {
       const groupId = target.replace("group:", "");
       group = state.groups.find(item => item.id === groupId) || null;
@@ -5533,11 +5631,11 @@ async function mobileQuickAddGuest() {
       return;
     }
 
-    const insertResult = await withDoorFlowTimeout(
-      db.from("guests").insert(payload).select("*").limit(1),
+    const insertResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(payload).select("*").limit(1),
       "Adding guest",
       15000
-    );
+    ), operationOwner);
 
     const insertedGuest = normalizeGuest(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
@@ -5561,16 +5659,21 @@ async function mobileQuickAddGuest() {
     render();
     queueBackgroundRefreshAfterWrite();
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     showMobileManagerNotice(error?.message || "Guest could not be added. Tap Refresh Data and try again.", "error");
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     window.__doorFlowMobileSubmitting = false;
     activeDoorFlowAction = false;
     lastDoorFlowActionAt = Date.now();
+
+    }
   }
 }
 
 async function mobileQuickCreateGroup() {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
   if (window.__doorFlowMobileSubmitting) return;
 
@@ -5592,6 +5695,7 @@ async function mobileQuickCreateGroup() {
   try {
     hostPlusOnes = parsePlusOnesInput(readMobileField("mobileGroupHostPlusOnes"), "Host Plus Ones");
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     showMobileManagerNotice(error?.message || "Host Plus Ones must be a whole number.", "error");
     return;
   }
@@ -5601,11 +5705,11 @@ async function mobileQuickCreateGroup() {
     activeDoorFlowAction = true;
     lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Creating party/group...", "info");
-    await prepareDatabaseAction("Mobile create party/group");
+    await contextRequest(prepareDatabaseAction("Mobile create party/group"), operationOwner);
 
     const serviceDay = state.serviceDay?.service_date === state.activeDate
       ? state.serviceDay
-      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
+      : await contextRequest(withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000), operationOwner);
 
     const payload = {
       service_day_id:serviceDay.id,
@@ -5618,11 +5722,11 @@ async function mobileQuickCreateGroup() {
       status:"Active"
     };
 
-    const insertResult = await withDoorFlowTimeout(
-      db.from("groups").insert(payload).select("*").limit(1),
+    const insertResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("groups").insert(payload).select("*").limit(1),
       "Creating party/group",
       15000
-    );
+    ), operationOwner);
 
     const createdGroup = normalizeGroup(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
@@ -5637,8 +5741,8 @@ async function mobileQuickCreateGroup() {
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
 
-    await upsertPartyHostGuest(createdGroup, hostName, hostPlusOnes);
-    await loadDataForDate(state.activeDate);
+    await contextRequest(upsertPartyHostGuest(createdGroup, hostName, hostPlusOnes), operationOwner);
+    await contextRequest(loadDataForDate(state.activeDate), operationOwner);
 
     state.selectedGroupId = createdGroup.id;
     state.currentMode = "GROUP";
@@ -5651,16 +5755,21 @@ async function mobileQuickCreateGroup() {
     render();
     queueBackgroundRefreshAfterWrite();
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     showMobileManagerNotice(error?.message || "Party/group could not be created. Tap Refresh Data and try again.", "error");
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     window.__doorFlowMobileSubmitting = false;
     activeDoorFlowAction = false;
     lastDoorFlowActionAt = Date.now();
+
+    }
   }
 }
 
 async function mobileAddShiftNote() {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
   if (window.__doorFlowMobileSubmitting) return;
 
@@ -5680,11 +5789,11 @@ async function mobileAddShiftNote() {
     activeDoorFlowAction = true;
     lastDoorFlowActionAt = Date.now();
     showMobileManagerNotice("Saving shift note...", "info");
-    await prepareDatabaseAction("Mobile shift note");
+    await contextRequest(prepareDatabaseAction("Mobile shift note"), operationOwner);
 
     const serviceDay = state.serviceDay?.service_date === state.activeDate
       ? state.serviceDay
-      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
+      : await contextRequest(withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000), operationOwner);
 
     const payload = {
       service_day_id:serviceDay.id,
@@ -5695,11 +5804,11 @@ async function mobileAddShiftNote() {
       created_by_user_id:auth.session?.user?.id || null
     };
 
-    const insertResult = await withDoorFlowTimeout(
-      db.from("shift_notes").insert(payload).select("*").limit(1),
+    const insertResult = await contextRequest(withDoorFlowTimeout(
+      venueTable("shift_notes").insert(payload).select("*").limit(1),
       "Saving shift note",
       15000
-    );
+    ), operationOwner);
 
     const insertedNote = normalizeShiftNote(firstRow(must(insertResult.data, insertResult.error)) || {
       ...payload,
@@ -5717,17 +5826,22 @@ async function mobileAddShiftNote() {
     render();
     queueBackgroundRefreshAfterWrite();
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     console.error(error);
     showMobileManagerNotice(error?.message || "Shift note could not be saved. Tap Refresh Data and try again.", "error");
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     window.__doorFlowMobileSubmitting = false;
     activeDoorFlowAction = false;
     lastDoorFlowActionAt = Date.now();
+
+    }
   }
 }
 
 
 async function createQuickManagerGuest(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -5780,11 +5894,11 @@ async function createQuickManagerGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name)) return;
 
-  await runDb("Quick add guest", async () => runCriticalAction("Adding guest...", async () => {
+  await contextRequest(runDb("Quick add guest", async () => runCriticalAction("Adding guest...", async () => {
     let group = null;
 
     if (target === "general") {
-      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+      group = await contextRequest(withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000), operationOwner);
     } else if (target.startsWith("group:")) {
       const groupId = target.replace("group:", "");
       group = state.groups.find(item => item.id === groupId) || null;
@@ -5796,11 +5910,11 @@ async function createQuickManagerGuest(event) {
 
     payload.group_id = group.id;
 
-    const result = await withDoorFlowTimeout(
-      db.from("guests").insert(payload).select("*").limit(1),
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(payload).select("*").limit(1),
       "Adding guest",
       15000
-    );
+    ), operationOwner);
 
     const insertedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || {
       ...payload,
@@ -5815,7 +5929,7 @@ async function createQuickManagerGuest(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 function recentManagerAdds(limit = 5) {
@@ -5956,6 +6070,7 @@ function setMobileManagementGuestScope(value) {
 }
 
 async function deleteMobileManagementGuest(event, id) {
+  const operationOwner = captureAuthenticatedContext();
   const actionKey = `mobile-delete:${id}`;
   if (isActionBusy(actionKey)) return;
 
@@ -5964,11 +6079,13 @@ async function deleteMobileManagementGuest(event, id) {
   let failed = false;
 
   try {
-    await deleteGuest(id);
+    await contextRequest(deleteGuest(id), operationOwner);
   } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
     failed = true;
     throw error;
   } finally {
+    if (ownsAuthenticatedContext(operationOwner)) {
     setActionBusy(actionKey, false);
     const guestStillExists = state.guests.some(guest => guest.id === id);
     if (
@@ -5979,6 +6096,8 @@ async function deleteMobileManagementGuest(event, id) {
     }
     if (failed && guestStillExists && state.view === snapshot?.view) {
       refreshMobileManagementGuestSurface();
+    }
+
     }
   }
 }
@@ -6285,6 +6404,7 @@ function renderMobileManagerView() {
 }
 
 async function updateGuest(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -6320,12 +6440,12 @@ async function updateGuest(event) {
 
   if (!confirmDuplicateSingle(payload.first_name, payload.last_name, guest.id)) return;
 
-  await runDb("Update guest", async () => runCriticalAction("Updating guest...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("guests").update(payload).eq("id", guest.id).select("*").limit(1),
+  await contextRequest(runDb("Update guest", async () => runCriticalAction("Updating guest...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").update(payload).eq("id", guest.id).select("*").limit(1),
       "Updating guest",
       15000
-    );
+    ), operationOwner);
 
     const updatedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || { ...guest, ...payload });
 
@@ -6336,10 +6456,11 @@ async function updateGuest(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function savePlusOnes(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -6387,12 +6508,12 @@ async function savePlusOnes(event) {
     notes:appendGuestNote(guest.notes, noteLine)
   };
 
-  await runDb("Adjust plus ones", async () => runCriticalAction("Adjusting plus ones...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("guests").update(payload).eq("id", guest.id).select("*").limit(1),
+  await contextRequest(runDb("Adjust plus ones", async () => runCriticalAction("Adjusting plus ones...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").update(payload).eq("id", guest.id).select("*").limit(1),
       "Adjusting plus ones",
       15000
-    );
+    ), operationOwner);
 
     const updatedGuest = normalizeGuest(firstRow(must(result.data, result.error)) || { ...guest, ...payload });
 
@@ -6402,7 +6523,7 @@ async function savePlusOnes(event) {
 
     try {
       const user = currentUser();
-      await withDoorFlowTimeout(db.from("check_in_logs").insert({
+      await contextRequest(withDoorFlowTimeout(venueTable("check_in_logs").insert({
         guest_id:guest.id,
         group_id:guest.group_id,
         action:`Adjust Plus Ones +${oldPlusCount} to +${plusCount}`,
@@ -6410,12 +6531,13 @@ async function savePlusOnes(event) {
         door_location:state.doorLocation,
         staff_user_id:null,
         staff_name:user?.name || approvedBy
-      }), "Logging plus-one adjustment", 8000);
+      }), "Logging plus-one adjustment", 8000), operationOwner);
     } catch (error) {
+    if (!ownsAuthenticatedContext(operationOwner) || error?.code === "stale_authenticated_context") throw staleAuthenticatedContext();
       console.warn("DoorFlow plus-one adjustment log skipped:", error);
     }
 
-    await loadDataForDate(state.activeDate);
+    await contextRequest(loadDataForDate(state.activeDate), operationOwner);
 
     state.modal = null;
     state.editingPlusGuestId = null;
@@ -6423,28 +6545,30 @@ async function savePlusOnes(event) {
     resetDerivedListCaches();
 
     render();
-  }, `plus:${guest.id}`));
+  }, `plus:${guest.id}`)), operationOwner);
 }
 
 async function deleteGuest(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
   if (!confirm("Delete this name from the list?")) return;
 
-  await runDb("Delete guest", async () => runCriticalAction("Deleting guest...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("guests").delete().eq("id", id),
+  await contextRequest(runDb("Delete guest", async () => runCriticalAction("Deleting guest...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").delete().eq("id", id),
       "Deleting guest",
       15000
-    );
+    ), operationOwner);
     must(result.data, result.error);
     state.guests = state.guests.filter(item => item.id !== id);
     state.lastSyncAt = new Date();
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function clearGeneralGuestList() {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   const group = generalGroup();
@@ -6463,12 +6587,12 @@ async function clearGeneralGuestList() {
 
   if (!confirm(`Clear ${count} name${count === 1 ? "" : "s"} from the General Guest List for ${state.activeDate}?\n\nBottle service and party/group names will NOT be deleted.`)) return;
 
-  await runDb("Clear General Guest List", async () => runCriticalAction("Clearing General Guest List...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("guests").delete().eq("group_id", group.id),
+  await contextRequest(runDb("Clear General Guest List", async () => runCriticalAction("Clearing General Guest List...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").delete().eq("group_id", group.id),
       "Clearing General Guest List",
       15000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.guests = state.guests.filter(item => item.group_id !== group.id);
@@ -6477,10 +6601,11 @@ async function clearGeneralGuestList() {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function clearGroupNames(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   const group = state.groups.find(item => item.id === id);
@@ -6491,7 +6616,7 @@ async function clearGroupNames(id) {
   }
 
   if (group.name === "General Guest List" || group.group_type === "General Guest List") {
-    await clearGeneralGuestList();
+    await contextRequest(clearGeneralGuestList(), operationOwner);
     return;
   }
 
@@ -6504,12 +6629,12 @@ async function clearGroupNames(id) {
 
   if (!confirm(`Clear ${count} name${count === 1 ? "" : "s"} from "${group.name}"?\n\nThis will keep the party/group itself, but remove every name under it. This cannot be undone.`)) return;
 
-  await runDb("Clear group names", async () => runCriticalAction("Clearing group names...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("guests").delete().eq("group_id", group.id),
+  await contextRequest(runDb("Clear group names", async () => runCriticalAction("Clearing group names...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").delete().eq("group_id", group.id),
       "Clearing group names",
       15000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.guests = state.guests.filter(item => item.group_id !== group.id);
@@ -6518,7 +6643,7 @@ async function clearGroupNames(id) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 /* BULK AND EXCEL */
@@ -6563,6 +6688,7 @@ function parseBulkNames(text) {
 }
 
 async function bulkAddNames(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -6602,11 +6728,11 @@ async function bulkAddNames(event) {
 
   if (!confirmDuplicateRows(rows, "Bulk paste")) return;
 
-  await runDb("Bulk add names", async () => runCriticalAction("Adding pasted names...", async () => {
+  await contextRequest(runDb("Bulk add names", async () => runCriticalAction("Adding pasted names...", async () => {
     let group = null;
 
     if (target === "general") {
-      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+      group = await contextRequest(withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000), operationOwner);
     } else if (target === "selected") {
       group = selectedGroup();
     } else if (target.startsWith("group:")) {
@@ -6619,11 +6745,11 @@ async function bulkAddNames(event) {
     }
 
     const rowsForInsert = rows.map(row => ({ ...row, group_id:group.id }));
-    const result = await withDoorFlowTimeout(
-      db.from("guests").insert(rowsForInsert).select("*"),
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(rowsForInsert).select("*"),
       "Adding pasted names",
       18000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.selectedGroupId = group.id;
@@ -6635,7 +6761,7 @@ async function bulkAddNames(event) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 function normalizeHeader(value) {
@@ -6744,6 +6870,7 @@ function parseCsv(text) {
 }
 
 async function importRows(rows, targetMode) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   const valid = [];
@@ -6768,11 +6895,11 @@ async function importRows(rows, targetMode) {
 
   if (!confirmDuplicateRows(valid, "Excel/CSV import")) return;
 
-  await runDb("Import file", async () => runCriticalAction("Importing names...", async () => {
+  await contextRequest(runDb("Import file", async () => runCriticalAction("Importing names...", async () => {
     let group = null;
 
     if (targetMode === "general") {
-      group = await withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000);
+      group = await contextRequest(withDoorFlowTimeout(getGeneralGroupForActiveDate(), "Finding the General Guest List", 12000), operationOwner);
     } else if (targetMode === "selected") {
       group = selectedGroup();
     } else if (targetMode.startsWith("group:")) {
@@ -6785,11 +6912,11 @@ async function importRows(rows, targetMode) {
     }
 
     const validForInsert = valid.map(guest => ({ ...guest, group_id:group.id }));
-    const result = await withDoorFlowTimeout(
-      db.from("guests").insert(validForInsert).select("*"),
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("guests").insert(validForInsert).select("*"),
       "Importing names",
       18000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.selectedGroupId = group.id;
@@ -6799,10 +6926,11 @@ async function importRows(rows, targetMode) {
 
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 function handleFileUpload(event) {
+  const owner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   const targetMode = document.getElementById("uploadTarget")?.value || "general";
@@ -6814,11 +6942,13 @@ function handleFileUpload(event) {
   const reader = new FileReader();
 
   reader.onerror = () => {
+    if (!ownsAuthenticatedContext(owner)) return;
     state.importMessage = "The file could not be read.";
     render();
   };
 
   reader.onload = async loadEvent => {
+    if (!ownsAuthenticatedContext(owner)) return;
     try {
       let rows = [];
 
@@ -6830,10 +6960,11 @@ function handleFileUpload(event) {
         rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
       }
 
-      await importRows(rows, targetMode);
+      await contextRequest(importRows(rows, targetMode), owner);
       event.target.value = "";
     } catch (error) {
       console.error(error);
+      if (!ownsAuthenticatedContext(owner)) return;
       state.importMessage = "Import failed. First row should include First Name / Last Name, or Full Name.";
       render();
     }
@@ -6981,6 +7112,7 @@ function noteTime(note) {
 }
 
 async function createShiftNote(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -7000,18 +7132,18 @@ async function createShiftNote(event) {
     return;
   }
 
-  await runDb("Create shift note", async () => runCriticalAction("Adding shift note...", async () => {
+  await contextRequest(runDb("Create shift note", async () => runCriticalAction("Adding shift note...", async () => {
     const serviceDay = state.serviceDay?.service_date === state.activeDate
       ? state.serviceDay
-      : await withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000);
+      : await contextRequest(withDoorFlowTimeout(ensureServiceDay(state.activeDate), "Finding the active service date", 12000), operationOwner);
 
     payload.service_day_id = serviceDay.id;
 
-    const result = await withDoorFlowTimeout(
-      db.from("shift_notes").insert(payload).select("*").limit(1),
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("shift_notes").insert(payload).select("*").limit(1),
       "Adding shift note",
       15000
-    );
+    ), operationOwner);
 
     const insertedNote = normalizeShiftNote(firstRow(must(result.data, result.error)) || {
       ...payload,
@@ -7025,7 +7157,7 @@ async function createShiftNote(event) {
     state.importMessage = "Shift note added.";
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 function openEditShiftNote(id) {
@@ -7036,6 +7168,7 @@ function openEditShiftNote(id) {
 }
 
 async function updateShiftNote(event) {
+  const operationOwner = captureAuthenticatedContext();
   event.preventDefault();
   if (!requirePerm("manage")) return;
 
@@ -7059,12 +7192,12 @@ async function updateShiftNote(event) {
     return;
   }
 
-  await runDb("Update shift note", async () => runCriticalAction("Updating shift note...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("shift_notes").update(payload).eq("id", note.id).select("*").limit(1),
+  await contextRequest(runDb("Update shift note", async () => runCriticalAction("Updating shift note...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("shift_notes").update(payload).eq("id", note.id).select("*").limit(1),
       "Updating shift note",
       15000
-    );
+    ), operationOwner);
 
     const updatedNote = normalizeShiftNote(firstRow(must(result.data, result.error)) || { ...note, ...payload });
 
@@ -7075,20 +7208,21 @@ async function updateShiftNote(event) {
     state.importMessage = "Shift note updated.";
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 async function deleteShiftNote(id) {
+  const operationOwner = captureAuthenticatedContext();
   if (!requirePerm("manage")) return;
 
   if (!confirm("Delete this shift note?")) return;
 
-  await runDb("Delete shift note", async () => runCriticalAction("Deleting shift note...", async () => {
-    const result = await withDoorFlowTimeout(
-      db.from("shift_notes").delete().eq("id", id),
+  await contextRequest(runDb("Delete shift note", async () => runCriticalAction("Deleting shift note...", async () => {
+    const result = await contextRequest(withDoorFlowTimeout(
+      venueTable("shift_notes").delete().eq("id", id),
       "Deleting shift note",
       15000
-    );
+    ), operationOwner);
     must(result.data, result.error);
 
     state.shiftNotes = state.shiftNotes.filter(item => item.id !== id);
@@ -7096,7 +7230,7 @@ async function deleteShiftNote(id) {
     state.importMessage = "Shift note deleted.";
     render();
     queueBackgroundRefreshAfterWrite();
-  }));
+  })), operationOwner);
 }
 
 function renderShiftNotesPanel(showComposer = true) {

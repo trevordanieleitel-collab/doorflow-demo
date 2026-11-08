@@ -9,6 +9,11 @@ const appSource = readFileSync(resolve(root, "app.js"), "utf8").replaceAll("\r\n
 const indexSource = readFileSync(resolve(root, "index.html"), "utf8").replaceAll("\r\n", "\n");
 const runtimeSource = extractAppRuntime(indexSource);
 const exercisedFunctions = [
+  "captureAuthenticatedContext",
+  "ownsAuthenticatedContext",
+  "staleAuthenticatedContext",
+  "assertAuthenticatedContext",
+  "contextRequest",
   "setActionBusy",
   "isActionBusy",
   "isGuestCheckActionBusy",
@@ -133,6 +138,9 @@ function createHarness(initialGuests, options = {}) {
     var lastDoorFlowActionAt = 0;
     let liveDataLoadSequence = 0;
     let guestCheckStateVersion = 0;
+    var auth = { session:{user:{id:"race-operator"}}, profile:{venue_id:"race-venue"} };
+    var authenticatedContextGeneration = 1;
+    var authenticatedContextKey = "race-context";
     function requirePerm() { return true; }
     function currentUser() { return { name:"Race Test Operator" }; }
     function normalizeGuest(value) { return { ...value, checked_in_count:Number(value.checked_in_count || 0), total_allowed:Number(value.total_allowed || 1) }; }
@@ -158,6 +166,10 @@ function createHarness(initialGuests, options = {}) {
         throw new Error("Unexpected table " + table);
       }
     };
+    // Fictional transport stays local. Venue-builder isolation is exercised by
+    // the dedicated foundation tests; this harness preserves the original
+    // delayed-write/realtime/optimistic-state race scenarios within one venue.
+    function venueTable(table) { return db.from(table); }
   `, context);
 
   for (const name of exercisedFunctions) {

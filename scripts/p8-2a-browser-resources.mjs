@@ -1,6 +1,7 @@
 // Test resources only. Never imported by the application.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { access, lstat, mkdtemp, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -17,11 +18,45 @@ export function observeExit(child) {
   // Subscribe immediately after spawn; cleanup must not miss an earlier exit.
   const result = new Promise((resolveExit, reject) => {
     child.once("error", reject);
-    child.once("close", (code, signal) => resolveExit({ code, signal }));
+    // Windows Chromium may hand off to a child browser that retains stderr.
+    // `close` waits for those inherited pipes; `exit` is the process lifetime.
+    child.once("exit", (code, signal) => resolveExit({ code, signal }));
   });
   // Mark handled until the finally block awaits it, without converting failure.
   result.catch(() => {});
   return result;
+}
+
+async function stopExactOwnedProfile(profileDirectory) {
+  if (process.platform !== "win32") return { terminated:0 };
+  const target = resolve(profileDirectory);
+  assert.equal(dirname(target), resolve(tmpdir()));
+  assert.match(target.slice(dirname(target).length + 1), /^doorflow-(?:acceptance|context)-browser-[A-Za-z0-9]+$/);
+  // No user profile, executable-name-wide kill, or unvalidated PID is accepted.
+  // The path is passed as environment data, never interpolated into shell code.
+  const script = `
+$ErrorActionPreference='Stop'
+$fixtureDirectory=[IO.Path]::GetFullPath($env:DOORFLOW_OWNED_TEST_PROFILE).TrimEnd('\\')
+function OwnedFixture($process) {
+  $argument=[regex]::Match([string]$process.CommandLine,'--user-data-dir=(?:"([^\"]+)"|([^\\s\"]+))')
+  if(-not $argument.Success){return $false}
+  $directory=if($argument.Groups[1].Success){$argument.Groups[1].Value}else{$argument.Groups[2].Value}
+  return [string]::Equals([IO.Path]::GetFullPath($directory).TrimEnd('\\'),$fixtureDirectory,[StringComparison]::OrdinalIgnoreCase)
+}
+$targets=@(Get-CimInstance Win32_Process -Filter "name='chrome.exe' OR name='msedge.exe'" | Where-Object { OwnedFixture $_ })
+foreach($target in $targets){
+  $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($target.ProcessId)"
+  if($current -and (OwnedFixture $current)){Stop-Process -Id $current.ProcessId -Force -ErrorAction SilentlyContinue}
+}
+$remaining=@(Get-CimInstance Win32_Process -Filter "name='chrome.exe' OR name='msedge.exe'" | Where-Object { OwnedFixture $_ })
+if($remaining.Count){throw 'Exact owned browser profile did not terminate'}
+@{terminated=$targets.Count}|ConvertTo-Json -Compress
+`;
+  const { stdout } = await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    windowsHide:true, timeout:10000, maxBuffer:8192,
+    env:{ ...process.env, DOORFLOW_OWNED_TEST_PROFILE:target }
+  });
+  return JSON.parse(stdout.trim());
 }
 
 async function assertPortClosed(port) {
@@ -39,8 +74,11 @@ async function assertPortClosed(port) {
 export async function disposeBrowser({ child, exited, cdp, server, profileDirectory, debugPort, targetId, sessionId }) {
   const errors = [];
   let nativeExit;
+  let forcedTermination = false;
   try {
-    if (child.exitCode === null && child.signalCode === null && cdp) {
+    // CDP can refer to the handed-off child after the original Windows launcher
+    // exits. Always close that connection's browser, not just a live launcher.
+    if (cdp) {
       if (targetId) {
         try {
         // This browser/profile and exact loopback origin belong solely to the
@@ -63,14 +101,21 @@ export async function disposeBrowser({ child, exited, cdp, server, profileDirect
         .catch(error => { errors.push(error); });
     }
     try { nativeExit = await bounded(exited, "Owned browser exit", 7000); }
-    catch (error) {
-      errors.push(error);
-      if (child.exitCode === null && child.signalCode === null) child.kill();
+    catch {
+      forcedTermination = true;
+      if (process.platform === "win32") await stopExactOwnedProfile(profileDirectory);
+      else if (child.exitCode === null && child.signalCode === null) child.kill();
       nativeExit = await bounded(exited, "Owned browser termination", 3000);
     }
     if (nativeExit.code !== 0 || nativeExit.signal) errors.push(new Error("Owned browser did not exit normally"));
   } catch (error) { errors.push(error); }
   finally { try { cdp?.close(); } catch (error) { errors.push(error); } }
+  // Also clean a launcher handoff or a failed startup. This exact-profile check
+  // proves no fixture descendants survive before its directory is removed.
+  try {
+    const cleanup = await stopExactOwnedProfile(profileDirectory);
+    forcedTermination ||= cleanup.terminated > 0;
+  } catch (error) { errors.push(error); }
   try {
     const address = server.address();
     server.closeAllConnections?.();
@@ -92,7 +137,7 @@ export async function disposeBrowser({ child, exited, cdp, server, profileDirect
     await assert.rejects(lstat(target), { code:"ENOENT" });
   } catch (error) { errors.push(error); }
   if (errors.length) throw new AggregateError(errors, `Owned browser resource cleanup failed: ${errors.map(error=>error.message).join("; ")}`);
-  return { processExited:true, nativeExit, httpListenerClosed:true, debugListenerClosed:Boolean(debugPort), profileRemoved:true };
+  return { processExited:true, nativeExit, forcedTermination, httpListenerClosed:true, debugListenerClosed:Boolean(debugPort), profileRemoved:true };
 }
 
 export class Cdp {
@@ -139,7 +184,7 @@ export class Cdp {
 
 export async function launchBrowser(server) {
   let browser;
-  for (const candidate of ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"]) {
+  for (const candidate of ["C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"]) {
     try { await access(candidate); browser = candidate; break; } catch { /* Explicit installed candidates only. */ }
   }
   assert(browser, "A prepared local browser is required; do not skip this suite");

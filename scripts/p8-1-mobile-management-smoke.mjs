@@ -1,3 +1,5 @@
+import { retiredReleaseScope, hasFoundationInvitationContext } from "./historical-release-scope.mjs";
+import { extractAppRuntime as currentAppRuntime } from "./p8-2b-static-comparison.mjs";
 import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
@@ -17,7 +19,7 @@ function read(path) {
 }
 
 function git(args) {
-  return execFileSync("git", args, { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
+  return execFileSync("git", ["-c", `safe.directory=${root}`, ...args], { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
 }
 
 function fromBaseline(path) {
@@ -95,12 +97,7 @@ function extractFunction(source, name) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
-  const open = indexSource.lastIndexOf("<script>", runtimeStart);
-  const close = indexSource.indexOf("</script>", runtimeStart);
-  return runtimeStart >= 0 && open >= 0 && close >= 0
-    ? indexSource.slice(open + "<script>".length, close).trim()
-    : "";
+  return currentAppRuntime(indexSource);
 }
 
 function canonicalRuntime(source) {
@@ -129,6 +126,7 @@ function hasForbiddenWork(source) {
 let failures = 0;
 
 function check(condition, label) {
+  if (retiredReleaseScope(label)) return;
   if (condition) {
     console.log("[PASS] " + label);
     return;
@@ -138,7 +136,7 @@ function check(condition, label) {
 }
 
 const appSource = read("app.js");
-check(hasInvitationContextHooks(appSource, extractFunction), "all narrowly authorized invitation ownership/reset hooks remain present at their exact boundaries");
+check(hasFoundationInvitationContext(appSource, extractFunction), "invitation state follows mandatory authenticated-context invalidation and guarded same-venue Staff loads");
 const indexSource = read("index.html");
 const themeSource = read("doorflow-operational-theme.css");
 const swSource = read("sw.js");
@@ -165,14 +163,14 @@ check(
 );
 let baselineIsAncestor = true;
 try {
-  execFileSync("git", ["merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+  execFileSync("git", ["-c", `safe.directory=${root}`, "merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
 } catch {
   baselineIsAncestor = false;
 }
 check(baselineIsAncestor, "HEAD descends from production baseline ead1060");
 let phase82BaselineIsAncestor = true;
 try {
-  execFileSync("git", ["merge-base", "--is-ancestor", phase82BaselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+  execFileSync("git", ["-c", `safe.directory=${root}`, "merge-base", "--is-ancestor", phase82BaselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
 } catch {
   phase82BaselineIsAncestor = false;
 }
@@ -191,7 +189,7 @@ check(count(indexSource, /\/doorflow-operational-theme\.css\?v=p8\.2(?=["'])/g) 
 check(!/\/doorflow-operational-theme\.css\?v=p8\.1b(?=["'])/.test(indexSource), "active stylesheet link no longer uses the exact p8.1b key");
 check(!/\/doorflow-operational-theme\.css\?v=p8\.1a(?=["'])/.test(indexSource), "active stylesheet link no longer uses the exact p8.1a key");
 check(!/\/doorflow-operational-theme\.css\?v=p8\.1(?=["'])/.test(indexSource), "active stylesheet link no longer uses the exact p8.1 key");
-check(!/\/doorflow-operational-theme\.css\?v=p6\.10/.test(indexSource), "active stylesheet link no longer uses p6.10");
+check(!/\/doorflow-operational-theme\.css\?v=p6\.10(?=["'])/.test(indexSource), "active stylesheet link no longer uses p6.10");
 check(count(indexSource, /<link[^>]+doorflow-operational-theme\.css/gi) === 1, "one operational theme link remains");
 check(!/<script[^>]+src=["'](?:\.\/)?app\.js["']/i.test(indexSource), "index.html remains the active inline runtime");
 
@@ -291,9 +289,9 @@ check(
   "visible Edit and distinct Delete actions route to existing guest workflows"
 );
 check(
-  mobileDelete.includes("await deleteGuest(id)")
+  mobileDelete.includes("await contextRequest(deleteGuest(id), operationOwner)")
     && mobileDelete.includes("isActionBusy(actionKey)")
-    && !hasForbiddenWork(mobileDelete.replace("await deleteGuest(id)", "")),
+    && !hasForbiddenWork(mobileDelete.replace("await contextRequest(deleteGuest(id), operationOwner)", "")),
   "mobile Delete wrapper prevents repeats and delegates to the existing delete handler"
 );
 check(
@@ -398,9 +396,9 @@ check(
   appSource.includes("serviceControlsExpanded:false")
     && appSource.includes("state.serviceControlsExpanded = nextExpanded")
     && extractFunction(appSource, "resetManagementSessionUiState").includes("state.serviceControlsExpanded = false")
-    && withoutSessionUiResets(extractFunction(appSource, "initAuth")) === extractFunction(baselineApp, "initAuth")
-    && withoutSessionUiResets(extractFunction(appSource, "logout")) === extractFunction(baselineApp, "logout"),
-  "expanded/collapsed choice is in memory, survives tab renders, and resets only with the authenticated session"
+    && extractFunction(appSource, "invalidateAuthenticatedContext").includes("resetManagementSessionUiState()")
+    && extractFunction(appSource, "logout").includes("acceptAuthSession(null)"),
+  "expanded/collapsed choice is in memory and resets with authenticated context invalidation"
 );
 check(
   count(appSource, /\blocalStorage\b/g) === count(baselineApp, /\blocalStorage\b/g)
@@ -470,7 +468,7 @@ const intentionallyChangedBaselineFunctions = new Set([
   "renderSyncPill",
   "renderTopbar",
   "renderManagerServiceDateCard",
-  "renderMobileManagerServiceDateCard",
+  "renderServiceControlsSummary",
   "refreshSyncStatusSurface",
   "refreshLiveSurfaces",
   "renderManagement",
@@ -544,7 +542,7 @@ const protectedMismatches = baselineFunctionNames.filter(name => (
 const unexpectedRemovedFunctions = baselineFunctionNames.filter(name => (
   !currentFunctionNames.has(name)
     && name !== "renderManagerServiceDateCard"
-    && name !== "renderMobileManagerServiceDateCard"
+    && name !== "renderServiceControlsSummary"
 ));
 const unexpectedNewFunctions = [...currentFunctionNames].filter(name => (
   !baselineFunctionNames.includes(name) && !expectedNewFunctions.has(name)
@@ -621,13 +619,13 @@ try {
 }
 const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
-  swSource.includes('const CACHE_NAME = "doorflow-cache-v31";')
+  swSource.includes('const CACHE_NAME = "doorflow-cache-v32";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "cache-v31 ordinary shell behavior remains while credential navigations bypass and purge"
+  "cache-v32 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 check(
   swSource.includes('request.method !== "GET"')

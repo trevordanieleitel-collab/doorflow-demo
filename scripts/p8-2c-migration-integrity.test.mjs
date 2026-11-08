@@ -19,7 +19,13 @@ const tables = ['check_in_logs', 'groups', 'guests', 'service_days', 'shift_note
 const fixture = read('supabase/tests/fixtures/phase_8_2c_production_schema.sql');
 
 test('CLI-generated migration order is explicit and contains no staging bootstrap', () => {
-  assert.deepEqual(readdirSync(resolve(root, 'supabase/migrations')).filter(x => x.endsWith('.sql')).sort(), names);
+  // Phase 8.2C is an immutable prefix of the new release. Its replay below
+  // intentionally remains a historical compatibility check; the SaaS database
+  // acceptance suite replays that prefix plus the foundation migration.
+  const foundation = '20261108162003_saas_venue_foundation.sql';
+  const inventory = readdirSync(resolve(root, 'supabase/migrations')).filter(x => x.endsWith('.sql')).sort();
+  assert.deepEqual(inventory, [...names, foundation]);
+  assert(inventory.indexOf(foundation) === names.length);
   assert.deepEqual([...names].sort(), names);
   assert(names.every(name => /^\d{14}_phase_8_2c_/.test(name)));
   assert(!names.some(name => /staging|bootstrap/.test(name)));

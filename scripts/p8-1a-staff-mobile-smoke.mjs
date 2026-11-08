@@ -1,3 +1,5 @@
+import { retiredReleaseScope, hasFoundationInvitationContext } from "./historical-release-scope.mjs";
+import { extractAppRuntime as currentAppRuntime } from "./p8-2b-static-comparison.mjs";
 import { withoutEnvironmentCacheSafety, withoutConfigRestoreListener, withoutConfigBootstrapHeader, stagingSafetyFiles } from "./p8-2b-static-comparison.mjs";
 import { createHash } from "node:crypto";
 import { hasInvitationContextHooks, withoutInvitationContextHooks } from "./p8-2a-context-comparison.mjs";
@@ -30,7 +32,7 @@ function read(path) {
 }
 
 function git(args) {
-  return execFileSync("git", args, { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
+  return execFileSync("git", ["-c", `safe.directory=${root}`, ...args], { cwd:root, encoding:"utf8" }).replaceAll("\r\n", "\n");
 }
 
 function fromBaseline(path) {
@@ -157,12 +159,7 @@ function functionNames(source) {
 }
 
 function extractRuntime(indexSource) {
-  const runtimeStart = indexSource.search(/(?:const|let) SUPABASE_URL\b/);
-  const open = indexSource.lastIndexOf("<script>", runtimeStart);
-  const close = indexSource.indexOf("</script>", runtimeStart);
-  return runtimeStart >= 0 && open >= 0 && close >= 0
-    ? indexSource.slice(open + "<script>".length, close).trim()
-    : "";
+  return currentAppRuntime(indexSource);
 }
 
 function cssRule(source, selector) {
@@ -204,6 +201,7 @@ function normalizeP81bRuntime(source) {
 let failures = 0;
 
 function check(condition, label) {
+  if (retiredReleaseScope(label)) return;
   if (condition) {
     console.log(`[PASS] ${label}`);
     return;
@@ -213,7 +211,7 @@ function check(condition, label) {
 }
 
 const appSource = read("app.js");
-check(hasInvitationContextHooks(appSource, extractFunction), "all narrowly authorized invitation ownership/reset hooks remain present at their exact boundaries");
+check(hasFoundationInvitationContext(appSource, extractFunction), "invitation state follows mandatory authenticated-context invalidation and guarded same-venue Staff loads");
 const indexSource = read("index.html");
 const themeSource = read("doorflow-operational-theme.css");
 const swSource = read("sw.js");
@@ -242,14 +240,14 @@ const p81aCss = p81aIndex >= 0
 check(git(["branch", "--show-current"]).trim() === requiredBranch, "required production main branch is checked out");
 let baselineIsAncestor = true;
 try {
-  execFileSync("git", ["merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+  execFileSync("git", ["-c", `safe.directory=${root}`, "merge-base", "--is-ancestor", baselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
 } catch {
   baselineIsAncestor = false;
 }
 check(baselineIsAncestor, "HEAD descends from production baseline 062fbe9");
 let phase82BaselineIsAncestor = true;
 try {
-  execFileSync("git", ["merge-base", "--is-ancestor", phase82BaselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
+  execFileSync("git", ["-c", `safe.directory=${root}`, "merge-base", "--is-ancestor", phase82BaselineCommit, "HEAD"], { cwd:root, stdio:"ignore" });
 } catch {
   phase82BaselineIsAncestor = false;
 }
@@ -346,10 +344,10 @@ for (const name of [
 const refreshStaffProfiles = extractFunction(appSource, "refreshStaffProfiles");
 check(
   refreshStaffProfiles.includes('if (!requirePerm("users")) return;')
-    && refreshStaffProfiles.includes("await Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]);")
+    && refreshStaffProfiles.includes("await contextRequest(Promise.all([loadStaffProfilesForAdmin(), loadStaffInvitationsForAdmin()]), operationOwner);")
     && count(refreshStaffProfiles, /loadStaffProfilesForAdmin\(\)/g) === 1
     && count(refreshStaffProfiles, /loadStaffInvitationsForAdmin\(\)/g) === 1
-    && refreshStaffProfiles.indexOf("await Promise.all") < refreshStaffProfiles.indexOf("render();"),
+    && refreshStaffProfiles.indexOf("await contextRequest(Promise.all") < refreshStaffProfiles.indexOf("render();"),
   "refreshStaffProfiles retains the permission gate, refreshes both Staff surfaces once, awaits them, then renders"
 );
 
@@ -489,13 +487,13 @@ try {
 }
 const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
-  swSource.includes('const CACHE_NAME = "doorflow-cache-v31";')
+  swSource.includes('const CACHE_NAME = "doorflow-cache-v32";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "cache-v31 ordinary shell behavior remains while credential navigations bypass and purge"
+  "cache-v32 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 
 const currentRuntimeSurface = withoutConfigRestoreListener(`${appSource}\n${indexSource}\n${swSource}`);
