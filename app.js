@@ -2012,10 +2012,15 @@ window.addEventListener("unhandledrejection", event => {
 /* AUTH */
 
 async function handleAuthenticatedSession(event, session) {
+  // Supabase also emits SIGNED_IN when an existing session regains focus.
+  // Preserve that account's permitted view while revalidating its profile.
+  const preserveView = Boolean(session?.user?.id
+    && auth.currentUser?.id === session.user.id
+    && auth.profile?.id === session.user.id);
   acceptAuthSession(session);
   if (!session?.user) { render(); return; }
   // TOKEN_REFRESHED must re-read database authority, including active/role/venue.
-  const profile = await loadStaffProfile(session.user, { preserveView:event !== "SIGNED_IN" });
+  const profile = await loadStaffProfile(session.user, { preserveView });
   if (!profile) return;
   await bootDatabase();
 }

@@ -81,3 +81,16 @@ test('logout clears immediately even when provider request never completes',asyn
 test('inline runtime is identical to app.js',async()=>{
  const html=await readFile(new URL('../index.html',import.meta.url),'utf8');const start=html.indexOf('let SUPABASE_URL;'),end=html.indexOf('</script>',start);assert.equal(html.slice(start,end).trim(),source.trim());
 });
+test('same-user SIGNED_IN on tab refocus preserves Staff while revalidating authority and enforcing changed permissions',async()=>{
+ const h=harness();await h.signIn('A');await h.run('initAuth()');h.run('state.view="users"');
+ const generation=h.run('authenticatedContextGeneration');const profileReads=h.requests.filter(x=>x.table==='staff_profiles').length;
+ await h.emit('SIGNED_IN');
+ assert.equal(h.state().view,'users','A refocus SIGNED_IN must retain the permitted Staff view');
+ assert.equal(h.run('authenticatedContextGeneration'),generation,'Unchanged authority retains the current generation');
+ assert.ok(h.requests.filter(x=>x.table==='staff_profiles').length>profileReads,'Refocus still revalidates the database profile');
+ assert.deepEqual(h.state().guests.map(x=>x.id),['guest-A']);
+ h.profiles.A.role='viewer';await h.emit('SIGNED_IN');
+ assert.equal(h.state().view,'reports','The old Staff view must be dropped after permission loss');
+ assert.ok(h.run('authenticatedContextGeneration')>generation);
+ await h.signIn('B');assert.equal(h.state().view,'door','A different account starts at its allowed default view');
+});

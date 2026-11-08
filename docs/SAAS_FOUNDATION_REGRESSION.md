@@ -87,7 +87,7 @@ verification. Those remain separate deployment gates.
 
 ## Fresh local results, 2026-11-08
 
-The combined Node invocation passed 275/275 tests, with zero skipped, including
+The final combined Node invocation passed 276/276 tests, with zero skipped, including
 the original invitation/config/cache/acceptance-core suites, immutable migration
 replay, current operational contracts, foundation context tests, and foundation
 database tests. The database test reports 1,340 approved requirements using real
@@ -112,3 +112,15 @@ and the exact temporary profile removed. The
 old test that changed an operational venue independently of the profile is now
 an explicit foreign-venue-reply rejection test: the profile and existing venue
 state must remain unchanged and the assigned venue must still load afterward.
+
+## Post-acceptance refocus correction
+
+An additional test reproduces the same-user `SIGNED_IN` event emitted when the
+browser regains focus. The app now preserves the currently permitted view while
+still reloading profile authority. Initial login and account switches retain the
+role's default view, and changed permissions still reject the old view. The
+new test fails before the fix and passes afterward. The final Node total above
+includes this tenth foundation context test. Nine smoke scripts were rerun and
+all exit zero; PostgreSQL requirements remain 1,340/1,340. Fresh evidence is
+separate under the task's `regression/focus-fix` evidence folder, preserving the
+earlier 275-test checkpoint.
