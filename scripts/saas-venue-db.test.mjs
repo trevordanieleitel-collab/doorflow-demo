@@ -8,7 +8,7 @@ const read=p=>readFileSync(new URL(p,root),'utf8');
 const modulePath=process.env.DOORFLOW_PGLITE_MODULE;
 assert(modulePath,'Set DOORFLOW_PGLITE_MODULE to the pinned @electric-sql/pglite 0.3.14 dist/index.js path; real database acceptance must not skip.');
 const {PGlite}=await import(pathToFileURL(modulePath).href);
-const names=readdirSync(new URL('supabase/migrations/',root)).filter(n=>n.endsWith('.sql')).sort();
+const names=readdirSync(new URL('supabase/migrations/',root)).filter(n=>n.endsWith('.sql') && n <= '20261108162003_saas_venue_foundation.sql').sort();
 const migration=names.find(n=>n.endsWith('_saas_venue_foundation.sql'));
 const uuid=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const A=uuid(1),B=uuid(2),checks=[];

@@ -466,8 +466,8 @@ test("isolated browser flow blocks identity drift before password mutation", asy
       }
       return result;
     })()`);
-    assert.ok(Array.isArray(cacheState["doorflow-cache-v32"]));
-    assert.ok(cacheState["doorflow-cache-v32"].some(url => url.includes("?view=door")));
+    assert.ok(Array.isArray(cacheState["doorflow-cache-v33"]));
+    assert.ok(cacheState["doorflow-cache-v33"].some(url => url.includes("?view=door")));
     assert.equal(
       Object.values(cacheState).flat().some(url => /(?:access_token|refresh_token|token_hash|error_description|[?&]type=invite)/i.test(url)),
       false,

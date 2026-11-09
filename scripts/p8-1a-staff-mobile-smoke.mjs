@@ -487,13 +487,13 @@ try {
 }
 const versionedCssPath = new URL("http://127.0.0.1/doorflow-operational-theme.css?v=p8.2").pathname;
 check(
-  swSource.includes('const CACHE_NAME = "doorflow-cache-v32";')
+  swSource.includes('const CACHE_NAME = "doorflow-cache-v33";')
     && swSource.includes('"/doorflow-operational-theme.css"')
     && swSource.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && swSource.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && swSource.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && versionedCssPath === "/doorflow-operational-theme.css",
-  "cache-v32 ordinary shell behavior remains while credential navigations bypass and purge"
+  "cache-v33 ordinary shell behavior remains while credential navigations bypass and purge"
 );
 
 const currentRuntimeSurface = withoutConfigRestoreListener(`${appSource}\n${indexSource}\n${swSource}`);

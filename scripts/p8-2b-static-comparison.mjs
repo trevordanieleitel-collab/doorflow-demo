@@ -3,7 +3,7 @@
 export function withoutEnvironmentCacheSafety(source) {
   // The foundation milestone bumps only the shell cache version. Keep the
   // exact prior behavior comparison and its mutation negative controls.
-  return source.replace('const CACHE_NAME = "doorflow-cache-v32";', 'const CACHE_NAME = "doorflow-cache-v31";')
+  return source.replace('const CACHE_NAME = "doorflow-cache-v33";', 'const CACHE_NAME = "doorflow-cache-v31";')
     .replace('const CACHE_NAME = "doorflow-cache-v31";', 'const CACHE_NAME = "doorflow-cache-v30";')
     .replace('    const cache = await caches.open(CACHE_NAME);\n    return (await cache.match(request)) || (await cache.match("/index.html")) || Response.error();',
       '    return (await caches.match(request)) || (await caches.match("/index.html")) || Response.error();')

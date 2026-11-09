@@ -24,7 +24,7 @@ test('CLI-generated migration order is explicit and contains no staging bootstra
   // acceptance suite replays that prefix plus the foundation migration.
   const foundation = '20261108162003_saas_venue_foundation.sql';
   const inventory = readdirSync(resolve(root, 'supabase/migrations')).filter(x => x.endsWith('.sql')).sort();
-  assert.deepEqual(inventory, [...names, foundation]);
+  assert.deepEqual(inventory, [...names, foundation, '20261109034248_phase_9_venue_onboarding.sql', '20261109040314_phase_9_lifecycle_boundaries.sql']);
   assert(inventory.indexOf(foundation) === names.length);
   assert.deepEqual([...names].sort(), names);
   assert(names.every(name => /^\d{14}_phase_8_2c_/.test(name)));

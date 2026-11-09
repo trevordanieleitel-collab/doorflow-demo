@@ -185,13 +185,13 @@ try {
   check(false, `manifest and Vercel configuration JSON parse: ${error.message}`);
 }
 check(
-  sw.includes('const CACHE_NAME = "doorflow-cache-v32";')
+  sw.includes('const CACHE_NAME = "doorflow-cache-v33";')
     && sw.includes('url.pathname.includes("/auth/")')
     && sw.includes("purgeCredentialBearingCacheEntries(CACHE_NAME)")
     && sw.includes("if (isNavigation && hasAuthCredentialParameters(url)) return;")
     && sw.includes("event.respondWith(networkFirstNavigation(request, url.pathname))")
     && !sw.includes('"/auth/index.html"'),
-  "cache-v32, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
+  "cache-v33, ordinary network-first shell navigation, and /auth/ exclusion remain while credential URLs bypass and purge"
 );
 
 const firstExternalScript = index.indexOf('<script src="https://');
@@ -538,7 +538,7 @@ check(
     && acceptanceBrowserTest.includes('Network.setBlockedURLs')
     && acceptanceBrowserTest.includes('updateUserCalls, 0')
     && acceptanceBrowserTest.includes('existing-admin-session-sentinel')
-    && acceptanceBrowserTest.includes('doorflow-cache-v32')
+    && acceptanceBrowserTest.includes('doorflow-cache-v33')
     && acceptanceBrowserTest.includes('misrouted provider error details')
     && acceptanceBrowserTest.includes('credential and provider-error URLs must never enter CacheStorage'),
   "acceptance bounds Auth calls, rechecks identity, isolates root credentials/errors from CacheStorage, and has pre-navigation browser interception"

@@ -46,7 +46,7 @@ function OwnedFixture($process) {
 $targets=@(Get-CimInstance Win32_Process -Filter "name='chrome.exe' OR name='msedge.exe'" | Where-Object { OwnedFixture $_ })
 foreach($target in $targets){
   $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($target.ProcessId)"
-  if($current -and (OwnedFixture $current)){Stop-Process -Id $current.ProcessId -Force -ErrorAction SilentlyContinue}
+  if($current -and (OwnedFixture $current)){Stop-Process -Id $current.ProcessId -Force -ErrorAction SilentlyContinue; Wait-Process -Id $current.ProcessId -Timeout 3 -ErrorAction SilentlyContinue}
 }
 $remaining=@(Get-CimInstance Win32_Process -Filter "name='chrome.exe' OR name='msedge.exe'" | Where-Object { OwnedFixture $_ })
 if($remaining.Count){throw 'Exact owned browser profile did not terminate'}

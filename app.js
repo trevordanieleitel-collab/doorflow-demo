@@ -27,9 +27,9 @@ const DOORFLOW_VENUE_PRESENTATION = Object.freeze({
   operatingSpace:"EVE",
   sharedGuestListLabel:"Shared Guest List",
   guestListScope:"The B.O.B. + EVE",
-  resolve(venueName) {
+  resolve(venueName, legacyPresentation = true) {
     const currentVenue = String(venueName || this.mappedVenueName).trim() || this.mappedVenueName;
-    const isMappedContext = currentVenue.toUpperCase() === this.mappedVenueName;
+    const isMappedContext = legacyPresentation && currentVenue.toUpperCase() === this.mappedVenueName;
 
     if (!isMappedContext) {
       return {
@@ -134,6 +134,9 @@ let state = {
   loading:false,
   error:"",
   venue:null,
+  venueSettings:null,
+  venueBranding:null,
+  venueOperational:null,
   serviceDay:null,
   groups:[],
   guests:[],
@@ -227,6 +230,9 @@ function invalidateAuthenticatedContext(key = "") {
   stopAutoRefresh();
   unsubscribeRealtime();
   Object.assign(state, JSON.parse(JSON.stringify(initialVenueUiState)));
+  state.venueSettings = null;
+  state.venueBranding = null;
+  state.venueOperational = null;
   state.activeDate = getLocalTodayDateString();
   state.activeDay = dayNameFromDate(state.activeDate);
   resetStaffInvitationState();
@@ -372,7 +378,7 @@ function localISOFromDate(date) {
 }
 
 function todayISO() {
-  return getLocalTodayDateString();
+  return venueServiceDateNow();
 }
 
 function getInitialActiveDate() {
@@ -451,6 +457,7 @@ function viewAllowedForRole(role, view) {
   if (!p) return false;
   if (view === "door" || view === "tabletDoor") return p.door;
   if (view === "manage") return p.manage;
+  if (view === "settings") return p.users;
   if (view === "users") return p.users;
   if (view === "reports") return p.reports;
   return false;
@@ -1053,7 +1060,7 @@ function normalizeServiceDay(row = {}) {
     id:normalizeText(row.id),
     service_date:normalizeText(row.service_date || state.activeDate),
     day_name:normalizeText(row.day_name || dayNameFromDate(row.service_date || state.activeDate)),
-    venue_name:normalizeText(row.venue_name || row.venue || "The B.O.B."),
+    venue_name:normalizeText(row.venue_name || row.venue || state.venue?.name || "DoorFlow"),
     status:normalizeText(row.status || "Active")
   };
 }
@@ -1768,6 +1775,11 @@ async function refreshLiveDataSilently(reason = "auto", options = {}) {
     isAutoRefreshing = true;
     lastAutoRefreshAt = new Date();
     updateSyncStatus("Syncing", `Refreshing from ${reason}.`);
+    await contextRequest(ensureVenue(), operationOwner);
+    if (!state.serviceDay && state.venueSettings && !state.venue?.legacy_presentation) {
+      state.activeDate = venueServiceDateNow();
+      state.activeDay = dayNameFromDate(state.activeDate);
+    }
     await contextRequest(loadDataForDate(state.activeDate), operationOwner);
     state.pendingSync = false;
   } catch (error) {
@@ -2170,6 +2182,20 @@ async function ensureVenue() {
   const venue = firstRow(result.data);
   if (!venue || venue.id !== venueId) throw new Error("Venue setup required. Your assigned venue is unavailable.");
   state.venue = venue;
+  // Older mocked fixtures omit lifecycle_status; every Phase 9 hosted row includes it.
+  if (venue.lifecycle_status) {
+    const [settings, branding, operational] = await Promise.all([
+      contextRequest(db.from("venue_settings").select("*").eq("venue_id", venueId).limit(1), owner),
+      contextRequest(db.from("venue_branding").select("*").eq("venue_id", venueId).limit(1), owner),
+      contextRequest(db.rpc("doorflow_venue_operational", {p_venue:venueId}), owner)
+    ]);
+    assertAuthenticatedContext(owner);
+    if (settings.error || branding.error || operational.error) throw settings.error || branding.error || operational.error;
+    state.venueSettings = firstRow(settings.data);
+    state.venueBranding = firstRow(branding.data);
+    state.venueOperational = operational.data === true;
+    state.doorLocation = state.venueSettings?.default_door_location || "Front Door";
+  }
   syncStaffInvitationContext();
   return venue;
 }
@@ -2177,6 +2203,7 @@ async function ensureVenue() {
 async function ensureServiceDay(dateString) {
   const operationOwner = captureAuthenticatedContext();
   const venue = await contextRequest(ensureVenue(), operationOwner);
+  if (state.venueOperational === false) throw new Error("Venue operations are unavailable. Contact your venue administrator or DoorFlow support.");
   const dayName = dayNameFromDate(dateString);
 
   let result = await contextRequest(venueTable("service_days")
@@ -2257,7 +2284,7 @@ async function ensureGeneralGroup(serviceDayId) {
     name:"General Guest List",
     group_type:"General Guest List",
     host_name:"Door List",
-    table_location:"Front Door",
+    table_location:state.venueSettings?.default_door_location || "Front Door",
     approved_by:"Management",
     notes:"Master guest list for this date.",
     status:"Active"
@@ -3543,6 +3570,7 @@ function switchView(view) {
   if (view === "door" && !p.door) return alert("No door access.");
   if (view === "tabletDoor" && !p.door) return alert("No door access.");
   if (view === "manage" && !p.manage) return alert("No management access.");
+  if (view === "settings" && !p.users) return alert("Venue Admin access required.");
   if (view === "users" && !p.users) return alert("No staff management access.");
   if (view === "reports" && !p.reports) return alert("No report access.");
 
@@ -4718,7 +4746,7 @@ function renderMobileManagerView() {
   if (!canManageData()) return "";
 
   const stats = dayStats();
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
   const latestNote = state.shiftNotes[0];
   const recentAdds = recentManagerAdds(5);
   const general = generalGroup();
@@ -4860,7 +4888,7 @@ function renderMobileManagerView() {
               <label>Booth / Location</label>
               <select id="mobileGroupLocation">
                 <option value="">Select booth/location</option>
-                ${boothOptions.map(booth => `<option value="${esc(booth)}">${esc(booth)}</option>`).join("")}
+                ${venueBoothOptions().map(booth => `<option value="${esc(booth)}">${esc(booth)}</option>`).join("")}
               </select>
             </div>
 
@@ -6096,7 +6124,7 @@ function buildCloseOutReportHtml(report) {
 
   return `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;">
-      <h2 style="margin-bottom:4px;">${esc(BOB_BRAND.appName)} Close Out Report</h2>
+      <h2 style="margin-bottom:4px;">${esc(currentVenueBrand().appName)} Close Out Report</h2>
       <p style="margin-top:0;color:#6b7280;">${esc(report.venue)} · ${esc(report.day_name)} · ${esc(report.service_date)}</p>
 
       <h3>Summary</h3>
@@ -6224,7 +6252,7 @@ function downloadCloseOutReportCsv() {
 
 function renderCloseOutReportModal() {
   const report = buildCloseOutReportData();
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(report.venue);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(report.venue, state.venue?.legacy_presentation !== false);
   const lateAdds = report.late_adds || [];
   const noShows = report.no_shows || [];
   const shiftNotes = report.shift_notes || [];
@@ -6722,17 +6750,18 @@ function renderMobileSyncFooter() {
 }
 
 function renderBrandBlock(options = {}) {
-  const title = options.title || BOB_BRAND.appName;
+  const brand = currentVenueBrand();
+  const title = options.title || brand.appName;
   const subtitle = options.subtitle || "";
   const variant = options.variant || "default";
-  const logoSrc = variant === "dark" ? BOB_BRAND.darkLogoSrc : BOB_BRAND.logoSrc;
+  const logoSrc = variant === "dark" ? brand.darkLogoSrc : brand.logoSrc;
   const compactClass = options.compact ? " compact-brand" : "";
 
   return `
     <div class="brand bob-brand ${esc(variant)}${compactClass}">
-      <div class="logo bob-logo-shell" aria-label="${esc(BOB_BRAND.fallback)}">
-        <span class="bob-logo-fallback">${esc(BOB_BRAND.fallback)}</span>
-        <img class="bob-logo-img" src="${esc(logoSrc)}" alt="${esc(BOB_BRAND.fallback)} logo" loading="eager" decoding="async" onerror="this.hidden=true" />
+      <div class="logo bob-logo-shell" aria-label="${esc(brand.fallback)}">
+        <span class="bob-logo-fallback">${esc(brand.fallback)}</span>
+        <img class="bob-logo-img" src="${esc(logoSrc)}" alt="${esc(brand.fallback)} logo" loading="eager" decoding="async" onerror="this.hidden=true" />
       </div>
       <div>
         <h1>${esc(title)}</h1>
@@ -6744,7 +6773,7 @@ function renderBrandBlock(options = {}) {
 
 function renderTopbar() {
   const user = currentUser();
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
   const venueInitials = shellInitials(venueContext.parentVenue, "V");
   const userInitials = shellInitials(user.name, "U");
 
@@ -6825,6 +6854,7 @@ function renderTabs() {
         ${navItem("tabletDoor", "Tablet Door Mode", "TD", p.door)}
         ${navItem("manage", "Management", "MG", p.manage)}
         ${navItem("users", "Staff", "ST", p.users)}
+        ${navItem("settings", "Venue Settings", "VS", p.users)}
         ${navItem("reports", "Reports", "RP", p.reports)}
       </ul>
     </nav>
@@ -6855,7 +6885,7 @@ function renderDateBar() {
         <div class="df-door-field">
           <label for="doorLocationSelect">Door Location</label>
           <select id="doorLocationSelect" onchange="state.doorLocation=this.value;render()">
-            ${["Front Door","Rear Door","EVE Door","VIP Check-In"].map(option => `<option ${option === state.doorLocation ? "selected" : ""}>${option}</option>`).join("")}
+            ${venueDoorOptions().map(option => `<option ${option === state.doorLocation ? "selected" : ""}>${esc(option)}</option>`).join("")}
           </select>
         </div>
       </div>
@@ -7061,7 +7091,7 @@ function renderMainWorkspace(showManagement = false) {
     ? "This master list shows everyone for the selected date, including bottle service attendees."
     : "This shows only the names under the selected group.";
   const guests = visibleGuests();
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
   const filterPanel = `
     <section class="card tight df-door-filter-panel" aria-label="Guest search and filters">
       <div class="toolbar df-door-filter-toolbar">
@@ -7439,7 +7469,7 @@ function renderTabletGuestCards(guests) {
 function renderTabletDoorMode() {
   const guests = visibleGuests();
   const stats = dayStats();
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
   const selectedListValue = state.currentMode === "GENERAL" ? "GENERAL" : (selectedGroup()?.id || "GENERAL");
   const activeGroup = selectedGroup();
   const activeGroupStats = activeGroup ? groupStats(activeGroup.id) : null;
@@ -7576,7 +7606,7 @@ function renderAdminState(tone, title, message) {
 }
 
 function renderManagement() {
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
 
   return `
     ${renderMobileManagerView()}
@@ -7628,7 +7658,7 @@ function renderStaffManagement() {
     `;
   }
 
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
 
   return `
     <div class="df-admin-page df-staff-page">
@@ -7824,7 +7854,7 @@ function renderStaffManagement() {
 function renderReports() {
   const stats = dayStats();
   const lateAdds = state.guests.filter(guest => isLateAdd(guest));
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
 
   return `
     <div class="stack df-admin-page df-reports-page">
@@ -7995,7 +8025,7 @@ function renderReports() {
 function renderStaffInviteModal() {
   const draft = state.staffInviteDraft?.idempotency_key ? state.staffInviteDraft : emptyStaffInviteDraft();
   if (!state.staffInviteDraft?.idempotency_key) state.staffInviteDraft = draft;
-  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME);
+  const venueContext = DOORFLOW_VENUE_PRESENTATION.resolve(state.venue?.name || DEFAULT_VENUE_NAME, state.venue?.legacy_presentation !== false);
   const venueLabel = venueContext.operatingSpace
     ? `${venueContext.parentVenue} / ${venueContext.operatingSpace}`
     : venueContext.parentVenue;
@@ -8107,8 +8137,8 @@ function renderGroupModal() {
             <label for="groupTableLocation">Booth / Location</label>
             <select id="groupTableLocation" name="table_location">
               <option value="" ${!(group?.table_location) ? "selected" : ""}>Select booth/location</option>
-              ${group?.table_location && !boothOptions.includes(group.table_location) ? `<option selected value="${esc(group.table_location)}">${esc(group.table_location)}</option>` : ""}
-              ${boothOptions.map(booth => `<option value="${esc(booth)}" ${booth === (group?.table_location || "") ? "selected" : ""}>${esc(booth)}</option>`).join("")}
+              ${group?.table_location && !venueBoothOptions().includes(group.table_location) ? `<option selected value="${esc(group.table_location)}">${esc(group.table_location)}</option>` : ""}
+              ${venueBoothOptions().map(booth => `<option value="${esc(booth)}" ${booth === (group?.table_location || "") ? "selected" : ""}>${esc(booth)}</option>`).join("")}
             </select>
           </div>
 
@@ -8418,6 +8448,8 @@ function renderApp() {
   if (state.view === "manage") content = renderManagement();
   if (state.view === "users") content = renderStaffManagement();
   if (state.view === "reports") content = renderReports();
+  if (state.view === "settings" && perms().users) content = renderVenueSettings();
+  if (state.venueOperational === false && state.view !== "settings") content = renderVenueUnavailable();
 
   const isLiveServiceView = state.view === "door" || state.view === "tabletDoor";
   const sidebarClass = state.shellNavOpen ? "df-sidebar is-open" : "df-sidebar";
@@ -8454,7 +8486,56 @@ function renderApp() {
   `;
 }
 
+
+function venueServiceDateNow(now = new Date()) {
+  const settings = state.venueSettings;
+  if (!settings || state.venue?.legacy_presentation) return getLocalTodayDateString();
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {timeZone:settings.timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x => [x.type,x.value]));
+  const date = new Date(Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day)));
+  if (parts.hour + ':' + parts.minute < String(settings.service_day_rollover_time).slice(0,5)) date.setUTCDate(date.getUTCDate()-1);
+  return date.toISOString().slice(0,10);
+}
+function currentVenueBrand() {
+  if (!state.venue || state.venue.legacy_presentation || !state.venue.lifecycle_status) return BOB_BRAND;
+  const name = state.venue.name || "DoorFlow";
+  const logo = state.venueBranding?.logo_url || "";
+  return {appName:name, fallback:name, logoSrc:logo, darkLogoSrc:logo};
+}
+function venueDoorOptions() {
+  return state.venue?.lifecycle_status && !state.venue.legacy_presentation ? [state.venueSettings?.default_door_location || "Front Door"] : ["Front Door","Rear Door","EVE Door","VIP Check-In"];
+}
+function venueBoothOptions() {
+  return state.venue?.lifecycle_status && !state.venue.legacy_presentation ? [] : boothOptions;
+}
+function renderVenueUnavailable() {
+  return '<section class="card"><h1>Venue operations unavailable</h1><p>Your venue is ' + esc(state.venue?.lifecycle_status || 'unavailable') + '. Customer or subscription restrictions may also apply. Your records are preserved.</p><p>Contact DoorFlow support to activate or restore access.</p>' + (perms().users ? '<button type="button" onclick="switchView(&quot;settings&quot;)">View venue settings</button>' : '') + '</section>';
+}
+function renderVenueSettings() {
+  if (!perms().users) return '';
+  const settings = state.venueSettings || {};
+  const editable = ['active','onboarding'].includes(state.venue?.lifecycle_status);
+  return '<section class="card df-admin-page"><h1>Venue Settings</h1><p>Settings apply only to ' + esc(state.venue?.name || 'your assigned venue') + '.</p><p>Status: ' + esc(state.venue?.lifecycle_status || 'unavailable') + '</p><form onsubmit="saveVenueSettings(event)"><fieldset ' + (editable ? '' : 'disabled') + '><label>Display name<input name="name" maxlength="160" required value="' + esc(state.venue?.name || '') + '"></label><label>Timezone<input name="timezone" required placeholder="America/New_York" value="' + esc(settings.timezone || 'UTC') + '"></label><label>Default door location<input name="door" maxlength="100" required value="' + esc(settings.default_door_location || 'Front Door') + '"></label><label>Service-day rollover<input type="time" name="rollover" required value="' + esc(String(settings.service_day_rollover_time || '04:00').slice(0,5)) + '"></label><label>Logo URL (optional)<input type="url" name="logo" placeholder="https://" value="' + esc(state.venueBranding?.logo_url || '') + '"></label><p>Use an HTTPS image URL. Billing and lifecycle changes are managed by DoorFlow support.</p><button type="submit">Save settings</button></fieldset></form></section>';
+}
+async function saveVenueSettings(event) {
+  event.preventDefault();
+  if (!perms().users) return;
+  const owner = captureAuthenticatedContext();
+  const form = new FormData(event.target);
+  try {
+    const result = await contextRequest(db.rpc("doorflow_update_venue_settings", {p_name:String(form.get("name") || ''),p_timezone:String(form.get("timezone") || ''),p_door:String(form.get("door") || ''),p_rollover:String(form.get("rollover") || ''),p_logo:String(form.get("logo") || '').trim() || null}), owner);
+    if (result.error) throw result.error;
+    await contextRequest(ensureVenue(), owner);
+    state.error = '';
+    render();
+  } catch (error) {
+    if (!ownsAuthenticatedContext(owner)) return;
+    state.error = error.message || 'Settings could not be saved.';
+    render();
+  }
+}
+
 Object.assign(window, {
+  saveVenueSettings,
   login,
   logout,
   toggleShellNav,

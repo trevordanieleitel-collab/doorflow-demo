@@ -2,7 +2,7 @@
 // Operational data always requires a live Supabase connection and is never cached here.
 
 const CACHE_PREFIX = "doorflow-cache-";
-const CACHE_NAME = "doorflow-cache-v32";
+const CACHE_NAME = "doorflow-cache-v33";
 const APP_SHELL = [
   "/",
   "/index.html",
