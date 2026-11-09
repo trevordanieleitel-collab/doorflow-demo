@@ -44,7 +44,7 @@ Release base: 6593c887e67d431c73d4d93399dd7f70e3fd996f.
 | 20261109034248_phase_9_venue_onboarding.sql | 60ccff27ffb62cba24f349c5802cc4108d1ba20d4e198dcab0b1d010ab08fa06 |
 | 20261109040314_phase_9_lifecycle_boundaries.sql | cdf0abf36d5391f03a2c82220fdc447f28b15986b8d6d18a9bd736ed03ee2ca7 |
 
-Both were generated with the installed Supabase CLI. Each hosted application records the exact source in supabase_migrations.schema_migrations inside the same transaction before COMMIT. Earlier migration files are unchanged. Git checkout newline conversion may change byte hashes; compare the recorded source or normalize LF as specified in the release evidence. The first migration contains the original reused table definitions' CRLF bytes; its exact applied file is preserved in the release evidence bundle.
+Both were generated with the installed Supabase CLI. Each hosted application records the exact source in supabase_migrations.schema_migrations inside the same transaction before COMMIT. Earlier migration files are unchanged. The two new migration paths are marked -text in .gitattributes so Git preserves their exact bytes. The first migration retains the reused table definitions' CRLF bytes; the exact applied files and atomic application bundles are preserved in the release evidence.
 
 Local results: 282 Node tests, nine smoke suites, 587 Deno adapter/audit tests, 47 config/context/password browser tests plus the invitation acceptance browser suite. Original foundation acceptance: 1,340 checks. Phase 9 tests replay both production-present and staging-absent SaaS table shapes, with 180 actual RLS probes plus onboarding/idempotency/lifecycle assertions. PGlite runtime used here: 0.3.16, PostgreSQL 17.5 WASM. No skipped database tests.
 
